@@ -12,7 +12,7 @@ seq_menu=$(printf '%s\n' 6 0  8 0  9 0  10 0  12 0  14 0  16 0 ''  17 0  18 0  1
   27 1 3 2 5 0  28 0  29 0  33 ''  5 ''  27 6 0  1 0  7 0  0)
 for L in ru en; do
   rm -f /etc/rw/menu_mode /etc/rw/ui.conf
-  out=$(printf '%s\n' "$seq_menu" | PATH="$T/bin:$PATH" TERM=xterm-256color RP_LANG=$L timeout 120 script -qc "bash '$SCRIPT'" /dev/null 2>&1 | nocolor)
+  out=$(printf '%s\n' "$seq_menu" | PATH="$T/bin:$PATH" TERM=xterm-256color RP_NO_LIVE=1 RP_LANG=$L timeout 120 script -qc "bash '$SCRIPT'" /dev/null 2>&1 | nocolor)
   rc=$?
   check "[$L] меню завершилось без зависания" '[ $rc -eq 0 ]'
   check "[$L] без ошибок bash" '! grep -qE "line [0-9]+:|command not found|syntax error|unbound variable|bad substitution" <<< "$out"'

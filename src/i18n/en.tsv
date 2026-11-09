@@ -1307,3 +1307,26 @@ acme.sh не установлен — поставится при первом �
 ошибок	errors
 Исправь ошибки — иначе часть функций не сработает. Вывод можно прислать автору в Issue.	Fix the errors — otherwise some features won't work. You can send this output to the author in an Issue.
 Проверить, всё ли готово на сервере: rw --selftest	Check that the server is ready: rw --selftest
+Живой статус: рамка статуса сама обновляется, пока меню открыто — упала панель или вышло обновление, и это видно сразу. Интервал и выключение — Прочее → Оформление → Живой статус	Live status: the status box refreshes by itself while the menu is open — a stopped panel or a new update shows up right away. Interval and off switch — Other → Appearance → Live status
+Рамка статуса сама обновляется, пока меню открыто	The status box refreshes by itself while the menu is open
+ЖИВОЙ СТАТУС	LIVE STATUS
+Живой статус	Live status
+Каждые 30 с	Every 30 s
+Каждые 10 с	Every 10 s
+Каждые 3 с	Every 3 s
+Каждые 5 с	Every 5 s
+каждые 30 с	every 30 s
+каждые 10 с	every 10 s
+каждые 3 с	every 3 s
+каждые 5 с	every 5 s
+не выполнен: 30 минут было занято	not run: busy for 30 minutes
+не выполнен — 30 минут было занято:	not run — busy for 30 minutes:
+другое действие RemnaPilot	another RemnaPilot action
+Автобэкап: не удалось собрать архив (нет места на диске?)	Auto-backup: could not build the archive (disk full?)
+автобэкап не удался — не собрался архив (проверь место на диске)	auto-backup failed — the archive was not built (check disk space)
+⚠ пароль шифрования бэкапов (/etc/rw/backup.pass) — без него архивы из Telegram не открыть; проверь, что он у тебя записан	⚠ backup encryption password (/etc/rw/backup.pass) — Telegram archives can't be opened without it; make sure you have it written down
+После первого действия в меню пропадали сообщения об ошибках и часть подсказок (например «Пароль:» при настройке шифрования) — вывод ошибок больше не отключается	After the first menu action, error messages and some prompts (e.g. "Password:" in encryption setup) disappeared — error output is no longer switched off
+После обновления RemnaPilot из меню блокировка оставалась занятой, и автобэкап с автообновлением ждали впустую — теперь освобождается	After updating RemnaPilot from the menu the lock stayed held, so auto-backup and auto-update waited in vain — it is released now
+Автобэкап: если архив не собрался (нет места на диске), это ошибка с уведомлением, а не «успех»	Auto-backup: if the archive could not be built (disk full), it is an error with a notification, not a "success"
+Задача по расписанию, не дождавшаяся очереди за 30 минут, пишет об этом в журнал и в Telegram, а не пропускается молча	A scheduled task that waited 30 minutes for its turn now reports it to the log and Telegram instead of being skipped silently
+Удаление RemnaPilot предупреждает о пароле шифрования бэкапов и убирает за собой файлы блокировки	Removing RemnaPilot warns about the backup encryption password and cleans up its lock files

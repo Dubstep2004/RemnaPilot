@@ -192,7 +192,12 @@ bk_run() { # бэкап по расписанию: дамп + .env + списо�
   tmp=$(mktemp -d); cp "$dump" "$tmp/"; cp "$RW_DIR/.env" "$tmp/remnawave.env"
   [[ -s "$NODES_FILE" ]] && cp "$NODES_FILE" "$tmp/nodes.list"
   arc="$RW_DIR/backups/remnawave-$(hostname)-$(date +%Y%m%d-%H%M%S).tar.gz"
-  tar -C "$tmp" -czf "$arc" . && chmod 600 "$arc"; rm -rf "$tmp"
+  if ! tar -C "$tmp" -czf "$arc" . 2>/dev/null; then
+    rm -rf "$tmp"; rm -f "$arc"
+    printf '%s|FAIL|Автобэкап: не удалось собрать архив (нет места на диске?)\n' "$(date '+%d.%m %H:%M')" > /etc/rw/.backup_last
+    jlog FAIL "Автобэкап: не удалось собрать архив"; tg_text "⚠️ $(hostname): автобэкап не удался — не собрался архив (проверь место на диске)"; return 1
+  fi
+  chmod 600 "$arc"; rm -rf "$tmp"
   # хранить последние N архивов и автодампов
   ls -1t "$RW_DIR"/backups/remnawave-*.tar.gz 2>/dev/null | tail -n +$((keep + 1)) | xargs -r rm -f
   ls -1t "$RW_DIR"/backups/db-*-auto.sql.gz 2>/dev/null | tail -n +$((keep + 1)) | while read -r f; do rm -f "$f" "${f%.sql.gz}.env"; done
@@ -254,7 +259,7 @@ bk_decrypt() { # файл .enc → рядом без .enc
   [[ -f "$f" ]] || { err "файл не найден: $f"; return 1; }
   [[ "$out" == "$f" ]] && out="$f.dec"
   if [[ -s "$BK_PASS" ]]; then
-    openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass "file:$BK_PASS" -in "$f" -out "$out" 2>/dev/null && { green "✔ Расшифровано: $out"; return 0; }
+    openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass "file:$BK_PASS" -in "$f" -out "$out" 2>/dev/null && { green "✔ Расшифровано: $out"; echo "  Распаковать:  tar -xzf $out"; return 0; }
   fi
   read -rsp "Пароль бэкапа: " p; echo
   if printf '%s' "$p" | openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass stdin -in "$f" -out "$out" 2>/dev/null; then

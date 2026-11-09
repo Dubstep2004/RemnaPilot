@@ -6,7 +6,7 @@ rm -rf /opt/remnawave /etc/rw; mkdir -p /opt/remnawave/backups /etc/rw
 printf 'FRONT_END_DOMAIN=panel.example.com\n' > /opt/remnawave/.env
 touch "$HOME/.rw-nocmd" /etc/rw/autoupdate.conf
 printf 'FAV=6,9\nHIDE=16,25\nCOMPACT=on\n' > /etc/rw/ui.conf   # FAV/HIDE от старой версии должны игнорироваться
-menu() { printf '%s\n' "$@" | PATH="$T/bin:$PATH" TERM=xterm-256color RP_LANG=${L:-ru} timeout 60 script -qc "bash '$SCRIPT'" /dev/null 2>&1 | nocolor; }
+menu() { printf '%s\n' "$@" | PATH="$T/bin:$PATH" TERM=xterm-256color RP_NO_LIVE=1 RP_LANG=${L:-ru} timeout 60 script -qc "bash '$SCRIPT'" /dev/null 2>&1 | nocolor; }
 
 out=$(menu 0)
 check "избранного больше нет (старые настройки игнорируются)" '! grep -q "ИЗБРАННОЕ" <<< "$out"'

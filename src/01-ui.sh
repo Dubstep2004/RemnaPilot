@@ -33,6 +33,8 @@ apply_ui() { # тема → цвета акцентов и градиент ло
   UI_THEME=$(ui_get THEME ocean); UI_NUMS=$(ui_get NUMS plain); UI_LOGO=$(ui_get LOGO big)
   UI_HINTS=$(ui_get HINTS on);    UI_STATUS=$(ui_get STATUS full)
   UI_COMPACT=$(ui_get COMPACT off)
+  UI_LIVE=$(ui_get LIVE 5); [[ "$UI_LIVE" =~ ^(off|3|5|10|30)$ ]] || UI_LIVE=5
+  [[ -n "${RP_NO_LIVE:-}" ]] && UI_LIVE=off          # для автоматических прогонов с готовым вводом
   [[ -z "$C0" ]] && return 0                       # без цветов — только стиль
   if (( $(tput colors 2>/dev/null || echo 0) < 256 )); then
     [[ "$UI_THEME" == mono ]] && { C_ACC="$CB"; C_ACC2="$CB"; GRAD=("$CB" "$CB" "$CB" "$CB" "$CB" "$CB"); }
@@ -105,6 +107,9 @@ T() {
 
 rp_reexec() { # перезапустить скрипт с чистым stdout/stderr
   [[ -n "${RP_TR_PID:-}" ]] && { exec 1>&3 2>&4; trap - EXIT; }
+  tty_restore
+  if [[ -n "${RP_LOCKED:-}" ]]; then rm -f "$RP_LOCK.who"; flock -u 8 2>/dev/null; RP_LOCKED=""; fi   # не уносить блокировку в новый процесс
+  { exec 8>&-; } 2>/dev/null
   exec "$@"
 }
 

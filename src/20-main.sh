@@ -55,7 +55,7 @@ if [[ "$RP_LANG" == en && -f "$RP_SELF" ]] && command -v perl >/dev/null; then
   exec 3>&1 4>&2
   exec > >(rp_translate) 2>&1
   RP_TR_PID=$!
-  trap 'exec >&- 2>&-; wait "$RP_TR_PID" 2>/dev/null' EXIT
+  trap 'tty_restore; exec >&- 2>&-; wait "$RP_TR_PID" 2>/dev/null' EXIT
 fi
 if [[ -n "$NEW" || -n "${SUB_NEW:-}" || ${DO_UPDATE:-0} == 1 || ${DO_CERT_STATUS:-0} == 1 ]]; then
   need_panel || exit 1
@@ -79,9 +79,9 @@ elif (( ${DO_VERIFY:-0} )); then
     *)        yel "Не удалось проверить: нет связи с GitHub или у релиза нет контрольной суммы"; exit 3 ;;
   esac
 elif (( ${DO_AU:-0} )); then
-  with_lock "Автообновление" au_run; exit $?
+  with_lock "Автообновление" au_run; rc=$?; (( rc == 75 )) && lock_timeout "Автообновление" /etc/rw/.autoupdate_last; exit $rc
 elif (( ${DO_BACKUP:-0} )); then
-  with_lock "Автобэкап" bk_run; rc=$?; [[ -f /etc/rw/.backup_last ]] && cut -d'|' -f3 /etc/rw/.backup_last; exit $rc
+  with_lock "Автобэкап" bk_run; rc=$?; (( rc == 75 )) && lock_timeout "Автобэкап" /etc/rw/.backup_last; [[ -f /etc/rw/.backup_last ]] && cut -d'|' -f3 /etc/rw/.backup_last; exit $rc
 elif (( ${DO_CHECK:-0} )); then
   au_check_all; update_hints | sed -E 's/\x1b\[[0-9;]*m//g'; exit 0
 elif [[ -n "${DO_GEO:-}" ]]; then

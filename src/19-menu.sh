@@ -145,6 +145,69 @@ menu_lookup() { # слово → MENU_PICK = внутренний номер п�
   [[ -n "$MENU_PICK" ]]
 }
 
+# ---------- живой статус ----------
+# Пока меню открыто и ничего не вводится, раз в несколько секунд проверяем, изменилось ли то,
+# что показывает рамка статуса; изменилось — перерисовываем экран. Без изменений экран не трогаем.
+RP_STTY=""
+tty_restore() { [[ -n "$RP_STTY" ]] && { stty "$RP_STTY" 2>/dev/null; RP_STTY=""; }; return 0; }
+trap tty_restore EXIT
+
+live_sig() { # отпечаток состояния: контейнеры (без «3 minutes ago»), файлы настроек, дата
+  docker ps -a --format '{{.Names}}|{{.Status}}|{{.Image}}' 2>/dev/null \
+    | sed -E 's/(About )?(an?|[0-9]+|Less than a) (second|minute|hour|day|week|month|year)s?( ago)?//g'
+  stat -c '%n %Y %s' "$RW_DIR/.env" "$RW_DIR/nginx/fullchain.pem" "${NODES_FILE:-/etc/rw/nodes.list}" \
+    /etc/rw/.latest_version /etc/rw/.latest_panel /etc/rw/.latest_node \
+    /etc/rw/.autoupdate_last /etc/rw/.backup_last 2>/dev/null
+  date +%F
+}
+
+buf_chop() { # убрать последний символ из buf (и в UTF-8, и в байтовой локали)
+  local LC_ALL=C last
+  while [[ -n "$buf" ]]; do last="${buf: -1}"; buf="${buf%?}"; [[ "$last" == [$'\x80'-$'\xbf'] ]] || break; done
+}
+
+tty_wait() { # секунд → 0, если в терминале есть ввод; 1 — тишина. Ничего не читает
+  if command -v perl >/dev/null; then
+    perl -e 'my $r = ""; vec($r, 0, 1) = 1; exit(select($r, undef, undef, $ARGV[0]) > 0 ? 0 : 1)' "$1" <&0
+  else
+    local i; for ((i = 0; i < $1 * 10; i++)); do read -t 0 2>/dev/null && return 0; sleep 0.1; done; return 1
+  fi
+}
+
+menu_read() { # имя_переменной → 0: ввод готов; 2: статус изменился, экран надо перерисовать
+  local -n _out="$1"; local iv="${UI_LIVE:-5}" buf="" k rc sig
+  _out=""
+  if [[ ! -t 0 || "$iv" == off || "${UI_STATUS:-full}" == off ]] || ! RP_STTY=$(stty -g 2>/dev/null) || [[ -z "$RP_STTY" ]]; then
+    RP_STTY=""; read -r _out; return 0
+  fi
+  stty -echo -icanon min 1 time 0 2>/dev/null
+  sig=$(live_sig)
+  while true; do
+    # Ждём ввода, ничего не забирая из терминала, и только потом читаем символ. У «read -t» есть гонка:
+    # если клавиша приходит ровно в момент таймаута, bash её считывает и теряет.
+    if read -t 0 2>/dev/null || tty_wait "$iv"; then IFS= read -rs -n1 k; rc=$?; else rc=142; fi
+    if (( rc > 128 )); then                      # тишина: проверяем, не изменилось ли что-то
+      [[ -n "$buf" ]] && continue                # человек печатает — не мешаем
+      [[ "$(live_sig)" == "$sig" ]] && continue
+      tty_restore; return 2
+    fi
+    if (( rc != 0 )); then tty_restore; echo; _out=0; return 0; fi   # терминал закрыт
+    case "$k" in
+      "")            # ввод «с запасом» (вставили несколько строк разом) отбрасываем: иначе он попал бы не в тот вопрос
+                     while IFS= read -rs -n1 -t 0.001 k; do :; done
+                     tty_restore; echo; _out="$buf"; return 0 ;;
+      $'\x7f'|$'\b') [[ -n "$buf" ]] && { buf_chop; printf '\b \b'; } ;;
+      $'\x15')       while [[ -n "$buf" ]]; do buf_chop; printf '\b \b'; done ;;
+      $'\e')         # стрелки и F-клавиши — пропустить ровно одну последовательность
+                     if tty_wait 0.05 && IFS= read -rs -n1 k && [[ "$k" == '[' || "$k" == O ]]; then
+                       while tty_wait 0.05 && IFS= read -rs -n1 k; do [[ "$k" == [@-~] ]] && break; done
+                     fi ;;
+      [[:cntrl:]])   ;;
+      *)             buf+="$k"; printf '%s' "$k" ;;
+    esac
+  done
+}
+
 menu_handle() { # ввод, массив номеров на экране (имя) → выполнить; 1 — выход/назад
   local ch="$1"; local -n _ids="$2"
   case "$ch" in 0|q|Q|й|Й) return 1 ;; "") return 0 ;; esac
@@ -167,7 +230,7 @@ section_menu() { # $1 = индекс раздела
     ids=()
     for n in $nums; do ids+=("$n"); print_item "${#ids[@]}" "$n"; done
     hr; item 0 "Назад"
-    ask; read -r c
+    ask; menu_read c; (( $? == 2 )) && continue
     menu_handle "$c" ids || return
     [[ "$(menu_mode)" == flat ]] && return      # сменили вид меню — сразу показать
   done
@@ -198,7 +261,7 @@ menu() {
       done
     fi
     item 0 "Выход"; hr
-    ask; read -r ch
+    ask; menu_read ch; (( $? == 2 )) && continue
     menu_handle "$ch" ids || exit 0
   done
 }

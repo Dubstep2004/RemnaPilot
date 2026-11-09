@@ -42,7 +42,25 @@ rw
 ---
 
 <!-- whats-new:start -->
-## 🆕 What's new in v2.3
+## 🆕 What's new in v2.4
+
+#### ✨ New
+
+- Live status: the status box refreshes by itself while the menu is open — a stopped panel or a new update shows up right away. Interval and off switch — Other → Appearance → Live status
+
+#### 🚀 Improved
+
+- Removing RemnaPilot warns about the backup encryption password and cleans up its lock files
+
+#### 🐛 Fixed
+
+- After the first menu action, error messages and some prompts (e.g. "Password:" in encryption setup) disappeared — error output is no longer switched off
+- After updating RemnaPilot from the menu the lock stayed held, so auto-backup and auto-update waited in vain — it is released now
+- Auto-backup: if the archive could not be built (disk full), it is an error with a notification, not a "success"
+- A scheduled task that waited 30 minutes for its turn now reports it to the log and Telegram instead of being skipped silently
+
+<details>
+<summary><b>Previous version — v2.3</b></summary>
 
 #### ✨ New
 
@@ -64,13 +82,6 @@ rw
 
 - Telegram backups are encrypted with a password (AES-256); until a password is set, the archive with secrets is not sent. Decrypt — rw --decrypt
 - The Telegram bot token is no longer visible in the process list (ps)
-
-<details>
-<summary><b>Previous version — v2.2.1</b></summary>
-
-#### 🔄 Changed
-
-- Removed favorites, hidden items and quick keys — the menu is a plain list again; word search and compact mode remain
 
 </details>
 
@@ -165,7 +176,7 @@ rw
 
 ## 🎨 Make it yours
 
-Everything is in **Other → Appearance**: theme, number style (`1` `1)` `[1]` `1.` `①`), logo, status view, compact mode and a sectioned menu.
+Everything is in **Other → Appearance**: theme, number style (`1` `1)` `[1]` `1.` `①`), logo, status view, compact mode, a sectioned menu and **live status** — the status box refreshes by itself while the menu is open.
 
 **Search** — instead of a number, type a word like `cert`, `backup` or `warp` and the item opens right away.
 

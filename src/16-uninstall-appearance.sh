@@ -60,6 +60,7 @@ rp_uninstall() {
   echo "   ✖ команда rw (/usr/local/bin/rw)"
   [[ -f "$self" && "$self" != /usr/local/bin/rw ]] && echo "   ✖ файл скрипта $self"
   echo "   ✖ настройки RemnaPilot (/etc/rw): оформление, язык, список нод, Telegram"
+  [[ -s "$BK_PASS" ]] && yel "   ⚠ пароль шифрования бэкапов (/etc/rw/backup.pass) — без него архивы из Telegram не открыть; проверь, что он у тебя записан"
   echo "   ✖ задачи по расписанию: автообновление, автобэкап, geo"
   echo "   ✖ журнал действий"
   section "ОСТАНЕТСЯ"
@@ -80,7 +81,7 @@ rp_uninstall() {
   [[ "$ans" == YES ]] || { echo "  Отменено."; return 0; }
 
   rm -f /etc/cron.d/remnapilot-update /etc/cron.d/remnapilot-backup /etc/cron.d/remnapilot-geo
-  rm -rf /etc/rw /run/remnapilot
+  rm -rf /etc/rw /run/remnapilot; rm -f "$RP_LOCK" "$RP_LOCK.who"
   rm -f /var/log/remnapilot.log /var/log/remnapilot-cron.log /var/log/remnapilot-geo.log
   rm -f "$HOME/.rw-nocmd" /root/.rw-nocmd /usr/local/bin/rw
   if [[ -f "$self" && "$self" != /usr/local/bin/rw ]]; then
@@ -114,7 +115,8 @@ ui_menu() {
     item 5 "Статус сервера" "$(case $UI_STATUS in full) echo рамка;; compact) echo одна строка;; off) echo скрыт;; esac)"
     item 6 "Вид меню" "$( [[ "$(menu_mode)" == flat ]] && echo "полный список" || echo "разделы" )"
     item 7 "Компактный режим" "$( [[ "$UI_COMPACT" == on ]] && echo "включён" || echo "выключен")"
-    item 8 "Сбросить по умолчанию"
+    item 8 "Живой статус" "$( [[ "$UI_LIVE" == off ]] && echo "выключен" || echo "каждые $UI_LIVE с")"
+    item 9 "Сбросить по умолчанию"
     hr; item 0 "Назад"
     ask; read -r c; echo
     case "$c" in
@@ -135,7 +137,10 @@ ui_menu() {
          ask; read -r c; case "$c" in 1) ui_set STATUS full;; 2) ui_set STATUS compact;; 3) ui_set STATUS off;; esac ;;
       6) menu_mode_toggle ;;
       7) [[ "$UI_COMPACT" == on ]] && ui_set COMPACT off || ui_set COMPACT on ;;
-      8) rm -f "$UI_CONF"; rm -f /etc/rw/menu_mode ;;
+      8) section "ЖИВОЙ СТАТУС"; info "Рамка статуса сама обновляется, пока меню открыто"
+         item 1 "Каждые 3 с"; item 2 "Каждые 5 с"; item 3 "Каждые 10 с"; item 4 "Каждые 30 с"; item 5 "Выключить"
+         ask; read -r c; case "$c" in 1) ui_set LIVE 3;; 2) ui_set LIVE 5;; 3) ui_set LIVE 10;; 4) ui_set LIVE 30;; 5) ui_set LIVE off;; esac ;;
+      9) rm -f "$UI_CONF"; rm -f /etc/rw/menu_mode ;;
       0|q|"") return ;;
     esac
   done
