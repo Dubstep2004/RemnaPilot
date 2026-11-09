@@ -1,21 +1,68 @@
-MIT License
+RemnaPilot
+Copyright (c) 2026 Dubstep2004. Все права защищены. All rights reserved.
+https://github.com/Dubstep2004/RemnaPilot
 
-Copyright (c) 2026 Dubstep2004
+──────────────────────────────── РУССКИЙ ────────────────────────────────
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+1. Разрешено бесплатно:
+   • скачивать RemnaPilot из официального репозитория и запускать его на своих
+     серверах и на серверах, которые вы администрируете, в том числе в рамках
+     коммерческой деятельности;
+   • изучать исходный код;
+   • предлагать исправления и идеи через Issues и Pull Requests в официальном
+     репозитории;
+   • делиться ссылкой на официальный репозиторий.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+2. Запрещено без письменного разрешения автора:
+   • распространять, публиковать или выкладывать копии RemnaPilot, целиком или
+     частями, в том числе изменённые, — на сайтах, в каналах, чатах, архивах и
+     репозиториях за пределами GitHub;
+   • продавать RemnaPilot, сдавать в аренду, включать в платные продукты,
+     сборки, образы серверов и услуги;
+   • выдавать RemnaPilot или его части за свою разработку, удалять или менять
+     это уведомление, имя автора и ссылки на официальный репозиторий.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+3. Форк средствами GitHub допускается в объёме, предусмотренном Условиями
+   использования GitHub, — для просмотра и подготовки Pull Request. Это не даёт
+   права распространять форк как отдельный продукт.
+
+4. Программа предоставляется «КАК ЕСТЬ», без каких-либо гарантий. Автор не несёт
+   ответственности за любой ущерб, возникший в результате её использования.
+   Перед изменениями на рабочих серверах делайте резервные копии.
+
+5. Версии RemnaPilot до 2.1 были опубликованы по лицензии MIT. Эти условия
+   действуют для версии 2.1 и всех последующих.
+
+Получить разрешение: создайте Issue в официальном репозитории.
+
+──────────────────────────────── ENGLISH ────────────────────────────────
+
+1. You may, free of charge:
+   • download RemnaPilot from the official repository and run it on your own
+     servers and on servers you administer, including for commercial purposes;
+   • read the source code;
+   • suggest fixes and ideas via Issues and Pull Requests in the official
+     repository;
+   • share a link to the official repository.
+
+2. Without the author's written permission you may not:
+   • distribute, publish or upload copies of RemnaPilot, in whole or in part,
+     modified or not — on websites, channels, chats, archives or repositories
+     outside GitHub;
+   • sell, rent or include RemnaPilot in paid products, bundles, server images
+     or services;
+   • present RemnaPilot or its parts as your own work, or remove or change this
+     notice, the author's name or links to the official repository.
+
+3. Forking on GitHub is allowed to the extent provided by the GitHub Terms of
+   Service — for viewing and preparing Pull Requests. This does not grant the
+   right to distribute the fork as a separate product.
+
+4. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND. The author is
+   not liable for any damage arising from its use. Back up before making changes
+   on production servers.
+
+5. RemnaPilot versions before 2.1 were published under the MIT license. These
+   terms apply to version 2.1 and all later versions.
+
+To request permission: open an Issue in the official repository.

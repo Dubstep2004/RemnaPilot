@@ -3,6 +3,10 @@
 #  ╠╦╝├┤ │││││││├─┤╠═╝││  │ │ │
 #  ╩╚═└─┘┴ ┴┘└┘┴ ┴╩  ┴┴─┘└─┘ ┴   — пульт управления Remnawave
 #
+# Copyright (c) 2026 Dubstep2004. Все права защищены. / All rights reserved.
+# Условия использования — файл LICENSE: https://github.com/Dubstep2004/RemnaPilot/blob/main/LICENSE
+# Копировать, выкладывать и продавать изменённые версии без разрешения автора запрещено.
+#
 # Репозиторий:    https://github.com/Dubstep2004/RemnaPilot
 # Установка:      bash <(curl -sSL https://raw.githubusercontent.com/Dubstep2004/RemnaPilot/main/remnapilot.sh)
 #                 или скопируй файл на сервер и запусти  sudo bash remnapilot.sh
@@ -11,22 +15,31 @@
 #                 --cert-method http|alpn|dns|manual  (dns = Cloudflare, токен в CF_Token; manual = TXT вручную)
 #                 --sub sub.domain.com [--dry-run] сменить домен подписки
 #                 --update                       обновить панель    --update-all   панель + ноды
-#                 --self-update [файл]           обновить RemnaPilot с GitHub (репозиторий — в меню) или из файла
+#                 --self-update [файл]           обновить RemnaPilot с GitHub (с проверкой подлинности) или из файла
+#                 --verify                       проверить, что этот файл совпадает с официальным релизом
+#                 --uninstall                    удалить RemnaPilot (панель и ноды не трогаются)
 #                 --lang en|ru                   язык интерфейса (меню: «Language / Язык»)
 #                 --cert-status                  статус сертификатов
 #                 --check-updates                проверить обновления RemnaPilot, панели, ноды
 #                 --auto-update                  то, что делает автообновление (для cron)
 #                 --backup                       бэкап по расписанию: архив + Telegram (для cron)
 
-RP_DEFAULT_SOURCE="Dubstep2004/RemnaPilot"   # откуда обновляться по умолчанию (меняется в меню: Панель → Обновления → RemnaPilot → 3)
+RP_DEFAULT_SOURCE="Dubstep2004/RemnaPilot"   # официальный репозиторий: отсюда установка и обновления
 
 # Запуск через «curl … | bash»: stdin занят текстом скрипта, меню не сможет читать ввод.
 # Скачиваем себя в /usr/local/bin/rw и перезапускаемся уже с клавиатурой.
 if [[ -z "${BASH_SOURCE[0]:-}" || "${BASH_SOURCE[0]}" == bash || "${BASH_SOURCE[0]}" == /dev/stdin ]] && [[ ! -t 0 ]]; then
   [[ $EUID -eq 0 ]] || { echo "Запусти от root (sudo -i)"; exit 1; }
-  _t=$(mktemp)
-  if curl -fsSL "https://raw.githubusercontent.com/$RP_DEFAULT_SOURCE/main/remnapilot.sh" -o "$_t" && bash -n "$_t" \
-     && grep -q 'RP_NAME="RemnaPilot"' "$_t" && install -m 755 "$_t" /usr/local/bin/rw; then
+  _t=$(mktemp); _b="https://github.com/$RP_DEFAULT_SOURCE/releases/latest/download"
+  if curl -fsSL "$_b/remnapilot.sh" -o "$_t" 2>/dev/null; then
+    _s=$(curl -fsSL "$_b/remnapilot.sh.sha256" 2>/dev/null | awk '{print $1}')
+    if [[ -n "$_s" && "$(sha256sum "$_t" | awk '{print $1}')" != "$_s" ]]; then
+      rm -f "$_t"; echo "Контрольная сумма не совпала с релизом — файл подменён или повреждён. Установка отменена."; exit 1
+    fi
+  else
+    curl -fsSL "https://raw.githubusercontent.com/$RP_DEFAULT_SOURCE/main/remnapilot.sh" -o "$_t" 2>/dev/null
+  fi
+  if bash -n "$_t" 2>/dev/null && grep -q 'RP_NAME="RemnaPilot"' "$_t" && install -m 755 "$_t" /usr/local/bin/rw; then
     rm -f "$_t"; echo "RemnaPilot установлен. Дальше запускай командой:  rw"
     if (exec </dev/tty) 2>/dev/null; then exec /usr/local/bin/rw "$@" </dev/tty; fi
     exit 0
@@ -37,7 +50,7 @@ fi
 set -o pipefail
 export PATH="$PATH:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"   # cron даёт урезанный PATH
 RP_NAME="RemnaPilot"
-RP_VERSION="2.0.2"
+RP_VERSION="2.1"
 CERT_METHOD="${CERT_METHOD:-}"
 STOPPED_CT=(); STOPPED_SVC=(); FW_OPENED=()
 
@@ -78,6 +91,8 @@ RP_THEMES=(ocean sunset forest neon ice mono)
 apply_ui() { # тема → цвета акцентов и градиент логотипа
   UI_THEME=$(ui_get THEME ocean); UI_NUMS=$(ui_get NUMS plain); UI_LOGO=$(ui_get LOGO big)
   UI_HINTS=$(ui_get HINTS on);    UI_STATUS=$(ui_get STATUS full)
+  UI_FAV=$(ui_get FAV "");         UI_HIDE=$(ui_get HIDE "")
+  UI_COMPACT=$(ui_get COMPACT off); UI_KEYS=$(ui_get KEYS on)
   [[ -z "$C0" ]] && return 0                       # без цветов — только стиль
   if (( $(tput colors 2>/dev/null || echo 0) < 256 )); then
     [[ "$UI_THEME" == mono ]] && { C_ACC="$CB"; C_ACC2="$CB"; GRAD=("$CB" "$CB" "$CB" "$CB" "$CB" "$CB"); }
@@ -176,7 +191,8 @@ hr() { printf '  %s%s%s\n' "$C_LINE" "$(repeat ─ $((W-2)))" "$C0"; }
 
 section() { # заголовок группы в меню:  ДОМЕН ─────────
   local t=" $(T "$1") " n; n=$(( W - 2 - $(vislen "$t") ))
-  printf '\n  %s%s%s%s%s%s\n' "$C_ACC2$CB" "$t" "$C0" "$C_LINE" "$(repeat ─ $n)" "$C0"
+  [[ "${UI_COMPACT:-off}" == on ]] || echo
+  printf '  %s%s%s%s%s%s\n' "$C_ACC2$CB" "$t" "$C0" "$C_LINE" "$(repeat ─ $n)" "$C0"
 }
 
 item() { # пункт меню: номер, текст, [подсказка]
@@ -3042,7 +3058,10 @@ au_run() { # то, что делает cron
   lv=$(cat /etc/rw/.latest_version 2>/dev/null); lp=$(cat /etc/rw/.latest_panel 2>/dev/null); ln=$(cat /etc/rw/.latest_node 2>/dev/null)
   if [[ "$mode" == self || "$mode" == all ]] && ver_newer "$RP_VERSION" "$lv"; then
     t=$(mktemp)
-    if rp_fetch_latest "$t" && RP_AUTO=1 self_update "$t" >/dev/null 2>&1; then msg+="RemnaPilot → v$lv. "; else msg+="RemnaPilot: ошибка обновления. "; rc=1; fi
+    if rp_fetch_latest "$t" && (( RP_FETCH_VERIFIED )) && RP_AUTO=1 self_update "$t" >/dev/null 2>&1; then msg+="RemnaPilot → v$lv. "
+    elif (( RP_FETCH_BAD )); then msg+="RemnaPilot: контрольная сумма не совпала — обновление отменено. "; rc=1
+    elif [[ -s "$t" ]] && (( ! RP_FETCH_VERIFIED )); then msg+="RemnaPilot v$lv: без контрольной суммы — обнови вручную. "
+    else msg+="RemnaPilot: ошибка обновления. "; rc=1; fi
     rm -f "$t"
   fi
   if [[ "$mode" == all ]]; then
@@ -3177,6 +3196,47 @@ bk_menu() {
   done
 }
 
+# ---------- удаление RemnaPilot ----------
+rp_uninstall() {
+  local self ans dst arc
+  self=$(readlink -f "$RP_SELF" 2>/dev/null)
+  screen "Удаление RemnaPilot"; echo
+  section "БУДЕТ УДАЛЕНО"
+  echo "   ✖ команда rw (/usr/local/bin/rw)"
+  [[ -f "$self" && "$self" != /usr/local/bin/rw ]] && echo "   ✖ файл скрипта $self"
+  echo "   ✖ настройки RemnaPilot (/etc/rw): оформление, язык, список нод, Telegram"
+  echo "   ✖ задачи по расписанию: автообновление, автобэкап, geo"
+  echo "   ✖ журнал действий"
+  section "ОСТАНЕТСЯ"
+  echo "   ✔ панель Remnawave, ноды, база — работают как прежде"
+  echo "   ✔ сертификаты и их автопродление"
+  echo "   ✔ бэкапы базы в $RW_DIR/backups"
+  echo "   ✔ настройки сервера: firewall, SSH, BBR, swap"
+  echo
+  dst="$RW_DIR/backups"; [[ -d "$dst" ]] || dst=/root
+  if [[ -d /etc/rw ]]; then
+    ask "Сохранить настройки и список нод в $dst, чтобы вернуть после переустановки? [Y/n]"; read -r ans
+    if [[ ! "$ans" =~ ^[Nn]$ ]]; then
+      arc="$dst/remnapilot-settings-$(date +%Y%m%d-%H%M%S).tar.gz"
+      tar -C /etc -czf "$arc" rw 2>/dev/null && chmod 600 "$arc" && green "✔ Сохранено: $arc"
+    fi
+  fi
+  red "Для подтверждения введи YES"; ask; read -r ans
+  [[ "$ans" == YES ]] || { echo "  Отменено."; return 0; }
+
+  rm -f /etc/cron.d/remnapilot-update /etc/cron.d/remnapilot-backup /etc/cron.d/remnapilot-geo
+  rm -rf /etc/rw /run/remnapilot
+  rm -f /var/log/remnapilot.log /var/log/remnapilot-cron.log /var/log/remnapilot-geo.log
+  rm -f "$HOME/.rw-nocmd" /root/.rw-nocmd /usr/local/bin/rw
+  if [[ -f "$self" && "$self" != /usr/local/bin/rw ]]; then
+    ask "Удалить и файл $self? [y/N]"; read -r ans; [[ "$ans" =~ ^[Yy]$ ]] && rm -f "$self"
+  fi
+  echo; green "✔ RemnaPilot удалён. Спасибо, что пользовался!"
+  echo "  Вернуть:  bash <(curl -sSL https://raw.githubusercontent.com/$RP_DEFAULT_SOURCE/main/remnapilot.sh)"
+  [[ -n "$arc" && -f "$arc" ]] && echo "  Настройки после переустановки:  tar -C /etc -xzf $arc"
+  exit 0
+}
+
 # ---------- оформление ----------
 ui_preview() {
   section "ПРИМЕР"
@@ -3198,7 +3258,11 @@ ui_menu() {
     item 4 "Подсказки у пунктов" "$( [[ $UI_HINTS == off ]] && echo скрыты || echo показаны)"
     item 5 "Статус сервера" "$(case $UI_STATUS in full) echo рамка;; compact) echo одна строка;; off) echo скрыт;; esac)"
     item 6 "Вид меню" "$( [[ "$(menu_mode)" == flat ]] && echo "полный список" || echo "разделы" )"
-    item 7 "Сбросить по умолчанию"
+    item 7 "Избранное" "$( [[ -n "$UI_FAV" ]] && echo "пунктов: $(tr ',' '\n' <<< "$UI_FAV" | grep -c .)" || echo "пусто")"
+    item 8 "Скрытые пункты" "$( [[ -n "$UI_HIDE" ]] && echo "скрыто: $(tr ',' '\n' <<< "$UI_HIDE" | grep -c .)" || echo "нет")"
+    item 9 "Компактный режим" "$( [[ "$UI_COMPACT" == on ]] && echo "включён" || echo "выключен")"
+    item 10 "Подсказка о быстрых клавишах" "$( [[ "$UI_KEYS" == off ]] && echo "скрыта" || echo "показана")"
+    item 11 "Сбросить по умолчанию"
     hr; item 0 "Назад"
     ask; read -r c; echo
     case "$c" in
@@ -3218,9 +3282,45 @@ ui_menu() {
       5) section "СТАТУС"; item 1 "Рамка"; item 2 "Одна строка"; item 3 "Скрыть"
          ask; read -r c; case "$c" in 1) ui_set STATUS full;; 2) ui_set STATUS compact;; 3) ui_set STATUS off;; esac ;;
       6) menu_mode_toggle ;;
-      7) rm -f "$UI_CONF"; rm -f /etc/rw/menu_mode ;;
+      7) pick_items FAV "Избранное" ;;
+      8) pick_items HIDE "Скрытые пункты" ;;
+      9) [[ "$UI_COMPACT" == on ]] && ui_set COMPACT off || ui_set COMPACT on ;;
+      10) [[ "$UI_KEYS" == off ]] && ui_set KEYS on || ui_set KEYS off ;;
+      11) rm -f "$UI_CONF"; rm -f /etc/rw/menu_mode ;;
       0|q|"") return ;;
     esac
+  done
+}
+
+pick_items() { # $1 = FAV | HIDE, $2 = заголовок: отметить пункты номерами
+  local key="$1" all=() cur sel n id i name mark
+  mapfile -t all < <(all_items)
+  while true; do
+    cur=$(ui_get "$key" "")
+    screen "$2"; echo
+    if [[ "$key" == FAV ]]; then echo "  Отмеченные пункты будут наверху главного меню под номерами 1, 2, 3…"
+    else echo "  Отмеченные пункты пропадут из меню. Найти их можно поиском."; fi
+    echo
+    for i in "${!all[@]}"; do
+      id="${all[$i]}"; name=$(item_info "$id"); name="${name%%|*}"
+      if [[ ",$cur," == *",$id,"* ]]; then mark="${C_OK}✔${C0}"; else mark="${C_LINE}·${C0}"; fi
+      printf '  %s%s%s  %s %s\n' "$C_ACC$CB" "$(num_fmt $((i+1)))" "$C0" "$mark" "$(T "$name")"
+    done
+    echo; echo "  Номера через пробел — отметить или снять. Enter — готово."
+    ask; read -r sel
+    [[ -z "$sel" || "$sel" == 0 ]] && return
+    for n in $sel; do
+      [[ "$n" =~ ^[0-9]+$ ]] && (( n >= 1 && n <= ${#all[@]} )) || continue
+      id="${all[$((n-1))]}"
+      if [[ ",$cur," == *",$id,"* ]]; then
+        cur=$(tr ',' '\n' <<< "$cur" | grep -vx "$id" | paste -sd, -)
+      elif [[ "$key" == HIDE && "$id" == 33 ]]; then
+        yel "  «Оформление» скрыть нельзя — иначе не вернуть скрытое."; sleep 1
+      elif [[ "$key" == FAV ]] && (( $(tr ',' '\n' <<< "$cur" | grep -c .) >= 9 )); then
+        yel "  В избранном не больше 9 пунктов."; sleep 1
+      else cur="${cur:+$cur,}$id"; fi
+    done
+    ui_set "$key" "$cur"; apply_ui
   done
 }
 
@@ -3234,6 +3334,11 @@ theme_swatch() { # цветные блоки темы
 
 # ---------- версия ----------
 RP_CHANGELOG=(
+  "2.1|Лицензия: «Все права защищены» — пользоваться можно, распространять и продавать копии — только с разрешения автора"
+  "2.1|Защита обновлений: каждый релиз с контрольной суммой SHA-256; подменённый файл не установится ни вручную, ни автоматически"
+  "2.1|Проверка подлинности: «О программе» и rw --verify показывают, совпадает ли файл с официальным релизом"
+  "2.1|Удаление RemnaPilot: Прочее → Удалить RemnaPilot или rw --uninstall; панель, ноды и бэкапы остаются"
+  "2.1|Меню: избранное наверху, скрытие ненужных пунктов, быстрые клавиши (d, u, c…) и поиск по слову, компактный режим"
   "2.0.2|Исправлено: панель, подписка и нода показывались «не установлено», когда в образе нет метки версии — теперь версия берётся из тега, package.json или окружения"
   "2.0.2|Исправлено: из-за этого автообновление не видело новую версию панели"
   "2.0.2|Если версию определить нельзя — пишется «установлено, версия не определяется», а не «не установлено»"
@@ -3347,7 +3452,10 @@ about_screen() {
   screen "О программе и версии"; echo
   box_top
   box_line "${CB}${RP_NAME}${C0} ${C_ACC}v${RP_VERSION}${C0}  ${C_MUT}пульт управления Remnawave${C0}"
+  box_line "${C_MUT}© 2026 Dubstep2004 · Все права защищены${C0}"
+  box_line "${C_MUT}github.com/Dubstep2004/RemnaPilot${C0}"
   box_line ""
+  box_line "${C_MUT}$(padr "Подлинность" 11)${C0}$(verify_line)"
   ver_line "Панель" "$pv" "$( [[ "$pv" != - ]] && gh_latest remnawave/backend )"
   ver_line "Нода"   "$nv" "$( [[ "$nv" != - ]] && gh_latest remnawave/node )"
   box_line "${C_MUT}$(padr "Docker" 11)${C0}${dv:-—}${cv:+  ${C_MUT}compose $cv${C0}}"
@@ -3596,13 +3704,45 @@ rp_source_urls() { # owner/repo → ссылки на последний рел�
   echo "https://raw.githubusercontent.com/$v/main/remnapilot.sh"
 }
 
+RP_FETCH_VERIFIED=0; RP_FETCH_BAD=0
+rp_is_script() { bash -n "$1" 2>/dev/null && grep -q 'RP_NAME="RemnaPilot"' "$1"; }
+rp_repo() { local v; v=$(rp_source); v="${v#github.com/}"; v="${v%.git}"; echo "${v%/}"; }
+
 rp_fetch_latest() { # $1 = куда сохранить → 0, если скачан настоящий RemnaPilot
-  local u
-  while read -r u; do
-    curl -fsSL --max-time 20 -o "$1" "$u" 2>/dev/null || continue
-    bash -n "$1" 2>/dev/null && grep -q 'RP_NAME="RemnaPilot"' "$1" && return 0
-  done < <(rp_source_urls)
-  return 1
+  # RP_FETCH_VERIFIED=1 — файл сверен с контрольной суммой релиза; RP_FETCH_BAD=1 — сумма НЕ совпала (подмена)
+  local repo base sum got
+  RP_FETCH_VERIFIED=0; RP_FETCH_BAD=0; repo=$(rp_repo)
+  if [[ "$repo" == https://* ]]; then
+    curl -fsSL --max-time 30 -o "$1" "$repo" 2>/dev/null && rp_is_script "$1"; return
+  fi
+  base="https://github.com/$repo/releases/latest/download"
+  if curl -fsSL --max-time 30 -o "$1" "$base/remnapilot.sh" 2>/dev/null && rp_is_script "$1"; then
+    sum=$(curl -fsSL --max-time 15 "$base/remnapilot.sh.sha256" 2>/dev/null | awk '{print $1}')
+    if [[ "$sum" =~ ^[0-9a-f]{64}$ ]]; then
+      got=$(sha256sum "$1" | awk '{print $1}')
+      if [[ "$got" == "$sum" ]]; then RP_FETCH_VERIFIED=1; return 0; fi
+      RP_FETCH_BAD=1; : > "$1"; return 1          # подменённый файл не используем вообще
+    fi
+    return 0                                        # старый релиз без контрольной суммы
+  fi
+  curl -fsSL --max-time 30 -o "$1" "https://raw.githubusercontent.com/$repo/main/remnapilot.sh" 2>/dev/null && rp_is_script "$1"
+}
+
+rp_verify_self() { # совпадает ли этот файл с официальным релизом своей версии → ok | modified | unknown
+  local repo sum got
+  repo=$(rp_repo); [[ "$repo" == https://* ]] && { echo unknown; return; }
+  sum=$(curl -fsSL --max-time 10 "https://github.com/$repo/releases/download/v$RP_VERSION/remnapilot.sh.sha256" 2>/dev/null | awk '{print $1}')
+  [[ "$sum" =~ ^[0-9a-f]{64}$ && -f "$RP_SELF" ]] || { echo unknown; return; }
+  got=$(sha256sum "$RP_SELF" | awk '{print $1}')
+  [[ "$got" == "$sum" ]] && echo ok || echo modified
+}
+
+verify_line() {
+  case "$(rp_verify_self)" in
+    ok)       echo "$(dot ok) ${C_OK}официальный релиз${C0}" ;;
+    modified) echo "$(dot err) ${C_ERR}файл изменён — не совпадает с релизом v$RP_VERSION${C0}" ;;
+    *)        echo "$(dot off) ${C_MUT}не проверить (нет связи или релиз без суммы)${C0}" ;;
+  esac
 }
 
 rp_remote_version() { # версия на GitHub (кэш на 6 часов, чтобы меню не тормозило)
@@ -3617,9 +3757,24 @@ self_update_online() {
   local t nv
   info "Скачиваю с GitHub..."
   t=$(mktemp); rm -f /etc/rw/.latest_version
-  rp_fetch_latest "$t" || { rm -f "$t"; red "✖ Не удалось скачать remnapilot.sh ($(rp_source))"; return 1; }
+  if ! rp_fetch_latest "$t"; then
+    rm -f "$t"
+    if (( RP_FETCH_BAD )); then
+      red "✖ Контрольная сумма не совпала с релизом — файл подменён или повреждён. Обновление отменено."
+      jlog FAIL "Обновление RemnaPilot отменено: контрольная сумма не совпала"
+      tg_text "⚠️ $(hostname): RemnaPilot — контрольная сумма обновления не совпала, обновление отменено"
+    else red "✖ Не удалось скачать remnapilot.sh ($(rp_source))"; fi
+    return 1
+  fi
   nv=$(grep -m1 '^RP_VERSION=' "$t" | cut -d'"' -f2)
   if [[ "$nv" == "$RP_VERSION" ]]; then green "✔ У тебя последняя версия (v$RP_VERSION)"; rm -f "$t"; return 0; fi
+  if (( RP_FETCH_VERIFIED )); then
+    green "✔ Подлинность подтверждена: контрольная сумма совпадает с релизом v$nv"
+  else
+    yel "⚠ У релиза нет контрольной суммы — подлинность не проверить."
+    [[ -n "${RP_AUTO:-}" ]] && { rm -f "$t"; return 1; }
+    ask "Всё равно установить? [y/N]"; read -r a; [[ "$a" =~ ^[Yy]$ ]] || { rm -f "$t"; return 0; }
+  fi
   self_update "$t"; local rc=$?; rm -f "$t"; return $rc
 }
 
@@ -3755,6 +3910,7 @@ item_info() {
     32) echo "Автобэкап|$(bk_sched_name "$(bk_get SCHED off)")" ;;
     33) echo "Оформление|тема · номера · логотип" ;;
     34) echo "Уведомления в Telegram|$(tg_on && echo подключено || echo выключено)" ;;
+    35) echo "Удалить RemnaPilot|панель и ноды не трогаются" ;;
   esac
 }
 
@@ -3765,7 +3921,7 @@ MENU_SECTIONS=(
   "Ноды|статус · geo · WARP|13 14 15 16"
   "Сервер|firewall · SSH · BBR · swap|17 18 19 20 21 22 23"
   "Проверки|IP · SNI для Reality|24 25"
-  "Прочее|оформление · Telegram · язык|33 34 26 27 28 29 30"
+  "Прочее|оформление · Telegram · язык|33 34 26 27 28 29 30 35"
 )
 
 menu_mode() { local m; m=$(cat /etc/rw/menu_mode 2>/dev/null); [[ "$m" == sections ]] && echo sections || echo flat; }
@@ -3825,6 +3981,7 @@ run_item() { # внутренний номер пункта → действие
     32) bk_menu ;;
     33) ui_menu ;;
     34) tg_menu ;;
+    35) rp_uninstall ;;
     28) install_cmd; pause ;;
     29) change_dir; pause ;;
     30) about_screen; pause ;;
@@ -3832,56 +3989,114 @@ run_item() { # внутренний номер пункта → действие
   esac
 }
 
+# ----- быстрые клавиши и поиск -----
+# буква → внутренний номер пункта; русская раскладка понимается так же
+MENU_KEYS="d:1 u:6 c:9 l:8 b:11 n:15 f:18 s:19 i:25 o:33 j:29"
+MENU_KEYS_RU="в:d г:u с:c д:l и:b т:n а:f ы:s ш:i щ:o о:j"
+MENU_PICK=""
+
+is_hidden() { [[ ",${UI_HIDE:-}," == *",$1,"* ]]; }
+is_fav()    { [[ ",${UI_FAV:-}," == *",$1,"* ]]; }
+all_items() { local x n; for x in "${MENU_SECTIONS[@]}"; do for n in ${x##*|}; do echo "$n"; done; done; }
+
+keys_legend() {
+  [[ "${UI_KEYS:-on}" == off ]] && return 0
+  printf '  %s%s%s\n' "$C_MUT" "$(T "Быстро: d домены · u обновления · c сертификаты · l логи · b бэкап · n ноды · o оформление — или слово для поиска")" "$C0"
+}
+
+menu_lookup() { # ввод (буква или слово) → MENU_PICK = внутренний номер пункта
+  local q="${1,,}" k id name hint hits=() i c
+  MENU_PICK=""
+  q="${q#"${q%%[![:space:]]*}"}"; q="${q%"${q##*[![:space:]]}"}"
+  for k in $MENU_KEYS_RU; do [[ "$q" == "${k%%:*}" ]] && q="${k#*:}"; done
+  for k in $MENU_KEYS; do [[ "$q" == "${k%%:*}" ]] && { MENU_PICK="${k#*:}"; return 0; }; done
+  (( ${#q} >= 2 )) || return 1
+  while read -r id; do
+    IFS='|' read -r name hint <<< "$(item_info "$id")"
+    if grep -qiF -- "$q" <<< "$name $hint $(T "$name") $(T "$hint")"; then hits+=("$id"); fi
+  done < <(all_items)
+  case ${#hits[@]} in
+    0) yel "  Ничего не найдено: «$1»"; sleep 1; return 1 ;;
+    1) MENU_PICK="${hits[0]}"; return 0 ;;
+  esac
+  section "НАЙДЕНО"
+  for i in "${!hits[@]}"; do print_item $((i+1)) "${hits[$i]}"; done
+  item 0 "Назад"
+  ask; read -r c
+  [[ "$c" =~ ^[0-9]+$ ]] && (( c >= 1 && c <= ${#hits[@]} )) && MENU_PICK="${hits[$((c-1))]}"
+  [[ -n "$MENU_PICK" ]]
+}
+
+menu_handle() { # ввод, массив номеров на экране (имя) → выполнить; 1 — выход/назад
+  local ch="$1"; local -n _ids="$2"
+  case "$ch" in 0|q|Q|й|Й) return 1 ;; "") return 0 ;; esac
+  if [[ "$ch" =~ ^[0-9]+$ ]]; then
+    (( ch >= 1 && ch <= ${#_ids[@]} )) || return 0
+    case "${_ids[$((ch-1))]}" in s:*) section_menu "${_ids[$((ch-1))]#s:}" ;; *) run_item "${_ids[$((ch-1))]}" ;; esac
+  elif menu_lookup "$ch"; then
+    run_item "$MENU_PICK"
+  fi
+  return 0
+}
+
+print_favs() { # печатает избранное, дописывает номера в массив
+  local -n _o="$1"; local id
+  [[ -n "${UI_FAV:-}" ]] || return 0
+  section "ИЗБРАННОЕ"
+  for id in ${UI_FAV//,/ }; do
+    item_info "$id" >/dev/null 2>&1 && [[ -n "$(item_info "$id")" ]] || continue
+    _o+=("$id"); print_item "${#_o[@]}" "$id"
+  done
+}
+
 section_menu() { # $1 = индекс раздела
-  local name hint nums c i n
+  local name hint nums c n ids
   IFS='|' read -r name hint nums <<< "${MENU_SECTIONS[$1]}"
-  local arr=($nums)
   while true; do
     clear; banner; echo
     status_box
     section "${name^^}"
-    for i in "${!arr[@]}"; do print_item $((i+1)) "${arr[$i]}"; done
+    ids=()
+    for n in $nums; do is_hidden "$n" && continue; ids+=("$n"); print_item "${#ids[@]}" "$n"; done
     hr; item 0 "Назад"
+    keys_legend
     ask; read -r c
-    case "$c" in 0|q|Q|"") return ;; esac
-    [[ "$c" =~ ^[0-9]+$ ]] && (( c >= 1 && c <= ${#arr[@]} )) || continue
-    n="${arr[$((c-1))]}"
-    run_item "$n"
-    [[ "$n" == 33 && "$(menu_mode)" == flat ]] && return   # сменили вид меню — сразу показать
+    menu_handle "$c" ids || return
+    [[ "$(menu_mode)" == flat ]] && return      # сменили вид меню — сразу показать
   done
 }
 
 menu() {
-  local ch i name hint nums
+  local ch i n name hint nums ids vis
   while true; do
+    apply_ui
     clear
     banner
     echo
     status_box
+    ids=()
+    print_favs ids
     if [[ "$(menu_mode)" == flat ]]; then
       # полный список: все пункты со сквозной нумерацией
-      local ids=() k=0
       for i in "${!MENU_SECTIONS[@]}"; do
         IFS='|' read -r name hint nums <<< "${MENU_SECTIONS[$i]}"
+        vis=(); for n in $nums; do is_hidden "$n" || is_fav "$n" || vis+=("$n"); done
+        (( ${#vis[@]} )) || continue
         section "${name^^}"
-        for n in $nums; do k=$((k+1)); ids+=("$n"); print_item "$k" "$n"; done
+        for n in "${vis[@]}"; do ids+=("$n"); print_item "${#ids[@]}" "$n"; done
       done
-      item 0 "Выход"; hr
-      ask; read -r ch
-      case "$ch" in 0|q|Q) exit 0 ;; esac
-      [[ "$ch" =~ ^[0-9]+$ ]] && (( ch >= 1 && ch <= ${#ids[@]} )) && run_item "${ids[$((ch-1))]}"
     else
       # разделы: на главном экране только они, пункты — внутри
       section "РАЗДЕЛЫ"
       for i in "${!MENU_SECTIONS[@]}"; do
         IFS='|' read -r name hint nums <<< "${MENU_SECTIONS[$i]}"
-        item $((i+1)) "$name" "$hint"
+        ids+=("s:$i"); item "${#ids[@]}" "$name" "$( [[ "${UI_HINTS:-on}" == off ]] || echo "$hint")"
       done
-      hr; item 0 "Выход"
-      ask; read -r ch
-      case "$ch" in 0|q|Q) exit 0 ;; esac
-      [[ "$ch" =~ ^[0-9]+$ ]] && (( ch >= 1 && ch <= ${#MENU_SECTIONS[@]} )) && section_menu $((ch-1))
     fi
+    item 0 "Выход"; hr
+    keys_legend
+    ask; read -r ch
+    menu_handle "$ch" ids || exit 0
   done
 }
 
@@ -3903,6 +4118,8 @@ while [[ $# -gt 0 ]]; do
     --auto-update) DO_AU=1; shift ;;
     --backup)    DO_BACKUP=1; shift ;;
     --check-updates) DO_CHECK=1; shift ;;
+    --verify)    DO_VERIFY=1; shift ;;
+    --uninstall) DO_UNINSTALL=1; shift ;;
     --geo-update-local) DO_GEO="${2:-loyal}"; [[ "$DO_GEO" == -* ]] && DO_GEO=loyal || shift; shift ;;
     --self-update) [[ $EUID -eq 0 ]] || { echo "Нужен root"; exit 1; }
                    if [[ -n "${2:-}" && "$2" != -* ]]; then self_update "$2"; else self_update_online; fi; exit $? ;;
@@ -3942,7 +4159,15 @@ if [[ -n "$NEW" || -n "${SUB_NEW:-}" || ${DO_UPDATE:-0} == 1 || ${DO_CERT_STATUS
   need_panel || exit 1
 fi
 
-if (( ${DO_AU:-0} )); then
+if (( ${DO_UNINSTALL:-0} )); then
+  rp_uninstall; exit 0
+elif (( ${DO_VERIFY:-0} )); then
+  case "$(rp_verify_self)" in
+    ok)       green "✔ Подлинный RemnaPilot v$RP_VERSION — файл совпадает с официальным релизом"; exit 0 ;;
+    modified) red "✖ Файл изменён — не совпадает с официальным релизом v$RP_VERSION"; exit 2 ;;
+    *)        yel "Не удалось проверить: нет связи с GitHub или у релиза нет контрольной суммы"; exit 3 ;;
+  esac
+elif (( ${DO_AU:-0} )); then
   au_run; exit $?
 elif (( ${DO_BACKUP:-0} )); then
   bk_run; rc=$?; [[ -f /etc/rw/.backup_last ]] && cut -d'|' -f3 /etc/rw/.backup_last; exit $rc
@@ -5093,4 +5318,68 @@ cron не установлен — расписание работать не б
 Если версию определить нельзя — пишется «установлено, версия не определяется», а не «не установлено»	If the version cannot be detected it shows "installed, version unknown" instead of "not installed"
 установлено, версия не определяется	installed, version unknown
 последняя v	latest v
+Лицензия: «Все права защищены» — пользоваться можно, распространять и продавать копии — только с разрешения автора	License: "All rights reserved" — free to use, distributing and selling copies only with the author's permission
+Защита обновлений: каждый релиз с контрольной суммой SHA-256; подменённый файл не установится ни вручную, ни автоматически	Update protection: every release has a SHA-256 checksum; a tampered file is never installed, manually or automatically
+Проверка подлинности: «О программе» и rw --verify показывают, совпадает ли файл с официальным релизом	Authenticity check: "About" and rw --verify show whether the file matches the official release
+Удаление RemnaPilot: Прочее → Удалить RemnaPilot или rw --uninstall; панель, ноды и бэкапы остаются	Uninstall RemnaPilot: Other → Remove RemnaPilot or rw --uninstall; panel, nodes and backups stay
+Меню: избранное наверху, скрытие ненужных пунктов, быстрые клавиши (d, u, c…) и поиск по слову, компактный режим	Menu: favorites on top, hide unused items, quick keys (d, u, c…) and word search, compact mode
+Быстро: d домены · u обновления · c сертификаты · l логи · b бэкап · n ноды · o оформление — или слово для поиска	Quick: d domains · u updates · c certificates · l logs · b backup · n nodes · o appearance — or a word to search
+Ничего не найдено:	Nothing found:
+НАЙДЕНО	FOUND
+ИЗБРАННОЕ	FAVORITES
+Отмеченные пункты будут наверху главного меню под номерами 1, 2, 3…	Marked items will be on top of the main menu as 1, 2, 3…
+Отмеченные пункты пропадут из меню. Найти их можно поиском.	Marked items disappear from the menu. You can still find them by search.
+Номера через пробел — отметить или снять. Enter — готово.	Space-separated numbers — mark or unmark. Enter — done.
+«Оформление» скрыть нельзя — иначе не вернуть скрытое.	"Appearance" cannot be hidden — otherwise you could not bring hidden items back.
+В избранном не больше 9 пунктов.	No more than 9 favorites.
+Избранное	Favorites
+Скрытые пункты	Hidden items
+Компактный режим	Compact mode
+Подсказка о быстрых клавишах	Quick keys hint
+пунктов:	items:
+скрыто:	hidden:
+пусто	empty
+включён	on
+выключен	off
+показана	shown
+скрыта	hidden
+Удалить RemnaPilot	Remove RemnaPilot
+панель и ноды не трогаются	panel and nodes are not touched
+Удаление RemnaPilot	Removing RemnaPilot
+БУДЕТ УДАЛЕНО	WILL BE REMOVED
+ОСТАНЕТСЯ	WILL STAY
+команда rw (/usr/local/bin/rw)	the rw command (/usr/local/bin/rw)
+файл скрипта	script file
+настройки RemnaPilot (/etc/rw): оформление, язык, список нод, Telegram	RemnaPilot settings (/etc/rw): appearance, language, node list, Telegram
+задачи по расписанию: автообновление, автобэкап, geo	scheduled jobs: auto-update, auto-backup, geo
+журнал действий	action log
+панель Remnawave, ноды, база — работают как прежде	Remnawave panel, nodes, database — keep working as before
+сертификаты и их автопродление	certificates and their auto-renewal
+бэкапы базы в	database backups in
+настройки сервера: firewall, SSH, BBR, swap	server settings: firewall, SSH, BBR, swap
+Сохранить настройки и список нод в	Save settings and the node list to
+, чтобы вернуть после переустановки?	, to restore after reinstalling?
+Сохранено:	Saved:
+Удалить и файл	Delete the file too:
+RemnaPilot удалён. Спасибо, что пользовался!	RemnaPilot removed. Thanks for using it!
+Вернуть:	Reinstall:
+Настройки после переустановки:	Settings after reinstalling:
+Подлинность	Authenticity
+официальный релиз	official release
+файл изменён — не совпадает с релизом v	file modified — does not match release v
+не проверить (нет связи или релиз без суммы)	cannot check (no connection or release without checksum)
+© 2026 Dubstep2004 · Все права защищены	© 2026 Dubstep2004 · All rights reserved
+Контрольная сумма не совпала с релизом — файл подменён или повреждён. Обновление отменено.	Checksum does not match the release — the file is tampered or corrupted. Update cancelled.
+Контрольная сумма не совпала с релизом — файл подменён или повреждён. Установка отменена.	Checksum does not match the release — the file is tampered or corrupted. Installation cancelled.
+Подлинность подтверждена: контрольная сумма совпадает с релизом v	Authenticity confirmed: checksum matches release v
+У релиза нет контрольной суммы — подлинность не проверить.	The release has no checksum — authenticity cannot be verified.
+Всё равно установить?	Install anyway?
+Обновление RemnaPilot отменено: контрольная сумма не совпала	RemnaPilot update cancelled: checksum mismatch
+RemnaPilot — контрольная сумма обновления не совпала, обновление отменено	RemnaPilot — update checksum mismatch, update cancelled
+RemnaPilot: контрольная сумма не совпала — обновление отменено.	RemnaPilot: checksum mismatch — update cancelled.
+без контрольной суммы — обнови вручную.	no checksum — update manually.
+Подлинный RemnaPilot v	Genuine RemnaPilot v
+— файл совпадает с официальным релизом	— the file matches the official release
+Файл изменён — не совпадает с официальным релизом v	File modified — does not match the official release v
+Не удалось проверить: нет связи с GitHub или у релиза нет контрольной суммы	Could not verify: no connection to GitHub or the release has no checksum
 __RP_EN_END__

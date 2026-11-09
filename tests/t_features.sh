@@ -32,7 +32,7 @@ out_has "и снимается" "No such file" "$out"
 # --- автообновление: режимы ---
 run_au() { bash -c "$common"'
   rp_remote_version(){ echo 99.0 > /etc/rw/.latest_version; }; gh_latest(){ case "$1" in *backend) echo 2.3.0;; *) echo 2.2.4;; esac; }
-  rp_fetch_latest(){ sed "s/^RP_VERSION=.*/RP_VERSION=\"99.0\"/" "'"$SCRIPT"'" > "$1"; }
+  rp_fetch_latest(){ RP_FETCH_VERIFIED=1; sed "s/^RP_VERSION=.*/RP_VERSION=\"99.0\"/" "'"$SCRIPT"'" > "$1"; }
   install(){ echo "[install $*]"; }; app_containers(){ echo remnawave; }; local_ver(){ echo 2.2.4; }; node_dir(){ return 1; }
   update_panel(){ echo "[update_panel]"; }; tg_api(){ echo "[tg $*]"; }
   echo '"$1"' > "$AU_CONF"; au_run; echo "rc=$?"; cat /etc/rw/.autoupdate_last' 2>&1 | nocolor; }

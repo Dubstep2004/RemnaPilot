@@ -1,7 +1,8 @@
 name: release
 
 # Новый релиз создаётся сам, когда в remnapilot.sh меняется RP_VERSION.
-# Файл remnapilot.sh прикрепляется к релизу — скрипт обновляется именно оттуда.
+# К релизу прикрепляются remnapilot.sh и remnapilot.sh.sha256 — скрипт обновляется оттуда
+# и не ставит файл, если контрольная сумма не совпала.
 
 on:
   push:
@@ -62,7 +63,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           v="${{ steps.v.outputs.version }}"
-          gh release create "v$v" remnapilot.sh \
+          sha256sum remnapilot.sh > remnapilot.sh.sha256
+          cat remnapilot.sh.sha256
+          gh release create "v$v" remnapilot.sh remnapilot.sh.sha256 \
             --title "RemnaPilot v$v" \
             --notes-file notes.md \
             --target "$GITHUB_SHA" \
