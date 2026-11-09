@@ -7,7 +7,7 @@ name: release
 on:
   push:
     branches: [main]
-    paths: ['remnapilot.sh', 'CHANGELOG.md', 'tests/**', 'tools/**', '.github/workflows/release.yml']
+    paths: ['remnapilot.sh', 'src/**', 'CHANGELOG.md', 'tests/**', 'tools/**', '.github/workflows/release.yml']
   workflow_dispatch:
 
 permissions:

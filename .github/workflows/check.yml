@@ -10,8 +10,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Скрипт собран из src/
+        run: python3 tools/build.py --check
+
       - name: Тесты (на заглушках, без сети и Docker)
         run: sudo bash tests/run.sh
+
+      - name: Скрипт изменён — версия поднята?
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v=$(grep -m1 '^RP_VERSION=' remnapilot.sh | cut -d'"' -f2)
+          if gh release download "v$v" -p remnapilot.sh -O /tmp/released.sh 2>/dev/null; then
+            if ! cmp -s remnapilot.sh /tmp/released.sh; then
+              echo "::error::remnapilot.sh изменён, но RP_VERSION=$v уже выпущена. Подними версию — иначе у пользователей проверка подлинности покажет «не совпадает»."
+              exit 1
+            fi
+          fi
 
       - name: ShellCheck (только ошибки, не блокирует)
         continue-on-error: true

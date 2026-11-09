@@ -19,11 +19,13 @@
 #                 --verify                       проверить, что этот файл совпадает с официальным релизом
 #                 --whats-new / --changelog      что нового в этой версии / вся история изменений
 #                 --uninstall                    удалить RemnaPilot (панель и ноды не трогаются)
+#                 --selftest                     самопроверка сервера: всё ли готово (ничего не меняет)
 #                 --lang en|ru                   язык интерфейса (меню: «Language / Язык»)
 #                 --cert-status                  статус сертификатов
 #                 --check-updates                проверить обновления RemnaPilot, панели, ноды
 #                 --auto-update                  то, что делает автообновление (для cron)
 #                 --backup                       бэкап по расписанию: архив + Telegram (для cron)
+#                 --decrypt файл.tar.gz.enc       расшифровать архив бэкапа из Telegram
 
 RP_DEFAULT_SOURCE="Dubstep2004/RemnaPilot"   # официальный репозиторий: отсюда установка и обновления
 
@@ -51,7 +53,7 @@ fi
 set -o pipefail
 export PATH="$PATH:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"   # cron даёт урезанный PATH
 RP_NAME="RemnaPilot"
-RP_VERSION="2.2.1"
+RP_VERSION="2.3"
 CERT_METHOD="${CERT_METHOD:-}"
 STOPPED_CT=(); STOPPED_SVC=(); FW_OPENED=()
 
@@ -246,12 +248,13 @@ dot() { # цветная точка статуса: ok|warn|err|off
 }
 
 status_box() {
+  local DPS; dps_refresh          # снимок живёт только на время отрисовки (видят вложенные функции)
   case "${UI_STATUS:-full}" in off) return 0 ;; compact) status_line; return 0 ;; esac
   status_box_full
 }
 
 status_line() { # одна строка вместо рамки
-  local app st d=ok dom; app=$(docker ps -a --format '{{.Names}}|{{.Status}}|{{.Image}}' 2>/dev/null | awk -F'|' '$3 ~ /remnawave\/backend/ {print; exit}')
+  local app st d=ok dom; app=$(cut -d'|' -f2- <<< "$DPS" | awk -F'|' '$3 ~ /remnawave\/backend/ {print; exit}')
   if [[ ! -f "$RW_DIR/.env" ]]; then st="$(T "панели нет")"; d=off
   elif [[ "$app" == *"|Up"*unhealthy* || "$app" == *Restarting* ]]; then st="$(T "проблемы")"; d=warn
   elif [[ "$app" == *"|Up"* ]]; then st="$(T "работает")"
@@ -261,12 +264,17 @@ status_line() { # одна строка вместо рамки
   update_hints
 }
 
+# Снимок контейнеров: один вызов docker на отрисовку экрана вместо нескольких
+DPS=""
+dps_refresh() { DPS=$(docker ps -a --no-trunc --format '{{.ID}}|{{.Names}}|{{.Status}}|{{.Image}}' 2>/dev/null); }
+dps_id() { awk -F'|' -v n="$1" '$2==n {print $1; exit}' <<< "$DPS"; }
+
 status_box_full() {
   local panel_st panel_ver dom days ssl nodes db_st lbl
   lbl() { local l; l=$(T "$1"); local w=9; [[ "$RP_LANG" == en ]] && w=13; local pad=$(( w - ${#l} )); (( pad < 1 )) && pad=1; printf '%s%s%s%s' "$C_MUT" "$l" "$C0" "$(repeat ' ' $pad)"; }
 
   if [[ -f "$RW_DIR/.env" ]]; then
-    local ps; ps=$(docker ps -a --format '{{.Names}}|{{.Status}}|{{.Image}}' 2>/dev/null)
+    local ps; ps=$(cut -d'|' -f2- <<< "$DPS")
     local app; app=$(echo "$ps" | awk -F'|' '$3 ~ /remnawave\/backend|remnawave\/panel/ {print; exit}')
     [[ -z "$app" ]] && app=$(echo "$ps" | grep -E '^remnawave\|' | head -1)
     if   [[ "$app" == *"|Up"*"unhealthy"* || "$app" == *Restarting* ]]; then panel_st="$(dot warn) ${C_WARN}проблемы${C0}"
@@ -305,7 +313,7 @@ status_box_full() {
     nodes="$(wc -l < "${NODES_FILE:-/etc/rw/nodes.list}") в списке"
   else nodes="список пуст"; fi
   local local_node=""
-  docker ps --format '{{.Names}}' 2>/dev/null | grep -qx remnanode && local_node="  $(dot ok) ${C_MUT}+ нода здесь${C0}"
+  grep -q '^[^|]*|remnanode|Up' <<< "$DPS" && local_node="  $(dot ok) ${C_MUT}+ нода здесь${C0}"
   box_line "$(lbl Ноды)${nodes}${local_node}"
   box_bottom
   update_hints
@@ -319,11 +327,12 @@ update_hints() { # строки под рамкой: что можно обно�
   ver_newer "$RP_VERSION" "$lv" && printf '   %s %sДоступен RemnaPilot v%s%s\n' "$(dot warn)" "$C_WARN" "$lv" "$C0"
   if [[ -f "$RW_DIR/.env" ]]; then
     lp=$(cat /etc/rw/.latest_panel 2>/dev/null)
-    app=$(docker ps --format '{{.Names}}\t{{.Image}}' 2>/dev/null | awk -F'\t' '$2 ~ /remnawave\/backend/ {print $1; exit}')
+    local DPS="$DPS"; [[ -n "$DPS" ]] || dps_refresh
+    app=$(awk -F'|' '$3 ~ /^Up/ && $4 ~ /remnawave\/backend/ {print $2; exit}' <<< "$DPS")
     [[ -n "$app" && -n "$lp" ]] && { pv=$(local_ver "$app"); ver_newer "$pv" "$lp" && printf '   %s %sДоступна панель v%s%s  %s(сейчас v%s)%s\n' "$(dot warn)" "$C_WARN" "$lp" "$C0" "$C_MUT" "$pv" "$C0"; }
   fi
   ln=$(cat /etc/rw/.latest_node 2>/dev/null)
-  if [[ -n "$ln" ]] && docker ps --format '{{.Names}}' 2>/dev/null | grep -qx remnanode; then
+  if [[ -n "$ln" ]] && { [[ -n "$DPS" ]] || local DPS; [[ -n "$DPS" ]] || dps_refresh; grep -q '^[^|]*|remnanode|Up' <<< "$DPS"; }; then
     nv=$(local_ver remnanode); ver_newer "$nv" "$ln" && printf '   %s %sДоступна нода v%s%s\n' "$(dot warn)" "$C_WARN" "$ln" "$C0"
   fi
   for f in /etc/rw/.autoupdate_last /etc/rw/.backup_last; do
@@ -1739,10 +1748,33 @@ jlog() { # уровень (OK|FAIL|INFO|START), текст
   printf '%s | %-5s | %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$1" "$2" >> "$JOURNAL" 2>/dev/null
 }
 
-run_action() { # название, команда… — пишет в журнал начало и результат
+# ---------- блокировка: одно изменяющее действие за раз ----------
+RP_LOCK="/run/remnapilot.lock"
+RP_LOCKED=""
+
+with_lock() { # название, команда… — выполнить, пока никто другой (меню, cron) ничего не меняет
+  local name="$1" rc who; shift
+  if [[ -n "$RP_LOCKED" ]] || ! command -v flock >/dev/null; then "$@"; return; fi
+  exec 8>"$RP_LOCK" 2>/dev/null || { "$@"; return; }
+  if ! flock -n 8; then
+    who=$(cat "$RP_LOCK.who" 2>/dev/null)
+    if [[ -n "${RP_AUTO:-}" ]]; then
+      flock -w 1800 8 || { exec 8>&-; return 75; }          # задача по расписанию ждёт до 30 минут
+    else
+      yel "⏳ Сейчас выполняется: ${who:-другая копия RemnaPilot}. Жду, пока закончится…"
+      flock -w 900 8 || { exec 8>&-; red "✖ Не дождался — попробуй позже"; return 75; }
+    fi
+  fi
+  printf '%s · pid %s · с %s\n' "$name" "$$" "$(date +%H:%M)" > "$RP_LOCK.who" 2>/dev/null
+  RP_LOCKED=1; "$@"; rc=$?; RP_LOCKED=""
+  rm -f "$RP_LOCK.who"; flock -u 8; exec 8>&-
+  return $rc
+}
+
+run_action() { # название, команда… — журнал + блокировка
   local name="$1" rc; shift
   jlog START "$name"
-  "$@"; rc=$?
+  with_lock "$name" "$@"; rc=$?
   if (( rc )); then jlog FAIL "$name (код $rc)"; else jlog OK "$name"; fi
   return $rc
 }
@@ -2963,7 +2995,11 @@ time_menu() {
 TG_CONF="/etc/rw/telegram.conf"
 tg_get() { grep -m1 "^$1=" "$TG_CONF" 2>/dev/null | cut -d= -f2-; }
 tg_on()  { [[ -n "$(tg_get TOKEN)" && -n "$(tg_get CHAT)" ]]; }
-tg_api() { curl -fsS --max-time 60 "https://api.telegram.org/bot$(tg_get TOKEN)/$1" "${@:2}"; }
+tg_curl() { # токен, метод, аргументы curl… — адрес с токеном идёт через stdin, а не в командной строке (её видно в ps)
+  local tok="$1" m="$2"; shift 2
+  printf 'url = "https://api.telegram.org/bot%s/%s"\n' "$tok" "$m" | curl -fsS --max-time 60 -K - "$@"
+}
+tg_api() { tg_curl "$(tg_get TOKEN)" "$@"; }
 tg_text() { tg_on || return 0; tg_api sendMessage -d chat_id="$(tg_get CHAT)" --data-urlencode text="$1" >/dev/null 2>&1; }
 tg_file() { # файл, подпись
   tg_on || return 0
@@ -2977,12 +3013,12 @@ tg_setup() {
   echo "  2. Напиши своему боту любое сообщение (например /start)."
   ask "Токен бота"; read -r tok; tok="${tok// /}"
   [[ "$tok" =~ ^[0-9]+:[A-Za-z0-9_-]{30,}$ ]] || { err "непохоже на токен бота"; return 1; }
-  name=$(curl -fsS --max-time 15 "https://api.telegram.org/bot$tok/getMe" 2>/dev/null | grep -oP '"username":"\K[^"]+')
+  name=$(tg_curl "$tok" getMe 2>/dev/null | grep -oP '"username":"\K[^"]+')
   [[ -n "$name" ]] || { err "Telegram не принял токен (или нет связи с api.telegram.org)"; return 1; }
   info "Бот: @$name. Ищу твой чат..."
-  chat=$(curl -fsS --max-time 15 "https://api.telegram.org/bot$tok/getUpdates" 2>/dev/null | grep -oP '"chat":\{"id":\K-?[0-9]+' | tail -1)
+  chat=$(tg_curl "$tok" getUpdates 2>/dev/null | grep -oP '"chat":\{"id":\K-?[0-9]+' | tail -1)
   if [[ -z "$chat" ]]; then ask "Не нашёл сообщений боту. Напиши ему и нажми Enter (или введи chat_id)"; read -r ans
-    chat="${ans:-$(curl -fsS --max-time 15 "https://api.telegram.org/bot$tok/getUpdates" 2>/dev/null | grep -oP '"chat":\{"id":\K-?[0-9]+' | tail -1)}"; fi
+    chat="${ans:-$(tg_curl "$tok" getUpdates 2>/dev/null | grep -oP '"chat":\{"id":\K-?[0-9]+' | tail -1)}"; fi
   [[ "$chat" =~ ^-?[0-9]+$ ]] || { err "chat_id не найден"; return 1; }
   mkdir -p /etc/rw; printf 'TOKEN=%s\nCHAT=%s\n' "$tok" "$chat" > "$TG_CONF"; chmod 600 "$TG_CONF"
   if tg_text "✅ RemnaPilot подключён к этому чату ($(hostname))"; then green "✔ Готово — проверь сообщение в Telegram"
@@ -3154,10 +3190,69 @@ bk_run() { # бэкап по расписанию: дамп + .env + списо�
   ls -1t "$RW_DIR"/backups/remnawave-*.tar.gz 2>/dev/null | tail -n +$((keep + 1)) | xargs -r rm -f
   ls -1t "$RW_DIR"/backups/db-*-auto.sql.gz 2>/dev/null | tail -n +$((keep + 1)) | while read -r f; do rm -f "$f" "${f%.sql.gz}.env"; done
   sz=$(du -h "$arc" | cut -f1)
-  if tg_on; then tg_file "$arc" "💾 $(hostname): бэкап Remnawave $(date '+%d.%m %H:%M'), $sz" || rc=1; fi
-  printf '%s|%s|Бэкап %s%s\n' "$(date '+%d.%m %H:%M')" "$( ((rc)) && echo FAIL || echo OK)" "$sz" "$( tg_on && { ((rc)) && echo ", в Telegram не отправился" || echo ", отправлен в Telegram"; })" > /etc/rw/.backup_last
+  local tgst=""
+  if tg_on; then
+    case "$(bk_get ENC "")" in
+      on)  local enc="$arc.enc"
+           if bk_encrypt "$arc" "$enc"; then
+             tg_file "$enc" "💾🔒 $(hostname): бэкап Remnawave $(date '+%d.%m %H:%M'), $sz — зашифрован" && tgst=", 🔒 отправлен в Telegram" || { rc=1; tgst=", в Telegram не отправился"; }
+           else rc=1; tgst=", не удалось зашифровать"; fi
+           rm -f "$enc" ;;
+      off) tg_file "$arc" "💾 $(hostname): бэкап Remnawave $(date '+%d.%m %H:%M'), $sz" && tgst=", отправлен в Telegram" || { rc=1; tgst=", в Telegram не отправился"; } ;;
+      *)   # пароль не задан — архив с секретами в открытом виде не отправляем
+           tg_text "💾 $(hostname): бэкап сделан ($sz), но в Telegram не отправлен — задай пароль шифрования: rw → База → Автобэкап → Шифрование"
+           tgst=", в Telegram не отправлен — задай пароль шифрования" ;;
+    esac
+  fi
+  printf '%s|%s|Бэкап %s%s\n' "$(date '+%d.%m %H:%M')" "$( ((rc)) && echo FAIL || echo OK)" "$sz" "$tgst" > /etc/rw/.backup_last
   jlog "$( ((rc)) && echo FAIL || echo OK)" "Автобэкап: $(basename "$arc") ($sz)"
   return $rc
+}
+
+# ----- шифрование архивов для Telegram -----
+BK_PASS="/etc/rw/backup.pass"
+bk_encrypt() { openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -pass "file:$BK_PASS" -in "$1" -out "$2" 2>/dev/null; }
+
+bk_enc_setup() {
+  local a p1 p2
+  echo "  Архив для Telegram будет зашифрован паролем (AES-256). Без пароля его не открыть —"
+  echo "  даже если чат или аккаунт Telegram взломают."
+  yel "  ⚠ Сохрани пароль в менеджере паролей: если сервер сгорит, без пароля бэкап бесполезен."
+  echo
+  item 1 "Придумать пароль самому"
+  item 2 "Сгенерировать надёжный"
+  item 3 "Не шифровать" "архив уйдёт в Telegram как есть"
+  item 0 "Отмена"
+  ask; read -r a; echo
+  case "$a" in
+    1) read -rsp "  Пароль (от 10 символов): " p1; echo; read -rsp "  Ещё раз: " p2; echo
+       [[ "$p1" == "$p2" ]] || { err "пароли не совпали"; return 1; }
+       (( ${#p1} >= 10 )) || { err "пароль короче 10 символов"; return 1; }
+       mkdir -p /etc/rw; ( umask 077; printf '%s' "$p1" > "$BK_PASS" ); bk_set ENC on
+       green "✔ Шифрование включено" ;;
+    2) p1=$(openssl rand -base64 24 | tr -d '/+=' | cut -c1-24)
+       mkdir -p /etc/rw; ( umask 077; printf '%s' "$p1" > "$BK_PASS" ); bk_set ENC on
+       green "✔ Шифрование включено. Пароль (запиши его сейчас):"; echo; printf '      %s%s%s\n\n' "$CB" "$p1" "$C0" ;;
+    3) bk_set ENC off; rm -f "$BK_PASS"; yel "Шифрование выключено — в архиве секреты панели." ;;
+    *) return 0 ;;
+  esac
+  echo "  Расшифровать архив:  rw --decrypt файл.tar.gz.enc"
+  jlog INFO "Шифрование бэкапов: $(bk_get ENC "")"
+}
+
+bk_enc_name() { case "$(bk_get ENC "")" in on) echo "$(dot ok) включено";; off) echo "$(dot warn) ${C_WARN}выключено${C0}";; *) echo "$(dot err) ${C_ERR}не настроено${C0}";; esac; }
+
+bk_decrypt() { # файл .enc → рядом без .enc
+  local f="$1" out="${1%.enc}" p
+  [[ -f "$f" ]] || { err "файл не найден: $f"; return 1; }
+  [[ "$out" == "$f" ]] && out="$f.dec"
+  if [[ -s "$BK_PASS" ]]; then
+    openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass "file:$BK_PASS" -in "$f" -out "$out" 2>/dev/null && { green "✔ Расшифровано: $out"; return 0; }
+  fi
+  read -rsp "Пароль бэкапа: " p; echo
+  if printf '%s' "$p" | openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass stdin -in "$f" -out "$out" 2>/dev/null; then
+    green "✔ Расшифровано: $out"; echo "  Распаковать:  tar -xzf $out"
+  else rm -f "$out"; red "✖ Неверный пароль или файл повреждён"; return 1; fi
 }
 
 bk_menu() {
@@ -3170,9 +3265,12 @@ bk_menu() {
     box_line "${C_MUT}$(padr "Хранить" 11)${C0}последние $(bk_get KEEP 7)"
     [[ -n "$last" ]] && box_line "${C_MUT}$(padr "Последний" 11)${C0}$(cut -d'|' -f1 <<< "$last")  $(cut -d'|' -f3 <<< "$last")"
     box_line "${C_MUT}$(padr "Telegram" 11)${C0}$(tg_on && echo "$(dot ok) архив приходит в чат" || echo "$(dot off) ${C_MUT}не подключён${C0}")"
+    tg_on && box_line "${C_MUT}$(padr "Шифрование" 11)${C0}$(bk_enc_name)"
     box_bottom
     echo "  В архиве: дамп базы, .env панели и список нод."
-    tg_on && yel "  ⚠ В .env есть секреты — чат с ботом должен быть только твоим."
+    if tg_on && [[ -z "$(bk_get ENC "")" ]]; then
+      yel "  ⚠ В Telegram архив не уходит, пока не задан пароль шифрования — пункт 8."
+    fi
     section "РАСПИСАНИЕ"
     item 1 "Выключить"
     item 2 "Каждый день"
@@ -3182,6 +3280,7 @@ bk_menu() {
     item 5 "Сколько хранить"
     item 6 "Telegram" "отправка архива в чат"
     item 7 "Сделать бэкап сейчас" "как по расписанию"
+    item 8 "Шифрование для Telegram" "$(bk_enc_name)"
     hr; item 0 "Назад"
     ask; read -r c; echo
     case "$c" in
@@ -3190,10 +3289,64 @@ bk_menu() {
       5) ask "Сколько последних бэкапов хранить [$(bk_get KEEP 7)]"; read -r n
          [[ "$n" =~ ^[0-9]+$ ]] && (( n >= 1 && n <= 365 )) && { bk_set KEEP "$n"; green "✔ Хранить: $n"; }; pause ;;
       6) tg_menu ;;
+      8) run_action "Шифрование бэкапов" bk_enc_setup; pause ;;
       7) info "Делаю бэкап..."; if run_action "Автобэкап вручную" bk_run; then green "✔ $(cut -d'|' -f3 /etc/rw/.backup_last)"; else red "✖ $(cut -d'|' -f3 /etc/rw/.backup_last)"; fi; pause ;;
       0|q|"") return ;;
     esac
   done
+}
+
+# ---------- самопроверка на реальном сервере (только чтение) ----------
+rp_selftest() {
+  local ok=0 warn=0 bad=0 v d
+  st() { case "$1" in
+    ok)   printf '   %s %s\n' "$(dot ok)" "$2"; ok=$((ok+1)) ;;
+    warn) printf '   %s %s%s%s\n' "$(dot warn)" "$C_WARN" "$2" "$C0"; warn=$((warn+1)) ;;
+    *)    printf '   %s %s%s%s\n' "$(dot err)" "$C_ERR" "$2" "$C0"; bad=$((bad+1)) ;;
+  esac; }
+  screen "Самопроверка"; echo
+  echo "  Только проверяет — ничего не меняет."
+  section "СИСТЕМА"
+  [[ -r /etc/os-release ]] && st ok "$(. /etc/os-release; echo "$PRETTY_NAME")"
+  (( BASH_VERSINFO[0] >= 5 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 4) )) && st ok "bash $BASH_VERSION" || st bad "bash $BASH_VERSION — нужен 4.4+"
+  for v in perl openssl curl flock awk sed tar gzip; do command -v "$v" >/dev/null && st ok "$v" || st bad "нет $v"; done
+  command -v python3 >/dev/null && st ok "python3" || st warn "нет python3 — лимиты логов Docker настроятся упрощённо"
+  if systemctl is-active cron >/dev/null 2>&1 || systemctl is-active crond >/dev/null 2>&1; then st ok "cron работает"; else st warn "cron не запущен — расписания включат его сами"; fi
+  d=$(df -Pm / | awk 'NR==2{print $4}'); (( d > 2048 )) && st ok "свободно на диске: $d МБ" || st warn "мало места на диске: $d МБ"
+  section "DOCKER"
+  if command -v docker >/dev/null; then st ok "docker $(docker version --format '{{.Server.Version}}' 2>/dev/null)"; else st bad "docker не установлен"; fi
+  if docker compose version >/dev/null 2>&1; then st ok "docker compose $(docker compose version --short 2>/dev/null)"; else st bad "нет Docker Compose v2"; fi
+  if [[ -f "$RW_DIR/.env" ]]; then
+    st ok "панель: $RW_DIR"
+    local DPS; dps_refresh
+    while IFS='|' read -r n s; do      # не через конвейер — иначе счётчики итога не обновятся
+      case "$s" in Up*unhealthy*|Restarting*) st warn "$n: $s" ;; Up*) st ok "$n: $s" ;; *) st bad "$n: $s" ;; esac
+    done < <(awk -F'|' '$2 ~ /remna/ {print $2"|"$3}' <<< "$DPS")
+  else st warn "панели нет в $RW_DIR (для сервера-ноды это нормально)"; fi
+  node_dir >/dev/null 2>&1 && st ok "нода: $(node_dir)"
+  section "СЕТЬ"
+  for v in github.com api.telegram.org acme-v02.api.letsencrypt.org; do
+    curl -fsS --max-time 8 -o /dev/null "https://$v" 2>/dev/null || curl -sS --max-time 8 -o /dev/null -w '%{http_code}' "https://$v" 2>/dev/null | grep -q '^[1-5]' \
+      && st ok "доступен $v" || st warn "нет связи с $v"
+  done
+  for v in 80 443; do
+    if port_busy "$v"; then st ok "порт $v занят: $(port_owner "$v")"; else st warn "порт $v свободен (сертификат через него выпустится без остановки сервисов)"; fi
+  done
+  if [[ -f "$RW_DIR/.env" ]]; then
+    local dom ip sip; dom=$(detect_old); sip=$(curl -4 -s --max-time 6 https://ifconfig.me)
+    [[ -n "$dom" ]] && { ip=$(getent ahostsv4 "$dom" | awk 'NR==1{print $1}')
+      if [[ -z "$ip" ]]; then st bad "$dom не резолвится"
+      elif [[ "$ip" == "$sip" ]]; then st ok "$dom → $ip (этот сервер)"
+      else st warn "$dom → $ip, а сервер $sip (норм, если за Cloudflare)"; fi; }
+  fi
+  section "ВРЕМЯ И СЕРТИФИКАТЫ"
+  v=$(time_offset 2>/dev/null); [[ -n "$v" ]] && { (( ${v#-} <= 2 )) && st ok "часы точные (${v} с)" || st bad "часы спешат/отстают на ${v} с — Reality может не работать"; }
+  acme_bin >/dev/null && st ok "acme.sh установлен" || st warn "acme.sh не установлен — поставится при первом выпуске"
+  command -v socat >/dev/null && st ok "socat" || st warn "нет socat — поставится при выпуске через порт 80/443"
+  section "ИТОГ"
+  printf '   %s%d ок%s · %s%d предупреждений%s · %s%d ошибок%s\n' "$C_OK" "$ok" "$C0" "$C_WARN" "$warn" "$C0" "$C_ERR" "$bad" "$C0"
+  (( bad )) && echo "   Исправь ошибки — иначе часть функций не сработает. Вывод можно прислать автору в Issue."
+  return 0
 }
 
 # ---------- удаление RemnaPilot ----------
@@ -3296,6 +3449,15 @@ theme_swatch() { # цветные блоки темы
 
 # ---------- версия ----------
 RP_CHANGELOG=(
+  "2.3|security|Бэкапы в Telegram шифруются паролем (AES-256); пока пароль не задан, архив с секретами в Telegram не уходит. Расшифровать — rw --decrypt"
+  "2.3|security|Токен Telegram-бота больше не виден в списке процессов (ps)"
+  "2.3|fix|Защита от одновременного запуска: автобэкап, автообновление и действия в меню больше не меняют сервер одновременно — второе ждёт первое"
+  "2.3|fix|Понятная ошибка, если нет Docker Compose v2 (вместо «unknown command»)"
+  "2.3|fix|Проверка подлинности не пугает зря: у старых релизов сверяется сам файл, сообщение спокойнее"
+  "2.3|fix|Поиск по меню находит «Сертификаты» по «серт» и на серверах без UTF-8-локали"
+  "2.3|new|Самопроверка сервера rw --selftest: Docker, Compose, cron, сеть, порты, DNS, часы, acme.sh — только проверяет, ничего не меняет"
+  "2.3|improve|Меню открывается вдвое быстрее: один вызов Docker на экран вместо семи"
+  "2.3|improve|Исходники разбиты на модули в src/, remnapilot.sh собирается из них; CI не даст выпустить изменённый скрипт без новой версии"
   "2.2.1|change|Убраны избранное, скрытые пункты и быстрые клавиши — меню снова простым списком; поиск по слову и компактный режим остались"
   "2.2|new|Экран «Что нового» после обновления — изменения новой версии по категориям, с цветными значками; вся история — rw --changelog"
   "2.2|improve|История изменений разложена по категориям: новое, улучшено, исправлено, безопасность, изменено — в скрипте, README, CHANGELOG и релизах"
@@ -3435,6 +3597,7 @@ about_screen() {
   show_changes 2
   echo
   echo "  Вся история изменений: rw --changelog"
+  echo "  Проверить, всё ли готово на сервере: rw --selftest"
   echo "  Обновить панель, ноды и сам RemnaPilot — Панель → Обновления."
 }
 
@@ -3524,9 +3687,18 @@ offer_cmd() {
   fi
 }
 
+need_compose() { # все действия используют «docker compose» (v2)
+  docker compose version >/dev/null 2>&1 && return 0
+  red "✖ Нужен Docker Compose v2 — команда «docker compose»."
+  command -v docker-compose >/dev/null && echo "  Сейчас стоит старый docker-compose v1, RemnaPilot с ним не работает."
+  echo "  Установить:  apt install docker-compose-plugin   (или: curl -fsSL https://get.docker.com | sh)"
+  return 1
+}
+
 need_panel() {
   [[ -f "$RW_DIR/.env" ]] || { red "✖ Панель не найдена ($RW_DIR/.env). Прочее → Сменить каталог панели."; return 1; }
   command -v docker >/dev/null || { red "✖ Не установлен docker"; return 1; }
+  need_compose || return 1
   command -v perl   >/dev/null || { red "✖ Не установлен perl (apt install perl)"; return 1; }
 }
 
@@ -3557,7 +3729,8 @@ VERFN
 
 local_ver() { # контейнер -> версия (кэш по ID контейнера: после пересоздания — заново)
   local id f v
-  id=$(docker inspect -f '{{.Id}}' "$1" 2>/dev/null) || return 0
+  [[ -n "$DPS" ]] && id=$(dps_id "$1")
+  [[ -n "$id" ]] || id=$(docker inspect -f '{{.Id}}' "$1" 2>/dev/null) || return 0
   [[ -n "$id" ]] || return 0
   f="/run/remnapilot/ver-${id:0:16}"
   [[ -s "$f" ]] && { cat "$f"; return 0; }
@@ -3644,6 +3817,7 @@ update_local_node() {
   local d before after
   d=$(node_dir) || { echo "  Ноды на этом сервере нет."; return 0; }
   command -v docker >/dev/null || { red "✖ docker не установлен"; return 1; }
+  need_compose || return 1
   [[ -n "$UPD_LOG" ]] || new_upd_log
   before=$(local_ver remnanode)
   snapshot_images "$d"
@@ -3753,19 +3927,28 @@ rp_fetch_latest() { # $1 = куда сохранить → 0, если скач�
   curl -fsSL --max-time 30 -o "$1" "https://raw.githubusercontent.com/$repo/main/remnapilot.sh" 2>/dev/null && rp_is_script "$1"
 }
 
-rp_verify_self() { # совпадает ли этот файл с официальным релизом своей версии → ok | modified | unknown
-  local repo sum got
+rp_verify_self() { # совпадает ли этот файл с официальным релизом → ok | modified | unknown
+  local repo sum got t
   repo=$(rp_repo); [[ "$repo" == https://* ]] && { echo unknown; return; }
-  sum=$(curl -fsSL --max-time 10 "https://github.com/$repo/releases/download/v$RP_VERSION/remnapilot.sh.sha256" 2>/dev/null | awk '{print $1}')
-  [[ "$sum" =~ ^[0-9a-f]{64}$ && -f "$RP_SELF" ]] || { echo unknown; return; }
+  [[ -f "$RP_SELF" ]] || { echo unknown; return; }
   got=$(sha256sum "$RP_SELF" | awk '{print $1}')
-  [[ "$got" == "$sum" ]] && echo ok || echo modified
+  sum=$(curl -fsSL --max-time 10 "https://github.com/$repo/releases/download/v$RP_VERSION/remnapilot.sh.sha256" 2>/dev/null | awk '{print $1}')
+  if [[ "$sum" =~ ^[0-9a-f]{64}$ ]]; then [[ "$got" == "$sum" ]] && { echo ok; return; }
+  else
+    # у старых релизов нет .sha256 — сравниваем с самим файлом релиза
+    t=$(mktemp)
+    if curl -fsSL --max-time 15 -o "$t" "https://github.com/$repo/releases/download/v$RP_VERSION/remnapilot.sh" 2>/dev/null; then
+      [[ "$(sha256sum "$t" | awk '{print $1}')" == "$got" ]] && { rm -f "$t"; echo ok; return; }
+    else rm -f "$t"; echo unknown; return; fi
+    rm -f "$t"
+  fi
+  echo modified
 }
 
 verify_line() {
   case "$(rp_verify_self)" in
     ok)       echo "$(dot ok) ${C_OK}официальный релиз${C0}" ;;
-    modified) echo "$(dot err) ${C_ERR}файл изменён — не совпадает с релизом v$RP_VERSION${C0}" ;;
+    modified) echo "$(dot warn) ${C_WARN}не совпадает с релизом v$RP_VERSION — изменён или не из релиза${C0}" ;;
     *)        echo "$(dot off) ${C_MUT}не проверить (нет связи или релиз без суммы)${C0}" ;;
   esac
 }
@@ -4006,7 +4189,7 @@ run_item() { # внутренний номер пункта → действие
     32) bk_menu ;;
     33) ui_menu ;;
     34) tg_menu ;;
-    35) rp_uninstall ;;
+    35) with_lock "Удаление RemnaPilot" rp_uninstall ;;
     28) install_cmd; pause ;;
     29) change_dir; pause ;;
     30) about_screen; pause ;;
@@ -4017,16 +4200,20 @@ run_item() { # внутренний номер пункта → действие
 # ----- поиск по слову -----
 MENU_PICK=""
 
+lc_utf8() { perl -CSA -e 'print lc $ARGV[0]' -- "$1" 2>/dev/null || printf '%s' "${1,,}"; }   # нижний регистр для кириллицы без UTF-8-локали
+
 all_items() { local x n; for x in "${MENU_SECTIONS[@]}"; do for n in ${x##*|}; do echo "$n"; done; done; }
 
 menu_lookup() { # слово → MENU_PICK = внутренний номер пункта
-  local q="${1,,}" id name hint hits=() i c
+  local q id name hint hits=() i c hay
+  q=$(lc_utf8 "$1")
   MENU_PICK=""
   q="${q#"${q%%[![:space:]]*}"}"; q="${q%"${q##*[![:space:]]}"}"
   (( ${#q} >= 2 )) || return 1
   while read -r id; do
     IFS='|' read -r name hint <<< "$(item_info "$id")"
-    if grep -qiF -- "$q" <<< "$name $hint $(T "$name") $(T "$hint")"; then hits+=("$id"); fi
+    hay=$(lc_utf8 "$name $hint $(T "$name") $(T "$hint")")
+    [[ "$hay" == *"$q"* ]] && hits+=("$id")
   done < <(all_items)
   case ${#hits[@]} in
     0) yel "  Ничего не найдено: «$1»"; sleep 1; return 1 ;;
@@ -4117,7 +4304,9 @@ while [[ $# -gt 0 ]]; do
     --backup)    DO_BACKUP=1; shift ;;
     --check-updates) DO_CHECK=1; shift ;;
     --verify)    DO_VERIFY=1; shift ;;
+    --selftest)  DO_SELFTEST=1; shift ;;
     --changelog) DO_CHANGELOG=1; shift ;;
+    --decrypt)   [[ -n "${2:-}" ]] || { echo "Укажи файл: rw --decrypt архив.tar.gz.enc"; exit 1; }; DO_DECRYPT="$2"; shift 2 ;;
     --whats-new) DO_WHATSNEW=1; shift ;;
     --uninstall) DO_UNINSTALL=1; shift ;;
     --geo-update-local) DO_GEO="${2:-loyal}"; [[ "$DO_GEO" == -* ]] && DO_GEO=loyal || shift; shift ;;
@@ -4159,7 +4348,11 @@ if [[ -n "$NEW" || -n "${SUB_NEW:-}" || ${DO_UPDATE:-0} == 1 || ${DO_CERT_STATUS
   need_panel || exit 1
 fi
 
-if (( ${DO_CHANGELOG:-0} )); then
+if (( ${DO_SELFTEST:-0} )); then
+  rp_selftest; exit 0
+elif [[ -n "${DO_DECRYPT:-}" ]]; then
+  bk_decrypt "$DO_DECRYPT"; exit $?
+elif (( ${DO_CHANGELOG:-0} )); then
   { printf '\n  %s%sИстория изменений RemnaPilot%s\n' "$C_ACC2" "$CB" "$C0"; show_changes; echo; } | RP_PAGER_TOP=1 show_paged; exit 0
 elif (( ${DO_WHATSNEW:-0} )); then
   whats_new ""; exit 0
@@ -4168,27 +4361,28 @@ elif (( ${DO_UNINSTALL:-0} )); then
 elif (( ${DO_VERIFY:-0} )); then
   case "$(rp_verify_self)" in
     ok)       green "✔ Подлинный RemnaPilot v$RP_VERSION — файл совпадает с официальным релизом"; exit 0 ;;
-    modified) red "✖ Файл изменён — не совпадает с официальным релизом v$RP_VERSION"; exit 2 ;;
+    modified) yel "⚠ Файл не совпадает с официальным релизом v$RP_VERSION: он изменён или скачан не из релиза."
+              echo "  Поставить официальный: Панель → Обновления → RemnaPilot → 1"; exit 2 ;;
     *)        yel "Не удалось проверить: нет связи с GitHub или у релиза нет контрольной суммы"; exit 3 ;;
   esac
 elif (( ${DO_AU:-0} )); then
-  au_run; exit $?
+  with_lock "Автообновление" au_run; exit $?
 elif (( ${DO_BACKUP:-0} )); then
-  bk_run; rc=$?; [[ -f /etc/rw/.backup_last ]] && cut -d'|' -f3 /etc/rw/.backup_last; exit $rc
+  with_lock "Автобэкап" bk_run; rc=$?; [[ -f /etc/rw/.backup_last ]] && cut -d'|' -f3 /etc/rw/.backup_last; exit $rc
 elif (( ${DO_CHECK:-0} )); then
   au_check_all; update_hints | sed -E 's/\x1b\[[0-9;]*m//g'; exit 0
 elif [[ -n "${DO_GEO:-}" ]]; then
-  bash -s <<< "$(geo_script "$DO_GEO")"
+  with_lock "Обновление geo" bash -c "$(geo_script "$DO_GEO")"
 elif (( ${DO_CERT_STATUS:-0} )); then
   cert_status
 elif [[ -n "${SUB_NEW:-}" ]]; then
-  change_sub_domain "$SUB_NEW" "$DRY"
+  run_action "Смена домена подписки" change_sub_domain "$SUB_NEW" "$DRY"
 elif (( ${DO_UPDATE_ALL:-0} )); then
-  update_all
+  run_action "Обновление: всё" update_all
 elif (( ${DO_UPDATE:-0} )); then
-  update_panel
+  run_action "Обновление панели" update_panel
 elif [[ -n "$NEW" ]]; then
-  change_domain "$NEW" "$OLD" "$DRY"
+  run_action "Смена домена" change_domain "$NEW" "$OLD" "$DRY"
 else
   offer_cmd
   check_whats_new
@@ -5421,4 +5615,97 @@ Traefik: алиас старого домена подписки с правил
 Просмотр длинных списков (логи, журнал) больше не падает без терминала — например, при запуске по SSH без tty	Long lists (logs, journal) no longer fail without a terminal — e.g. over SSH without a tty
 История изменений RemnaPilot	RemnaPilot changelog
 Убраны избранное, скрытые пункты и быстрые клавиши — меню снова простым списком; поиск по слову и компактный режим остались	Removed favorites, hidden items and quick keys — the menu is a plain list again; word search and compact mode remain
+Бэкапы в Telegram шифруются паролем (AES-256); пока пароль не задан, архив с секретами в Telegram не уходит. Расшифровать — rw --decrypt	Telegram backups are encrypted with a password (AES-256); until a password is set, the archive with secrets is not sent. Decrypt — rw --decrypt
+Токен Telegram-бота больше не виден в списке процессов (ps)	The Telegram bot token is no longer visible in the process list (ps)
+Защита от одновременного запуска: автобэкап, автообновление и действия в меню больше не меняют сервер одновременно — второе ждёт первое	Concurrency lock: auto-backup, auto-update and menu actions no longer change the server at the same time — the second waits for the first
+Понятная ошибка, если нет Docker Compose v2 (вместо «unknown command»)	A clear error when Docker Compose v2 is missing (instead of "unknown command")
+Проверка подлинности не пугает зря: у старых релизов сверяется сам файл, сообщение спокойнее	The authenticity check no longer raises false alarms: for old releases the file itself is compared, calmer message
+Поиск по меню находит «Сертификаты» по «серт» и на серверах без UTF-8-локали	Menu search is case-insensitive for Russian words even on servers without a UTF-8 locale
+Меню открывается вдвое быстрее: один вызов Docker на экран вместо семи	The menu opens twice as fast: one Docker call per screen instead of seven
+Исходники разбиты на модули в src/, remnapilot.sh собирается из них; CI не даст выпустить изменённый скрипт без новой версии	Sources split into modules in src/, remnapilot.sh is built from them; CI won't release a changed script without a new version
+Сейчас выполняется:	Now running:
+другая копия RemnaPilot	another RemnaPilot instance
+Жду, пока закончится…	Waiting for it to finish…
+Не дождался — попробуй позже	Gave up waiting — try again later
+Нужен Docker Compose v2 — команда «docker compose».	Docker Compose v2 is required — the "docker compose" command.
+Сейчас стоит старый docker-compose v1, RemnaPilot с ним не работает.	The old docker-compose v1 is installed; RemnaPilot does not work with it.
+Установить:	Install:
+(или:	(or:
+не совпадает с релизом v	does not match release v
+— изменён или не из релиза	— modified or not from a release
+Файл не совпадает с официальным релизом v	The file does not match official release v
+: он изменён или скачан не из релиза.	: it was modified or not downloaded from a release.
+Поставить официальный: Панель → Обновления → RemnaPilot → 1	Install the official one: Panel → Updates → RemnaPilot → 1
+Архив для Telegram будет зашифрован паролем (AES-256). Без пароля его не открыть —	The Telegram archive will be encrypted with a password (AES-256). It cannot be opened without it —
+даже если чат или аккаунт Telegram взломают.	even if the chat or Telegram account is hacked.
+Сохрани пароль в менеджере паролей: если сервер сгорит, без пароля бэкап бесполезен.	Keep the password in a password manager: if the server dies, the backup is useless without it.
+Придумать пароль самому	Set my own password
+Сгенерировать надёжный	Generate a strong one
+Не шифровать	Do not encrypt
+архив уйдёт в Telegram как есть	the archive goes to Telegram as is
+Пароль (от 10 символов):	Password (10+ characters):
+Ещё раз:	Again:
+пароли не совпали	passwords do not match
+пароль короче 10 символов	password is shorter than 10 characters
+Шифрование включено	Encryption enabled
+Шифрование включено. Пароль (запиши его сейчас):	Encryption enabled. Password (write it down now):
+Шифрование выключено — в архиве секреты панели.	Encryption disabled — the archive contains panel secrets.
+Расшифровать архив:	Decrypt the archive:
+Шифрование бэкапов:	Backup encryption:
+Шифрование бэкапов	Backup encryption
+включено	enabled
+выключено	disabled
+не настроено	not set up
+Шифрование	Encryption
+В Telegram архив не уходит, пока не задан пароль шифрования — пункт 8.	The archive is not sent to Telegram until an encryption password is set — item 8.
+Шифрование для Telegram	Encryption for Telegram
+Расшифровано:	Decrypted:
+Распаковать:	Unpack:
+Пароль бэкапа:	Backup password:
+Неверный пароль или файл повреждён	Wrong password or corrupted file
+— зашифрован	— encrypted
+бэкап сделан	backup done
+но в Telegram не отправлен — задай пароль шифрования: rw → База → Автобэкап → Шифрование	but not sent to Telegram — set an encryption password: rw → Database → Auto-backup → Encryption
+, 🔒 отправлен в Telegram	, 🔒 sent to Telegram
+, не удалось зашифровать	, encryption failed
+, в Telegram не отправлен — задай пароль шифрования	, not sent to Telegram — set an encryption password
+Укажи файл: rw --decrypt архив.tar.gz.enc	Specify the file: rw --decrypt archive.tar.gz.enc
+Самопроверка сервера rw --selftest: Docker, Compose, cron, сеть, порты, DNS, часы, acme.sh — только проверяет, ничего не меняет	Server self-test rw --selftest: Docker, Compose, cron, network, ports, DNS, clock, acme.sh — read-only
+Самопроверка	Self-test
+Только проверяет — ничего не меняет.	Read-only — changes nothing.
+СИСТЕМА	SYSTEM
+СЕТЬ	NETWORK
+ВРЕМЯ И СЕРТИФИКАТЫ	TIME AND CERTIFICATES
+— нужен 4.4+	— 4.4+ required
+нет python3 — лимиты логов Docker настроятся упрощённо	no python3 — Docker log limits will be set up in a simplified way
+cron работает	cron is running
+cron не запущен — расписания включат его сами	cron is not running — schedules will start it
+свободно на диске:	free disk space:
+мало места на диске:	low disk space:
+docker не установлен	docker is not installed
+нет Docker Compose v2	no Docker Compose v2
+панель:	panel:
+панели нет в	no panel in
+(для сервера-ноды это нормально)	(normal for a node server)
+нода:	node:
+доступен	reachable
+нет связи с	no connection to
+порт	port
+занят:	busy:
+свободен (сертификат через него выпустится без остановки сервисов)	free (a certificate can be issued without stopping services)
+не резолвится	does not resolve
+(этот сервер)	(this server)
+а сервер	but the server is
+(норм, если за Cloudflare)	(OK if behind Cloudflare)
+часы точные	clock is accurate
+часы спешат/отстают на	clock is off by
+с — Reality может не работать	s — Reality may not work
+acme.sh установлен	acme.sh installed
+acme.sh не установлен — поставится при первом выпуске	acme.sh not installed — will be installed on first issuance
+нет socat — поставится при выпуске через порт 80/443	no socat — will be installed when issuing via port 80/443
+ок	ok
+предупреждений	warnings
+ошибок	errors
+Исправь ошибки — иначе часть функций не сработает. Вывод можно прислать автору в Issue.	Fix the errors — otherwise some features won't work. You can send this output to the author in an Issue.
+Проверить, всё ли готово на сервере: rw --selftest	Check that the server is ready: rw --selftest
 __RP_EN_END__

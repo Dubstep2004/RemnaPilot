@@ -14,7 +14,7 @@ echo 'de-1 root@1.1.1.1 22' > "$T/nodes.list"
 out=$(bash -c "$common"'
   backup_db(){ local f="$RW_DIR/backups/db-$(date +%s%N)-auto.sql.gz"; echo dump | gzip > "$f"; cp "$RW_DIR/.env" "${f%.sql.gz}.env"; }
   tg_api(){ echo "[tg $1 $*]" >> "'"$T"'/tg.log"; }
-  bk_set KEEP 2; printf "TOKEN=1:x\nCHAT=5\n" > "$TG_CONF"
+  bk_set KEEP 2; bk_set ENC off; printf "TOKEN=1:x\nCHAT=5\n" > "$TG_CONF"
   for i in 1 2 3; do bk_run; sleep 1; done; echo "rc=$?"' 2>&1 | nocolor)
 check "архивов хранится ровно 2" '[ "$(ls "$T"/rw/backups/remnawave-*.tar.gz | wc -l)" = 2 ]'
 check "в архиве дамп, .env и список нод" 'tar -tzf "$(ls -1t "$T"/rw/backups/remnawave-*.tar.gz | head -1)" | grep -q remnawave.env && tar -tzf "$(ls -1t "$T"/rw/backups/remnawave-*.tar.gz | head -1)" | grep -q nodes.list'

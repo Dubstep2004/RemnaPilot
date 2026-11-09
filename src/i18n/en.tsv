@@ -1,0 +1,1309 @@
+Если всё хорошо — старую панель можно удалить. Если нет — запусти её здесь: Панель → Пересоздать контейнеры.	If all is fine, you can delete the old panel. If not, start it here: Panel → Recreate containers.
+Сертификаты: если способ не сработал — сразу предлагает другой (порт 80, 443, DNS Cloudflare, DNS вручную)	Certificates: if a method fails, another one is offered right away (port 80, 443, DNS Cloudflare, manual DNS)
+Смена домена панели не пугает «старые ссылки подписки перестанут работать», если подписка на своём домене	Panel domain change no longer warns "old subscription links will stop working" when the subscription has its own domain
+Готово. Сертификат для старого домена, если он в Nginx, перевыпусти: Панель → Сертификаты.	Done. If the old domain's certificate is in Nginx, reissue it: Panel → Certificates.
+Восстановление не удалось — изменения откачены (одна транзакция). Панель запущена со старыми данными.	Restore failed — changes were rolled back (single transaction). The panel is running with the old data.
+Смена доменов панели и подписки в одном пункте: один бэкап, один перезапуск, сертификаты сразу на оба	Panel and subscription domain change in one item: one backup, one restart, certificates for both at once
+Причина: проверку получил не этот сервер — домен смотрит на другой IP или включён прокси Cloudflare.	Reason: the challenge reached another server — the domain points to another IP or the Cloudflare proxy is on.
+Раздел «Обновления»: панель, страница подписки, нода здесь и ноды по SSH — с версиями «было → стало»	"Updates" section: panel, subscription page, local node and SSH nodes — with "was → now" versions
+Сертификаты: понятная причина ошибки — порт закрыт у хостера, прокси Cloudflare, DNS, лимит Let	Certificates: clear error reasons — port closed at the hoster, Cloudflare proxy, DNS, Let
+Сертификаты: хуки продления свои для каждого домена — второй сертификат больше не ломает первый	Certificates: separate renewal hooks per domain — a second certificate no longer breaks the first
+минимальный. Если у домена несколько имён, записей будет несколько с одним именем — добавь все.	minimal. If the domain has several names, there will be several records with the same name — add them all.
+Тюнинг убран, алгоритм — cubic. Остальные параметры вернутся к умолчаниям после перезагрузки.	Tuning removed, algorithm is cubic. Other parameters return to defaults after a reboot.
+На новом сервере запусти  rw  → «Сертификаты» → перевыпусти, чтобы заработало автопродление.	On the new server run  rw  → "Certificates" → reissue so auto-renewal works.
+Нужен API-токен Cloudflare: dash.cloudflare.com → My Profile → API Tokens → «Edit zone DNS».	A Cloudflare API token is needed: dash.cloudflare.com → My Profile → API Tokens → "Edit zone DNS".
+Откатить: «Обновления» → «Откатить последнее обновление» (вернёт образы и при желании базу).	Roll back: "Updates" → "Roll back last update" (restores images and, optionally, the database).
+Чтобы вынести подписку на свой домен, нужна страница подписки (remnawave/subscription-page).	To move the subscription to its own domain you need the subscription page (remnawave/subscription-page).
+смотрит не на этот сервер (похоже на прокси Cloudflare) — TLS-ALPN через прокси не работает.	does not point to this server (looks like the Cloudflare proxy) — TLS-ALPN does not work through a proxy.
+Если новая версия успела изменить базу, старая панель может не запуститься без отката базы.	If the new version already changed the database, the old panel may not start without a database rollback.
+Сертификаты: выпуск через DNS вручную (TXT-запись у любого регистратора) с проверкой записи	Certificates: manual DNS issuance (TXT record at any registrar) with record check
+Лимит логов Docker применён (для контейнеров, созданных заново — «Пересоздать контейнеры»)	Docker log limit applied (for newly created containers — "Recreate containers")
+Рядом есть .env из того же бэкапа. Восстановить и его? (нужно, если менялись JWT-секреты)	There is a .env from the same backup. Restore it too? (needed if JWT secrets changed)
+Открой его в панели хостера (firewall / security group) или выбери DNS — порты не нужны.	Open it in your hoster's panel (firewall / security group) or choose DNS — no ports needed.
+Порты, опубликованные Docker (ports: в compose), ufw НЕ закрывает — Docker обходит его.	Ports published by Docker (ports: in compose) are NOT blocked by ufw — Docker bypasses it.
+а домен и сертификат на сервере подписки нужно сменить там (этим же скриптом: Домены → Сменить домены).	and the domain and certificate on the subscription server must be changed there (with this script: Domains → Change domains).
+Панель здесь будет остановлена на время переноса (подписки и ноды продолжат работать).	The panel here will be stopped during the move (subscriptions and nodes keep working).
+похоже, страница подписки стоит на другом сервере. Здесь поменяется только .env панели	looks like the subscription page is on another server. Only the panel .env will change here
+хуков нет — при standalone-выпуске продление упрётся в занятый порт (исправит пункт 2)	no hooks — with standalone issuance renewal will hit a busy port (item 2 fixes it)
+Пока не видно — DNS обновляется от минуты до получаса. Подожди и нажми Enter ещё раз.	Not visible yet — DNS updates take from a minute to half an hour. Wait and press Enter again.
+После замены ВСЕ API-токены перестанут работать: страница подписки, боты, интеграции.	After replacing it ALL API tokens stop working: subscription page, bots, integrations.
+Мелочи: --help, проверка номера при удалении ноды, статус SSL без ложного «истёк»	Minor: --help, number check when removing a node, SSL status without false "expired"
+Список нод пуст. Если на нодах firewall пускает только старый IP панели — разреши	Node list is empty. If the node firewall only allows the old panel IP — allow
+Проверка открытых портов сообщает, если строку в compose не удалось исправить	Open ports check reports when a compose line could not be fixed
+Если выключить пароль сейчас — ты потеряешь доступ. Сначала добавь свой ключ	If you disable the password now you will lose access. Add your key first
+Причина: домен не найден в DNS или не указывает на сервер. Проверь A-запись.	Reason: the domain is not in DNS or does not point to the server. Check the A record.
+Не удалось войти без пароля. Сейчас попрошу пароль один раз и добавлю ключ.	Could not log in without a password. I will ask for the password once and add a key.
+Откроется Rescue CLI панели. «Reset superadmin» удалит текущего суперадмина	The panel Rescue CLI will open. "Reset superadmin" deletes the current superadmin
+Проверь в новом окне, что вход по ключу работает, прежде чем закрывать это.	Check in a new window that key login works before closing this one.
+Меню, смена домена панели и подписки, сертификаты, бэкап/восстановление БД	Menu, panel and subscription domain change, certificates, DB backup/restore
+Причина: неверный токен Cloudflare или у него нет прав Zone → DNS → Edit.	Reason: wrong Cloudflare token or it lacks Zone → DNS → Edit permission.
+Установка не удалась (если пользователь не root — нужен sudo без пароля).	Installation failed (if the user is not root, passwordless sudo is required).
+слишком много попыток). Подожди час (или неделю при лимите сертификатов).	too many attempts). Wait an hour (or a week for the certificate limit).
+Дополнительные порты через пробел (например 8443/tcp 2053/udp) или Enter	Extra ports separated by spaces (e.g. 8443/tcp 2053/udp) or Enter
+Остановка контейнеров в правильном порядке: сначала прокси, потом панель	Containers stop in the right order: proxy first, then panel
+Смена домена панели больше не сбрасывает свой путь подписки на /api/sub	Panel domain change no longer resets a custom subscription path to /api/sub
+Поддержка доменов в зоне .рф (punycode) и доменов с заглавными буквами	Support for IDN domains (punycode) and domains with capital letters
+Отдельного домена подписки нет — он меняется вместе с доменом панели.	There is no separate subscription domain — it changes together with the panel domain.
+Подожди обновления DNS и открой панель — данные должны быть на месте.	Wait for DNS to update and open the panel — the data should be there.
+Проверь их в «Безопасность» → там же можно привязать их к 127.0.0.1.	Check them in "Security" → you can bind them to 127.0.0.1 there.
+Скрипт запускается на чистом сервере без docker — для установки ноды	The script runs on a clean server without docker — for node installation
+Безопасность, логи, установка и массовое обновление нод, команда rw	Security, logs, node installation and bulk update, rw command
+Для лимита логов Docker нужен перезапуск Docker — VPN прервётся на	The Docker log limit needs a Docker restart — VPN will drop for
+Команда rw установлена из другой версии скрипта. Обновить её этой?	The rw command is from another script version. Replace it with this one?
+Сертификат не выпущен — сделай это позже в разделе «Сертификаты».	Certificate not issued — do it later in "Certificates".
+берётся в панели: Ноды → Management → + → Copy docker-compose.yml	is taken from the panel: Nodes → Management → + → Copy docker-compose.yml
+или на сервере панели: docker exec -it remnawave cli → Get SECRET	or on the panel server: docker exec -it remnawave cli → Get SECRET
+На новом сервере уже есть /opt/remnawave — он будет перезаписан.	The new server already has /opt/remnawave — it will be overwritten.
+Сгенерировать новый? (обнови его в Prometheus, если используешь)	Generate a new one? (update it in Prometheus if you use it)
+Сертификатов Nginx не найдено (Caddy/Traefik обновляют их сами).	No Nginx certificates found (Caddy/Traefik renew them themselves).
+панели (порт ноды откроется только для него; пусто — пропустить)	panel IP (the node port will be opened only for it; empty — skip)
+На новом сервере: подниму базу, восстановлю дамп, запущу панель	On the new server: start the database, restore the dump, start the panel
+Обновить панель, ноды и сам RemnaPilot — Панель → Обновления.	Update the panel, nodes and RemnaPilot itself — Panel → Updates.
+Готово. В панели нажми Next / проверь, что нода стала онлайн.	Done. Press Next in the panel / check that the node is online.
+Оставить старый домен рабочим, чтобы подписки не отвалились?	Keep the old domain working so subscriptions don't break?
+Откат: раздел «Обновления» → «Откатить последнее обновление»	Rollback: "Updates" → "Roll back last update"
+У клиентов в приложениях сохранены ссылки со старым доменом.	Clients' apps have links with the old domain saved.
+больше соединений и открытых файлов — для множества клиентов	more connections and open files — for many clients
+для /var/log/remnanode: каждый день, хранить 7 дней, сжимать	for /var/log/remnanode: daily, keep 7 days, compress
+перестанут работать — пользователям нужно обновить подписку.	will stop working — users need to update their subscription.
+после этого открой панель в браузере и зарегистрируй нового.	then open the panel in a browser and register a new one.
+Откат последнего обновления: старые образы + база из бэкапа	Roll back the last update: old images + database from backup
+Скопирую /opt/remnawave (конфиги, сертификаты, .env) и дамп	Copy /opt/remnawave (configs, certificates, .env) and the dump
+по умолчанию (ZeroSSL просил e-mail и не работал с .ru/.рф)	by default (ZeroSSL required e-mail and did not work with .ru/.рф)
+Домен подписки не найден в конфигах прокси на этом сервере	Subscription domain not found in proxy configs on this server
+Старая панель останется (остановленной) — можно вернуться.	The old panel stays (stopped) — you can go back.
+Запускаю базу и восстанавливаю данные на новом сервере...	Starting the database and restoring data on the new server...
+открыт для всех. Включи ufw, предварительно разрешив SSH.	is open to everyone. Enable ufw after allowing SSH.
+Проверить и исправить секреты, пароль БД, открытые порты	Check and fix secrets, DB password, open ports
+Через прокси Cloudflare работает только порт 80 или DNS.	Only port 80 or DNS works through the Cloudflare proxy.
+Какие обновить? (Enter — все, или номера через запятую)	Which to update? (Enter — all, or numbers separated by commas)
+Не закрывай это окно! Открой НОВОЕ подключение:  ssh -p	Do not close this window! Open a NEW connection:  ssh -p
+Обновить всё» одной кнопкой: бэкап базы → панель → ноды	Update all" with one button: DB backup → panel → nodes
+Проверю новый сервер, при необходимости поставлю Docker	Check the new server, install Docker if needed
+Сгенерировать новый? (обнови его у получателя вебхуков)	Generate a new one? (update it at the webhook receiver)
+перестанут работать, при необходимости оставь редирект.	will stop working, keep a redirect if needed.
+Убедись, что ТЫ СЕЙЧАС вошёл по ключу, а не по паролю.	Make sure YOU ARE NOW logged in with a key, not a password.
+в конфиге Nginx — выпусти его в разделе «Сертификаты».	in the Nginx config — issue it in "Certificates".
+это домен панели — для подписки на домене панели укажи	this is the panel domain — for a subscription on the panel domain set
+Скопируй целиком и вставь на новом сервере (под root)	Copy it all and paste on the new server (as root)
+Установить короткую команду  rw  для запуска скрипта?	Install the short command  rw  to launch the script?
+ошибок за 10 минут → бан на 1 час, повторно — дольше.	failures in 10 minutes → 1 hour ban, longer on repeat.
+Исправлен вылет на необъявленных переменных (set -u)	Fixed crash on undeclared variables (set -u)
+Панель не поднялась после обновления. Последние логи	The panel did not start after the update. Last logs
+Подписка отдаётся с домена панели — старые ссылки на	The subscription is served from the panel domain — old links to
+Разрешу IP новой панели на нодах (если они в списке)	Allow the new panel IP on nodes (if they are in the list)
+алиас старого домена подписки с правильными скобками	old subscription domain alias with correct brackets
+останутся открытыми — доступ к серверу не потеряешь.	will stay open — you won't lose access to the server.
+с ssl не найден — сертификат выпустит Caddy/Traefik.	with ssl not found — Caddy/Traefik will issue the certificate.
+Это порт SSH — не закрываю, иначе потеряешь доступ.	This is the SSH port — not closing it, or you'd lose access.
+Их нужно будет создать заново в панели и прописать	You will need to create them again in the panel and set
+Пересоздать контейнеры, чтобы применить изменения?	Recreate containers to apply the changes?
+Сгенерировать новый? Все админы будут разлогинены.	Generate a new one? All admins will be logged out.
+Смена домена не трогает копии .env в папке backups	Domain change no longer touches .env copies in the backups folder
+большие TCP-буферы — скорость на дальних маршрутах	large TCP buffers — speed on long routes
+неиспользуемые Docker-образы без тега и кэш сборки	unused untagged Docker images and build cache
+Закрепление версии панели (или возврат на latest)	Pin the panel version (or return to latest)
+Остановлю панель здесь и сделаю свежий бэкап базы	Stop the panel here and make a fresh DB backup
+Подписка была на домене панели — старые ссылки на	The subscription was on the panel domain — old links to
+Вход по паролю выключен, root — только по ключу.	Password login disabled, root — key only.
+включён, тюнинг применён. Перезагрузка не нужна.	enabled, tuning applied. No reboot needed.
+не резолвится — сертификат может не выпуститься.	does not resolve — the certificate may fail to issue.
+Добавить в список для массового обновления? Имя	Add to the list for bulk updates? Name
+Записей об обновлениях нет — откатывать нечего.	No update records — nothing to roll back.
+Подписка не менялась — ссылки клиентов прежние.	Subscription not changed — client links stay the same.
+Сбросить суперадмина / включить вход по паролю	Reset superadmin / enable password login
+быстрее на каналах с потерями и большим пингом	faster on lossy, high-latency links
+не удалось определить старый домен, укажи его	could not detect the old domain, specify it
+БД не запущена — пароль Postgres не проверен	DB is not running — Postgres password not checked
+Не удалось поставить Docker на новом сервере	Could not install Docker on the new server
+У клиентов в приложениях сохранены ссылки на	Clients' apps have links saved to
+восстановлен (старый — .env.before-restore)	restored (old one — .env.before-restore)
+дней повтори выпуск (раздел «Сертификаты»).	days repeat the issuance ("Certificates").
+логи каждого контейнера не больше 3 × 50 МБ	each container's logs no more than 3 × 50 MB
+не нашёл в docker-compose — поправь вручную	not found in docker-compose — fix it manually
+Привязать их к 127.0.0.1 в docker-compose?	Bind them to 127.0.0.1 in docker-compose?
+Сертификаты: автоустановка acme.sh и socat	Certificates: auto-install acme.sh and socat
+Пробное продление на тестовом сервере Let	Test renewal on the staging server of Let
+У регистратора домена поменяй A-записи на	At your domain registrar change the A records to
+домен подписки совпадает с доменом панели	subscription domain equals the panel domain
+образы для отката обновления сохраняются)	images for update rollback are kept)
+установлен. Дальше запускай командой:  rw	installed. From now on run:  rw
+Бэкап старого .env лежит рядом: .env.bak	Backup of the old .env is next to it: .env.bak
+Панель на этом же сервере — разрешу порт	The panel is on this server — I will allow port
+Продление не проходит — проверь порт/DNS	Renewal fails — check port/DNS
+Сколько последних бэкапов базы оставить?	How many recent DB backups to keep?
+на домене панели — сменится вместе с ним	on the panel domain — will change with it
+Готово: теперь можно просто набрать  rw	Done: now you can just type  rw
+Оставить старый домен подписки рабочим?	Keep the old subscription domain working?
+Получилось подключиться на новом порту?	Were you able to connect on the new port?
+Установить ноду на другой сервер по SSH	Install a node on another server via SSH
+панель (+ бэкап базы перед обновлением)	panel (+ DB backup before updating)
+Бэкап не удался. Всё равно продолжить?	Backup failed. Continue anyway?
+Добавил? Enter — проверить, q — отмена	Added? Enter — check, q — cancel
+Контейнер БД не найден, дамп пропущен.	DB container not found, dump skipped.
+Панель не обновилась — ноды не трогаю.	Panel was not updated — leaving nodes alone.
+Подписка сейчас отдаётся самой панелью	The subscription is currently served by the panel itself
+Причина: порт занят другой программой.	Reason: the port is used by another program.
+Проверить, что автопродление сработает	Check that auto-renewal will work
+Ручной DNS не продлевается сам — через	Manual DNS does not auto-renew — in about
+Скачать и перезапустить панель сейчас?	Pull and restart the panel now?
+логи контейнеров больше 50 МБ — обрежу	container logs over 50 MB — truncate
+любой DNS-провайдер, без автопродления	any DNS provider, no auto-renewal
+с проверкой, без риска потерять доступ	with a check, no risk of losing access
+Бэкап не удался. Продолжить без него?	Backup failed. Continue without it?
+На этом сервере нода, порт управления	This server has a node, control port
+Не установлен perl (apt install perl)	perl is not installed (apt install perl)
+Сделать бэкап базы перед обновлением?	Back up the database before updating?
+без «медленного старта» после простоя	no "slow start" after idle
+всегда последняя, «2» — последняя 2.x	always the latest, "2" — latest 2.x
+Нужен вход под root на новом сервере	Root login on the new server is required
+Останавливаю панель и делаю бэкап...	Stopping the panel and making a backup...
+на своём компьютере:  ssh-copy-id -p	on your computer:  ssh-copy-id -p
+Новый раздел «О программе и версии»	New "About & version" section
+Подскажу, какие DNS-записи поменять	Tell you which DNS records to change
+Сейчас в compose: remnawave/backend	Currently in compose: remnawave/backend
+Установка одной командой: curl -sSL	One-command install: curl -sSL
+не найден — ограничь доступ к порту	not found — restrict access to port
+старые бэкапы — оставлю последние N	old backups — keep the last N
+На сервере нет ни одного SSH-ключа	There are no SSH keys on the server
+Прочее → Сменить каталог панели.	Other → Change panel directory.
+Самообновление RemnaPilot с GitHub	RemnaPilot self-update from GitHub
+Старый домен в конфигах не найден.	Old domain not found in configs.
+Страховочный бэкап текущей базы...	Safety backup of the current database...
+боевой сертификат не трогается)...	the production certificate is not touched)...
+добавишь TXT-запись у регистратора	you add a TXT record at your registrar
+Бэкап не удался — перенос отменён	Backup failed — move cancelled
+Порт (например 8443 или 2053/udp)	Port (e.g. 8443 or 2053/udp)
+панели, с которого разрешить порт	panel IP to allow the port from
+скопировать и вставить на сервере	copy and paste on the server
+БД/панель доступны из интернета)	DB/panel reachable from the internet)
+Готовлю новый сервер (Docker)...	Preparing the new server (Docker)...
+ДОБАВЬ TXT-ЗАПИСИ У РЕГИСТРАТОРА	ADD TXT RECORDS AT YOUR REGISTRAR
+Панель уже на последней версии v	The panel is already on the latest version v
+Пароль Postgres дефолтный/слабый	Postgres password is default/weak
+журнал ОС (journald) — до 200 МБ	OS journal (journald) — down to 200 MB
+Включить вход по паролю обратно	Re-enable password login
+Обновить / перевыпустить сейчас	Renew / reissue now
+Очистка: лимиты логов настроены	Cleanup: log limits configured
+Перенос панели на другой сервер	Move the panel to another server
+Предпросмотр — изменятся строки	Preview — these lines will change
+Путь к дампу (.sql или .sql.gz)	Path to the dump (.sql or .sql.gz)
+не достучался до сервера — порт	could not reach the server — port
+не удалось изменить пароль в БД	could not change the password in the DB
+п) указать путь к файлу вручную	p) enter the file path manually
+порты не нужны, нужен API-токен	no ports needed, API token required
+старый и новый домены совпадают	old and new domains are the same
+Не нашёл файлы сертификата для	Certificate files not found for
+Не удалось установить fail2ban	Could not install fail2ban
+Нода уже на последней версии v	The node is already on the latest version v
+Нужен socat: apt install socat	socat is required: apt install socat
+Ограничить рост логов навсегда	Limit log growth permanently
+Только с IP (Enter — для всех)	Only from IP (Enter — for everyone)
+Установить ноду на этот сервер	Install a node on this server
+ок, если домен за Cloudflare).	OK if the domain is behind Cloudflare).
+ссылки клиентов не изменились.	client links did not change.
+ВНИМАНИЕ: ufw выключен — порт	WARNING: ufw is disabled — port
+ВНИМАНИЕ: текущие данные базы	WARNING: the current data of database
+Вход по паролю снова включён.	Password login enabled again.
+Откатить последнее обновление	Roll back last update
+В compose: remnawave/backend	In compose: remnawave/backend
+Наружу открыты только 80/443	Only 80/443 are open to the outside
+Не удалось получить версию с	Could not get the version from
+Нет acme.sh или сертификата.	No acme.sh or certificate.
+Остановить на время выпуска?	Stop it during issuance?
+Подписка на отдельном домене	Subscription is on a separate domain
+автоматически не остановить.	cannot be stopped automatically.
+пароль изменён в БД и в .env	password changed in the DB and in .env
+пока тоже открыт в firewall)	is still open in the firewall too)
+Для подтверждения введи YES	Type YES to confirm
+Запусти от root:  curl -sSL	Run as root:  curl -sSL
+Команда rw уже установлена.	The rw command is already installed.
+Настроить вход по SSH-ключу	Set up SSH key login
+Оставлено последних бэкапов	Recent backups kept
+Сеть: BBR и тюнинг включены	Network: BBR and tuning enabled
+некорректный домен подписки	invalid subscription domain
+порт должен быть 1024–65535	port must be 1024–65535
+Готово. Подписка: https://	Done. Subscription: https://
+Запустил обратно контейнер	Started container back
+Останавливаю контейнеры...	Stopping containers...
+Показать команду установки	Show the install command
+Попробовать другой способ?	Try another method?
+Предпросмотр смены доменов	Domain change preview
+Сертификат: тест продления	Certificate: renewal test
+Установка и обновление нод	Node install and update
+и лимит journald настроены	and journald limit configured
+и настроить автообновление	and set up auto-renewal
+не установлен. Установить?	is not installed. Install?
+панель · ноды · RemnaPilot	panel · nodes · RemnaPilot
+пульт управления Remnawave	Remnawave control panel
+Выключить вход по паролю?	Disable password login?
+Закрепление версии панели	Pin panel version
+Не удалось установить ufw	Could not install ufw
+Ноды на этом сервере нет.	There is no node on this server.
+Продление пройдёт успешно	Renewal will succeed
+будут заменены содержимым	will be replaced with the contents of
+введи пароль SSH один раз	enter the SSH password once
+некорректный домен панели	invalid panel domain
+нужен Linux 4.9+, а здесь	requires Linux 4.9+, but here
+Выключить вход по паролю	Disable password login
+Журнал ОС ужат до 200 МБ	OS journal shrunk to 200 MB
+Номер ноды (Enter — все)	Node number (Enter — all)
+Пересоздание контейнеров	Recreating containers
+Пересоздаю контейнеры...	Recreating containers...
+Скачанный файл повреждён	Downloaded file is corrupted
+Устанавливаю fail2ban...	Installing fail2ban...
+Установка Remnawave Node	Installing Remnawave Node
+оставить домен как есть.	keep the domain as is.
+хуки продления настроены	renewal hooks configured
+Автопродление настроено	Auto-renewal configured
+Выпускаю сертификат для	Issuing certificate for
+Закрепить версию панели	Pin panel version
+Запустил обратно сервис	Started service back
+Настроить одной кнопкой	One-click setup
+Ошибка на новом сервере	Error on the new server
+Проверяю подключение...	Checking connection...
+вход по паролю выключен	password login disabled
+контейнер БД не запущен	DB container is not running
+логи ноды старше 7 дней	node logs older than 7 days
+порт · fail2ban · ключи	port · fail2ban · keys
+Безопасность: проверка	Security: check
+Восстановить и базу из	Restore the database too from
+Добавить ноду в список	Add a node to the list
+Запускаю контейнеры...	Starting containers...
+Запусти от root (sudo)	Run as root (sudo)
+Контейнеры не найдены.	No containers found.
+Настройки и контейнеры	Settings and containers
+Ошибка обновления ноды	Node update error
+Пересоздать контейнеры	Recreate containers
+СЕЙЧАС СЛУШАЮТ СНАРУЖИ	LISTENING EXTERNALLY NOW
+Сменить каталог панели	Change panel directory
+Старые ссылки https://	Old links https://
+Удалить ноду из списка	Remove a node from the list
+Устанавливаю Docker...	Installing Docker...
+Файлы восстановлены из	Files restored from
+бан за перебор паролей	ban for password brute-force
+вход по паролю включён	password login enabled
+База восстановлена из	Database restored from
+Включить BBR и тюнинг	Enable BBR and tuning
+Восстановить из дампа	Restore from dump
+Входящие по умолчанию	Incoming by default
+Жду запуска панели...	Waiting for the panel to start...
+ОСТАЛОСЬ СДЕЛАТЬ ТЕБЕ	LEFT FOR YOU TO DO
+Обновление RemnaPilot	RemnaPilot update
+Обновление нод по SSH	Node update via SSH
+Обновляю RemnaPilot v	Updating RemnaPilot v
+Откатить смену домена	Roll back domain change
+Ошибка при обновлении	Update error
+Последние строки лога	Last log lines
+Сеть: тюнинг выключен	Network: tuning disabled
+Устанавливаю socat...	Installing socat...
+Установить команду rw	Install the rw command
+Установка ноды по SSH	Node install via SSH
+без socat не работает	does not work without socat
+панель и/или подписка	panel and/or subscription
+привязаны к 127.0.0.1	bound to 127.0.0.1
+Заняты оба порта: 80	Both ports are busy: 80
+Наружу открыты порты	Ports open to the outside
+Не скопировался дамп	Dump was not copied
+Не установлен docker	docker is not installed
+Новый домен подписки	New subscription domain
+Ноду на этом сервере	Node on this server
+О программе и версии	About & version
+Обновить ноды по SSH	Update nodes via SSH
+Очистка: освобождено	Cleanup: freed
+Ошибка в конфиге SSH	Error in SSH config
+ПОСЛЕДНЕЕ ОБНОВЛЕНИЕ	LAST UPDATE
+Сгенерировать новый?	Generate a new one?
+Установка ноды здесь	Local node install
+выглядит некорректно	looks invalid
+исходящие: разрешены	outgoing: allowed
+к порту ноды вручную	to the node port manually
+не удалось — разреши	failed — allow
+нода на этом сервере	node on this server
+ноды на этом сервере	nodes on this server
+перестанут работать.	will stop working.
+секреты · БД · админ	secrets · DB · admin
+слабый или дефолтный	weak or default
+Восстановление базы	Database restore
+Всё равно заменить?	Replace anyway?
+Выключить firewall?	Disable the firewall?
+Готово. Старый порт	Done. Old port
+Нода не запустилась	The node did not start
+Нода установлена на	Node installed on
+Останавливаю панель	Stopping the panel
+Ошибки за всё время	Errors for all time
+Панель обновлена: v	Panel updated: v
+Порт 443 (TLS-ALPN)	Port 443 (TLS-ALPN)
+Последние 300 строк	Last 300 lines
+Сеть: откат тюнинга	Network: tuning rollback
+Удалить все записи?	Delete all records?
+Устанавливаю ufw...	Installing ufw...
+Установить fail2ban	Install fail2ban
+в firewall хостера.	in the hoster's firewall.
+на этом сервере нет	not on this server
+некорректная версия	invalid version
+продолжат работать.	will keep working.
+через Caddy/Traefik	via Caddy/Traefik
+В реальном времени	Live
+Включить firewall?	Enable the firewall?
+Выбор (0 — отмена)	Choice (0 — cancel)
+Выключить firewall	Disable firewall
+Логи ноды почищены	Node logs cleaned
+Локальная версия v	Local version v
+Не удалось скачать	Could not download
+Новый домен панели	New panel domain
+Номер для удаления	Number to remove
+Откат смены домена	Domain change rollback
+Ошибка конфига SSH	SSH config error
+Ошибка копирования	Copy error
+Ошибок не найдено.	No errors found.
+Панель запущена на	Panel started on
+Подписка: https://	Subscription: https://
+Предпросмотр смены	Change preview
+Причина: лимит Let	Reason: rate limit of Let
+Проверяю версии...	Checking versions...
+Сертификат: выпуск	Certificate: issue
+временно остановлю	will stop temporarily
+домен не изменился	the domain did not change
+или вернуть latest	or return to latest
+некорректный домен	invalid domain
+нет связи с GitHub	no connection to GitHub
+оставлен как алиас	kept as an alias
+остановлю на время	will stop for a while
+через смену в .env	via a change in .env
+Ничего не меняем.	Nothing to change.
+Нода обновлена: v	Node updated: v
+Обновление панели	Panel update
+Образы возвращены	Images restored
+Ошибки за 24 часа	Errors in 24 hours
+Панель не найдена	Panel not found
+Перенос панели на	Moving the panel to
+Сброс суперадмина	Superadmin reset
+для Docker-сетей.	for Docker networks.
+занят контейнером	is used by container
+некорректный порт	invalid port
+по умолчанию root	default root
+разрешён только с	allowed only from
+старый как алиас)	old one as alias)
+Вернуть как было	Revert
+Готово: https://	Done: https://
+ИЗМЕНЯТСЯ СТРОКИ	LINES TO CHANGE
+КАК ЭТО РАБОТАЕТ	HOW IT WORKS
+Неизвестный флаг	Unknown flag
+Откат обновления	Update rollback
+Откатить образы?	Roll back images?
+Панель: https://	Panel: https://
+Путь к Remnawave	Path to Remnawave
+Сертификаты: Let	Certificates: Let
+Сменить порт SSH	Change SSH port
+Старые ссылки на	Old links to
+Текущая подписка	Current subscription
+выключить пароль	disable password
+можно освободить	can be freed
+на время выпуска	during issuance
+не больше 300 МБ	no more than 300 MB
+Временно открыл	Temporarily opened
+Дамп не удался.	Dump failed.
+Журнал действий	Action log
+Начать перенос?	Start the move?
+Обновить статус	Refresh status
+Обновление ноды	Node update
+Обновление: всё	Update: all
+Очистить журнал	Clear the log
+Очистить сейчас	Clean up now
+Ошибки за 1 час	Errors in 1 hour
+Пароль Postgres	Postgres password
+Слово или regex	Word or regex
+включить пароль	enable password
+включён для SSH	enabled for SSH
+закрыт снаружи.	closed from the outside.
+занят процессом	is used by process
+и верну обратно	and bring it back
+кэш пакетов apt	apt package cache
+не задан в .env	is not set in .env
+не слушает порт	is not listening on port
+некорректный IP	invalid IP
+теперь на порту	now on port
+только по ключу	key only
+АВТООБНОВЛЕНИЕ	AUTO-RENEWAL
+Восстанавливаю	Restoring
+Всё в порядке.	All good.
+Домен подписки	Subscription domain
+Каталог панели	Panel directory
+Кэш apt очищен	apt cache cleared
+Новая подписка	New subscription
+Новый порт SSH	New SSH port
+Обновлено до v	Updated to v
+Перенос панели	Panel move
+Поиск по слову	Search by word
+Порт 80 (HTTP)	Port 80 (HTTP)
+Сертификат для	Certificate for
+Сменить домены	Change domains
+Ускорение сети	Network boost
+ЧТО НОВОГО В v	WHAT'S NEW IN v
+вернуть %s%s%s	restore %s%s%s
+всё ещё занят.	is still busy.
+занят сервисом	is used by service
+не установился	failed to install
+не установлено	not installed
+нет authorized	no authorized
+новее релиза v	newer than release v
+порты не нужны	no ports needed
+с бэкапом базы	with DB backup
+у регистратора	at the registrar
+файл не найден	file not found
+файл повреждён	file is corrupted
+Журнал очищен	Log cleared
+Копирую файлы	Copying files
+Не получилось	Failed
+Нет доступа к	No access to
+Очистка диска	Disk cleanup
+Подключаюсь к	Connecting to
+Сделать бэкап	Make a backup
+Смена доменов	Domain change
+Только ошибки	Errors only
+Уже в списке.	Already in the list.
+без изменений	no changes
+к порту ноды.	to the node port.
+не запустился	did not start
+не установлен	not installed
+новые сверху)	newest first)
+панель + ноды	panel + nodes
+Безопасность	Security
+Бэкапов нет.	No backups.
+Введи версию	Enter a version
+Домен панели	Panel domain
+Журнал пуст.	Log is empty.
+Закрыть порт	Close a port
+Лимиты логов	Log limits
+Новый сервер	New server
+Открыть порт	Open a port
+Причина: Let	Reason: Let
+Старый домен	Old domain
+Там нет .env	No .env there
+закрыть порт	close port
+записи видны	records are visible
+защищает SSH	protects SSH
+не включился	was not enabled
+открыть порт	open port
+перезапускаю	restarting
+сертификаты)	certificates)
+Вернул порт	Restored port
+Весь журнал	Full log
+Логи Docker	Docker logs
+НОДЫ ПО SSH	NODES VIA SSH
+Новый домен	New domain
+Ноды по SSH	Nodes via SSH
+Освобождено	Freed
+СЕРТИФИКАТЫ	CERTIFICATES
+Сертификаты	Certificates
+Создан ключ	Key created
+Список пуст	The list is empty
+ЧТО НАСТРОЮ	WHAT WILL BE SET UP
+без паролей	no passwords
+в firewalld	in firewalld
+не выпущен.	not issued.
+не найдены)	not found)
+ноды по SSH	nodes via SSH
+остановлена	stopped
+смена порта	port change
+список пуст	list is empty
+Бэкап базы	Database backup
+Запустить?	Launch?
+Защита SSH	SSH protection
+КОНТЕЙНЕРЫ	CONTAINERS
+Команда rw	rw command
+НОДА ЗДЕСЬ	LOCAL NODE
+Нужен root	Root required
+Обновления	Updates
+Применить?	Apply?
+Сертификат	Certificate
+Список нод	Node list
+ЧТО ВКЛЮЧУ	WHAT WILL BE ENABLED
+актуальная	up to date
+в iptables	in iptables
+доступ для	access for
+доступна v	available v
+не найдена	not found
+недоступна	unavailable
+неизвестно	unknown
+нет образа	no image
+нода здесь	node here
+установлен	installed
+Всё сразу	Everything
+Дамп базы	Database dump
+Добавлена	Added
+Журнал ОС	OS journal
+Логи ноды	Node logs
+НАСТРОЙКИ	SETTINGS
+Остановил	Stopped
+Отменено.	Cancelled.
+Порт ноды	Node port
+Применено	Applied
+Сеть: BBR	Network: BBR
+ЧТО ОЧИЩУ	WHAT WILL BE CLEANED
+возвращаю	reverting
+выключен)	disabled)
+дефолтный	default
+дн. назад	days ago
+запрещены	denied
+контейнер	container
+настройка	setup
+не найден	not found
+порт ноды	node port
+последняя	latest
+пропускаю	skipping
+уже занят	is already in use
+Алгоритм	Algorithm
+Бэкап БД	DB backup
+ДЕЙСТВИЯ	ACTIONS
+Запустил	Started
+ИСТОЧНИК	SOURCE
+Имя ноды	Node name
+Источник	Source
+Ноды SSH	SSH nodes
+ОБНОВИТЬ	UPDATE
+Обновляю	Updating
+ПОДПИСКА	SUBSCRIPTION
+ПРОВЕРКА	CHECK
+Подписка	Subscription
+Порт 443	Port 443
+Сменить?	Change?
+актуален	up to date
+в списке	in the list
+выключен	disabled
+забанено	banned
+завершён	completed
+и т.п.).	etc.).
+осталось	left
+применён	applied
+проблемы	problems
+работает	running
+свободен	free
+только с	only from
+Дампы в	Dumps in
+Каталог	Directory
+Начать?	Start?
+Ноды...	Nodes...
+Очередь	Queue
+ПРАВИЛА	RULES
+Порт 80	Port 80
+Удалена	Removed
+включён	enabled
+вручную	manually
+дампов)	dumps)
+закрыт.	closed.
+заменён	replaced
+каталог	directory
+открыто	opened
+порт(ы)	port(s)
+почищен	cleaned
+секунд.	seconds.
+сервера	server
+БЭКАПЫ	BACKUPS
+Бэкапы	Backups
+ВЕРСИИ	VERSIONS
+Версия	Version
+Готово	Done
+Диск /	Disk /
+Закрыт	Closed
+Образы	Images
+Открыт	Opened
+Откуда	From
+Отмена	Cancel
+ПАНЕЛЬ	PANEL
+ПРОЧЕЕ	OTHER
+Панель	Panel
+Пароль	Password
+СЕРВЕР	SERVER
+СПОСОБ	METHOD
+Сервер	Server
+Способ	Method
+Тюнинг	Tuning
+закрыт	closed
+занято	used
+открыт	open
+ошибка	error
+пусто)	empty)
+слабый	weak
+старый	old
+Бэкап	Backup
+Выбор	Choice
+Выход	Exit
+ДОМЕН	DOMAIN
+Домен	Domain
+ИСТЁК	EXPIRED
+Ключи	Keys
+Назад	Back
+Номер	Number
+РЕЖИМ	MODE
+Режим	Mode
+ФАЙЛЫ	FILES
+Файлы	Files
+в ufw	in ufw
+выход	exit
+домен	domain
+занят	busy
+истёк	expired
+назад	ago
+Авто	Auto
+БАЗА	DATABASE
+ИТОГ	SUMMARY
+Куда	To
+Логи	Logs
+НОДЫ	NODES
+Нода	Node
+Ноды	Nodes
+ПЛАН	PLAN
+Порт	Port
+Файл	File
+Ядро	Kernel
+база	database
+есть	present
+нода	node
+порт	port
+тест	test
+для	for
+дн.	days
+код	code
+нет	no
+МБ	MB
+из	of
+п	p
+Firewall включён	Firewall enabled
+Firewall выключен	Firewall disabled
+Firewall: открыто	Firewall: opened
+Firewall: открыт	Firewall: opened
+Firewall: закрыт	Firewall: closed
+Firewall: настройка	Firewall: setup
+Firewall: открыть порт	Firewall: open port
+Firewall: закрыть порт	Firewall: close port
+SSH-порт(ы)	SSH port(s)
+SSH: смена порта	SSH: port change
+SSH: fail2ban	SSH: fail2ban
+SSH: выключить пароль	SSH: disable password
+SSH: включить пароль	SSH: enable password
+SSH теперь на порту	SSH is now on port
+fail2ban защищает SSH	fail2ban protects SSH
+fail2ban не запустился	fail2ban did not start
+fail2ban включён для SSH	fail2ban enabled for SSH
+BBR нужен Linux 4.9+, а здесь	BBR requires Linux 4.9+, but here
+BBR не включился (ядро без модуля tcp_bbr?)	BBR was not enabled (kernel without tcp_bbr module?)
+BBR включён, тюнинг применён. Перезагрузка не нужна.	BBR enabled, tuning applied. No reboot needed.
+BBR + fq — быстрее на каналах с потерями и большим пингом	BBR + fq — faster on lossy, high-latency links
+TCP Fast Open, MTU probing, без «медленного старта» после простоя	TCP Fast Open, MTU probing, no "slow start" after idle
+Docker почищен	Docker cleaned
+Docker: логи каждого контейнера не больше 3 × 50 МБ	Docker: each container's logs no more than 3 × 50 MB
+logrotate для /var/log/remnanode: каждый день, хранить 7 дней, сжимать	logrotate for /var/log/remnanode: daily, keep 7 days, compress
+logrotate и лимит journald настроены	logrotate and journald limit configured
+journald: не больше 300 МБ	journald: no more than 300 MB
+Language / Язык	Language / Язык
+Русский	Russian
+Firewall	Firewall
+TXT-записи видны	TXT records are visible
+DNS вручную	Manual DNS
+DNS Cloudflare	DNS Cloudflare
+Значение:	Value:
+Имя:	Name:
+новее, чем на GitHub	is newer than on GitHub
+Локальная версия v	Local version v
+База	DB
+Очистка диска и ограничение роста логов (Docker, journald, logrotate для ноды)	Disk cleanup and log growth limits (Docker, journald, logrotate for the node)
+одной кнопкой: SSH, 80, 443, порты Xray, порт ноды только с IP панели	in one click: SSH, 80, 443, Xray ports, node port only from the panel IP
+Защита SSH: смена порта с проверкой, fail2ban, вход только по ключу	SSH protection: port change with a check, fail2ban, key-only login
+Журнал действий: что, когда и с каким результатом	Action log: what, when and with what result
+Перенос панели на другой сервер одним сценарием	Moving the panel to another server in one scenario
+Ускорение сети: BBR и тюнинг TCP	Network boost: BBR and TCP tuning
+Английский язык интерфейса	English interface language
+Firewall одной кнопкой	One-click firewall
+Язык:	Language:
+проверка видит блокировку IP. Блокировку по SNI/DPI она не покажет — это проверяется реальным подключением.	check detects IP blocking. It won't show SNI/DPI blocking — that needs a real connection test.
+Обновление geoip/geosite на нодах (Loyalsoldier или runetfreedom), автообновление раз в неделю	geoip/geosite update on nodes (Loyalsoldier or runetfreedom), weekly auto-update
+Новые теги (например geosite:ru-blocked) используй в правилах маршрутизации профиля в панели.	Use new tags (e.g. geosite:ru-blocked) in the routing rules of the profile in the panel.
+МБ включён и переживёт перезагрузку (swappiness 10 — используется только при нехватке RAM)	MB enabled and survives reboots (swappiness 10 — used only when RAM runs out)
+Подбор SNI для Reality: проверка TLS 1.3, H2, X25519, пинга и поиск соседей в подсети	Reality SNI picker: TLS 1.3, H2, X25519, ping check and neighbor search in the subnet
+Нод нет: ни на этом сервере, ни в списке (Ноды → Установка и обновление нод → Добавить ноду в список).	No nodes: neither on this server nor in the list (Nodes → Node install and update → Add a node to the list).
+Соседей с TLS 1.3 + H2 не нашлось. Попробуй проверить известные домены вручную.	No neighbors with TLS 1.3 + H2 found. Try checking known domains manually.
+Список доменов меняй под себя. Остальной трафик пойдёт как раньше — напрямую.	Adjust the domain list as you like. All other traffic goes directly, as before.
+на ноде: SOCKS5 через Cloudflare + готовые настройки для профиля в панели	on a node: SOCKS5 via Cloudflare + ready settings for the panel profile
+недоступен ни с одного узла — похоже на блокировку IP (или порт закрыт).	is unreachable from every node — looks like an IP block (or the port is closed).
+близко к серверу (в идеале — тот же дата-центр) и не за Cloudflare.	close to the server (ideally the same data center) and not behind Cloudflare.
+Время: синхронизация NTP, часовой пояс, проверка расхождения часов	Time: NTP sync, time zone, clock drift check
+Статус всех нод на одном экране: CPU, RAM, диск, версия, аптайм	All nodes status on one screen: CPU, RAM, disk, version, uptime
+Хороший SNI: TLS 1.3, H2, X25519, без редиректа на другой домен	A good SNI: TLS 1.3, H2, X25519, no redirect to another domain
+Проверка IP: доступность из РФ (check-host.net), пинг, скорость	IP check: reachability from Russia (check-host.net), ping, speed
+выход в интернет через Cloudflare. Сайты, которые блокируют IP	internet access via Cloudflare. Sites that block hosting IPs
+трафик туда направляют правила маршрутизации в панели.	traffic is sent there by routing rules in the panel.
+Обновлять автоматически раз в неделю на этом сервере?	Auto-update weekly on this server?
+Нод нет (Ноды → Установка и обновление нод → Добавить ноду в список).	No nodes (Nodes → Node install and update → Add a node to the list).
+своп здесь создать нельзя, его выдаёт хостер.	swap cannot be created here, the hoster provides it.
+Панель → Config Profiles → профиль ноды → в	Panel → Config Profiles → node profile → in
+Сейчас у check-host.net нет узлов в РФ.	check-host.net currently has no nodes in Russia.
+недоступен — проверка из РФ невозможна	unreachable — check from Russia is not possible
+откроются. Ставится как SOCKS5-прокси	will open. Installed as a SOCKS5 proxy
+Синхронизировать время на всех нодах	Sync time on all nodes
+нет — при 1–2 ГБ RAM рекомендуется	none — recommended with 1–2 GB RAM
+с — Xray/Reality может не работать	s — Xray/Reality may not work
+ДОБАВЬ В ПРОФИЛЬ КОНФИГА В ПАНЕЛИ	ADD TO THE CONFIG PROFILE IN THE PANEL
+блокировка в РФ · пинг · скорость	RU block · ping · speed
+возможна частичная блокировка.	partial blocking is possible.
+Включить синхронизацию времени	Enable time synchronization
+не установился cloudflare-warp	cloudflare-warp failed to install
+Синхронизация времени включена	Time synchronization enabled
+нет SSH-ключа — Ноды → Установка → 7	no SSH key — Nodes → Install → 7
+сертификат не прошёл проверку	certificate failed verification
+Мало места на диске: свободно	Low disk space: free
+Показать настройки для панели	Show settings for the panel
+за Cloudflare — нежелательно	behind Cloudflare — not recommended
+Не удалось узнать внешний IP	Could not get the public IP
+Жду ответы узлов (10 сек)...	Waiting for node responses (10 s)...
+Доступен не со всех узлов РФ	Not reachable from all RU nodes
+для VPS с маленькой памятью	for VPS with little memory
+Каждый понедельник в 04:17	Every Monday at 04:17
+рекомендуется для серверов	recommended for servers
+установлен, но не работает	installed but not working
+мировой, самый популярный	global, most popular
+например Asia/Novosibirsk	e.g. Asia/Novosibirsk
+Обновить geoip / geosite	Update geoip / geosite
+Не удалось включить swap	Could not enable swap
+Создать / изменить swap	Create / resize swap
+ИЗ РОССИИ → ЭТОТ СЕРВЕР	FROM RUSSIA → THIS SERVER
+сайты в той же подсети	sites in the same subnet
+Подбор SNI для Reality	Reality SNI picker
+Найти соседей сервера	Find server neighbors
+СКОРОСТЬ (Cloudflare)	SPEED (Cloudflare)
+доступен из РФ по TCP	reachable from Russia via TCP
+Загрузка:	Download:
+Отдача:	Upload:
+Мбит/с	Mbit/s
+Время и часовой пояс	Time and time zone
+Сменить часовой пояс	Change time zone
+Создаю /swapfile на	Creating /swapfile of
+Проверка IP сервера	Server IP check
+Проверяю каждого...	Checking each...
+нода не установлена	node not installed
+нужен Debian/Ubuntu	Debian/Ubuntu required
+Яндекс DNS (Москва)	Yandex DNS (Moscow)
+с ru-blocked для РФ	with ru-blocked for Russia
+Время: часовой пояс	Time: time zone
+не синхронизировано	not synchronized
+Найдено кандидатов	Candidates found
+Все ноды из списка	All nodes from the list
+Скачиваю 50 МБ...	Downloading 50 MB...
+для ChatGPT и др.	for ChatGPT etc.
+Порт для проверки	Port to check
+слишком маленький	too small
+контрольная сумма	checksum
+Размер swap в МБ	Swap size in MB
+Проверить домены	Check domains
+синхронизировано	synchronized
+Страна:	Country:
+Хостинг:	Hosting:
+Список нод пуст.	Node list is empty.
+нет такого пояса	no such time zone
+Статус всех нод	All nodes status
+выше остальных)	above the others)
+Установить WARP	Install WARP
+ПИНГ С СЕРВЕРА	PING FROM THE SERVER
+Проверить WARP	Check WARP
+не подключился	did not connect
+Отдаю 20 МБ...	Uploading 20 MB...
+Ввести вручную	Enter manually
+НА КАКОЙ НОДЕ	ON WHICH NODE
+Это контейнер	This is a container
+диск · версия	disk · version
+если мало RAM	if RAM is low
+через пробел	space-separated
+ЧАСОВОЙ ПОЯС	TIME ZONE
+Часовой пояс	Time zone
+Удалить swap	Remove swap
+Удалить WARP	Remove WARP
+этот сервер	this server
+всё отлично	all good
+Расхождение	Drift
+Проверка IP	IP check
+редирект на	redirect to
+нет TLS 1.3	no TLS 1.3
+Время: ноды	Time: nodes
+не скачался	was not downloaded
+Этот сервер	This server
+Финляндия	Finland
+Из РФ порт	From Russia port
+Время: NTP	Time: NTP
+минута)...	minute)...
+нет X25519	no X25519
+Опрашиваю	Polling
+замечания	notes
+установка	installation
+Сканирую	Scanning
+ПРОВЕРКИ	CHECKS
+нет ноды	no node
+хостеров	hosters
+создание	creation
+удаление	removal
+удалён.	removed.
+на ноде	on a node
+потери	loss
+адреса	addresses
+нет H2	no H2
+удалён	removed
+не РФ	not RU
+далеко	far
+здесь	here
+Домены	Domains
+Время	Time
+узел	node
+пинг	ping
+КУДА	WHERE
+Пояс	Zone
+ГДЕ	WHERE
+мс	ms
+WARP на ноде	WARP on node
+Swap удалён.	Swap removed.
+Swap: создание	Swap: creation
+Swap: удаление	Swap: removal
+WARP: установка	WARP: installation
+WARP: удаление	WARP: removal
+Cloudflare для ChatGPT и др.	Cloudflare for ChatGPT etc.
+Английский режим: «Статус всех нод» больше не зависает навсегда	English mode: "All nodes status" no longer hangs forever
+Смена языка и самообновление больше не теряют цвета и не переводят вывод дважды	Language switch and self-update no longer lose colors or translate output twice
+Флаги без значения (--dir, --old…) больше не вешают скрипт	Flags without a value (--dir, --old…) no longer hang the script
+Статус нод: данные с ноды не выполняются как код (безопасность)	Node status: data from a node is no longer executed as code (security)
+Firewall: пустой IP панели больше не закрывает порт ноды для всех	Firewall: an empty panel IP no longer closes the node port for everyone
+SSH: при отмене смены порта новый порт закрывается в firewall	SSH: cancelling a port change closes the new port in the firewall
+Перенос: живые файлы БД не копируются, старая панель не оживает после перезагрузки	Move: live DB files are not copied, the old panel won't come back after a reboot
+Swap на xfs/btrfs, geo при compose.yaml, WARP без обрыва установки, cron geo без команды rw	Swap on xfs/btrfs, geo with compose.yaml, WARP install no longer aborts, geo cron without the rw command
+Очистка: верный размер логов Docker, daemon.json не перезаписывается	Cleanup: correct Docker log size, daemon.json is not overwritten
+Английский: «О программе» переводится полностью, исправлен символ & в переводах	English: "About" is fully translated, & in translations fixed
+Удаление старых доменов и алиасов: из конфигов, сертификатов и автопродления	Removing old domains and aliases: from configs, certificates and auto-renewal
+Исправлено: старый заказ acme.sh после смены домена мог при продлении затереть новый сертификат	Fixed: after a domain change the old acme.sh order could overwrite the new certificate on renewal
+Удалить старые домены	Remove old domains
+алиасы и ненужные	aliases and unused
+Удаление доменов	Domain removal
+Удалены домены	Removed domains
+СТАРЫЕ ДОМЕНЫ И АЛИАСЫ	OLD DOMAINS AND ALIASES
+БУДЕТ УДАЛЕНО	WILL BE REMOVED
+Что удалить (номера через пробел)	What to remove (space-separated numbers)
+Все сразу	All at once
+Лишних доменов нет — в конфигах только домены панели и подписки.	No extra domains — configs contain only the panel and subscription domains.
+Ссылки подписки и адреса на этих доменах перестанут открываться.	Subscription links and addresses on these domains will stop opening.
+Удалить?	Delete?
+удалён из конфигов	removed from configs
+не найден в конфигах	not found in configs
+больше не используется	is no longer used
+Готово. Удалено доменов	Done. Domains removed
+A-записи этих доменов у регистратора теперь можно удалить (или не продлевать домен).	The A records of these domains can now be deleted at the registrar (or let the domain expire).
+Старое автопродление для	Old auto-renewal for
+отключено	disabled
+не удаляется	not removable
+ничего не выбрано	nothing selected
+Без привязки к ссылке: запуск из файла, обновление RemnaPilot из загруженного файла	No link dependency: run from a file, update RemnaPilot from an uploaded file
+Сохрани скрипт в файл и запусти его:  sudo bash remnapilot.sh	Save the script to a file and run it:  sudo bash remnapilot.sh
+Сохрани скрипт в файл и запусти его оттуда — тогда команда rw установится.	Save the script to a file and run it from there — then the rw command will be installed.
+Загрузи новую версию на сервер (scp или SFTP) и укажи путь к файлу.	Upload the new version to the server (scp or SFTP) and enter the file path.
+Путь к новому remnapilot.sh	Path to the new remnapilot.sh
+Это не RemnaPilot или файл повреждён	This is not RemnaPilot or the file is corrupted
+Это та же версия	This is the same version
+В файле версия v	The file has version v
+она старее текущей v	it is older than the current v
+перезапускаю	restarting
+RemnaPilot обновлён до v	RemnaPilot updated to v
+из загруженного файла	from an uploaded file
+Укажи файл:	Specify the file:
+Обновление RemnaPilot с GitHub: репозиторий указывается в меню, в файл не вшит	RemnaPilot update from GitHub: the repository is set in the menu, not hardcoded
+Подсказка в главном меню, когда вышла новая версия RemnaPilot	Main menu hint when a new RemnaPilot version is out
+Укажи репозиторий на GitHub, где лежит remnapilot.sh:	Enter the GitHub repository with remnapilot.sh:
+owner/repo — например  user/remnapilot	owner/repo — e.g.  user/remnapilot
+берётся файл из последнего релиза, иначе из ветки main	the file from the latest release, otherwise from the main branch
+или прямая ссылка https://… на файл	or a direct https://… link to the file
+Репозиторий	Repository
+непохоже на owner/repo или ссылку	does not look like owner/repo or a link
+Найден RemnaPilot v	Found RemnaPilot v
+Файл remnapilot.sh по этому адресу не найден (репозиторий закрыт или файла нет). Источник сохранён.	remnapilot.sh not found at this address (private repo or no file). Source saved.
+Источник обновлений	Update source
+Источник обновлений не задан.	Update source is not set.
+источник обновлений не задан	update source not set
+Скачиваю с GitHub...	Downloading from GitHub...
+Не удалось скачать remnapilot.sh	Could not download remnapilot.sh
+У тебя последняя версия	You have the latest version
+Источник:	Source:
+на GitHub	on GitHub
+Обновить с GitHub	Update from GitHub
+источник не задан	source not set
+Обновить из файла	Update from a file
+загруженного на сервер	uploaded to the server
+Указать репозиторий GitHub	Set the GitHub repository
+GitHub или файл	GitHub or file
+Доступен RemnaPilot v	RemnaPilot available v
+пункт 6 → 5	item 6 → 5
+Обновление RemnaPilot (GitHub)	RemnaPilot update (GitHub)
+Обновление RemnaPilot (файл)	RemnaPilot update (file)
+Проверяю...	Checking...
+Официальный репозиторий github.com/Dubstep2004/RemnaPilot — установка одной командой и обновления из коробки	Official repository github.com/Dubstep2004/RemnaPilot — one-command install and updates out of the box
+Запусти от root (sudo -i)	Run as root (sudo -i)
+Не удалось скачать RemnaPilot. Сохрани скрипт в файл и запусти:	Could not download RemnaPilot. Save the script to a file and run:
+Не удалось скачать RemnaPilot — сохрани скрипт в файл и запусти его оттуда.	Could not download RemnaPilot — save the script to a file and run it from there.
+РФ · пинг · скорость	RU · ping · speed
+Сворачиваемое меню: на главном экране только разделы, пункты — внутри. Полный список — в «Прочее → Вид меню»	Collapsible menu: only sections on the main screen, items inside. Full list — in "Other → Menu view"
+Автотесты в GitHub Actions: релиз не выходит, если тесты упали	Automated tests in GitHub Actions: no release if tests fail
+Домены	Domains
+Проверки	Checks
+Прочее	Other
+РАЗДЕЛЫ	SECTIONS
+ДОМЕНЫ	DOMAINS
+смена · удаление · откат	change · remove · rollback
+обновления · сертификаты · логи	updates · certificates · logs
+бэкап · восстановление	backup · restore
+статус · geo · WARP	status · geo · WARP
+firewall · SSH · BBR · swap	firewall · SSH · BBR · swap
+IP · SNI для Reality	IP · SNI for Reality
+журнал · язык · о программе	log · language · about
+Вид меню	Menu view
+полный список	full list
+разделы	sections
+Панель → Обновления → RemnaPilot	Panel → Updates → RemnaPilot
+Панель → Обновления	Panel → Updates
+Домены → Сменить домены	Domains → Change domains
+Панель → Сертификаты	Panel → Certificates
+Панель → Пересоздать контейнеры	Panel → Recreate containers
+Ноды → Установка и обновление нод → Добавить ноду в список	Nodes → Node install and update → Add a node to the list
+Ноды → Установка	Nodes → Install
+Прочее → Сменить каталог панели.	Other → Change panel directory.
+База → Восстановить из дампа	Database → Restore from dump
+перевыпусти:	reissue:
+через	via
+Панель будет обновляться без тебя. Перед каждым обновлением — бэкап базы, при сбое — уведомление и откат вручную.	The panel will update without you. A DB backup before each update; on failure — a notification and a manual rollback.
+Не удалось скачать RemnaPilot. Сохрани скрипт в файл и запусти:	Could not download RemnaPilot. Save the script to a file and run:
+Меню снова полным списком, как раньше; разделы — по желанию в «Оформлении»	The menu is a full list again, as before; sections are optional in "Appearance"
+Сюда приходят: автобэкапы базы, результаты автообновления, ошибки.	You get here: DB auto-backups, auto-update results, errors.
+Панель: ошибка обновления — откати: Панель → Обновления → 6.	Panel: update error — roll back: Panel → Updates → 6.
+В .env есть секреты — чат с ботом должен быть только твоим.	.env contains secrets — the chat with the bot must be yours only.
+Напиши своему боту любое сообщение (например /start).	Send your bot any message (e.g. /start).
+не принял токен (или нет связи с api.telegram.org)	did not accept the token (or no connection to api.telegram.org)
+Не нашёл сообщений боту. Напиши ему и нажми Enter	No messages to the bot found. Send it one and press Enter
+Сообщение не отправилось — проверь токен и chat	The message was not sent — check the token and chat
+В архиве: дамп базы, .env панели и список нод.	The archive has: the DB dump, the panel .env and the node list.
+Готово — проверь сообщение в Telegram	Done — check the message in Telegram
+бэкап · автобэкап · восстановление	backup · auto-backup · restore
+файл больше 49 МБ — не отправлен	file over 49 MB — not sent
+Сколько последних бэкапов хранить	How many recent backups to keep
+панель и ноду — с бэкапом базы	panel and node — with a DB backup
+подсказка в меню и в Telegram	hint in the menu and in Telegram
+оформление · Telegram · язык	appearance · Telegram · language
+Автобэкап: панель не найдена	Auto-backup: panel not found
+Отправить тестовое сообщение	Send a test message
+всё сам (ночью, с бэкапом)	everything (at night, with a backup)
+Автобэкап базы не удался	DB auto-backup failed
+автобэкап базы не удался	DB auto-backup failed
+в Telegram не отправился	not sent to Telegram
+Обновлять RemnaPilot сам	Update RemnaPilot automatically
+Нода: ошибка обновления.	Node: update error.
+тема · номера · логотип	theme · numbers · logo
+раз в неделю (вс 03:30)	weekly (Sun 03:30)
+Уведомления в Telegram	Telegram notifications
+непохоже на токен бота	does not look like a bot token
+подключён к этому чату	is connected to this chat
+Сначала подключи бота.	Connect the bot first.
+отправка архива в чат	send the archive to the chat
+Сбросить по умолчанию	Reset to defaults
+отправлен в Telegram	sent to Telegram
+Сделать бэкап сейчас	Back up now
+архив приходит в чат	archive is sent to the chat
+каждый день в 03:30	daily at 03:30
+Подсказки у пунктов	Item hints
+Обновлять всё сам	Update everything automatically
+Автобэкап вручную	Manual auto-backup
+Доступна панель v	Panel available v
+Доступна нода v	Node available v
+как по расписанию	as scheduled
+В Telegram открой	In Telegram open
+только проверять	check only
+Только проверять	Check only
+Проверить сейчас	Check now
+Ищу твой чат...	Looking for your chat...
+Каждые 12 часов	Every 12 hours
+отчёты приходят	reports are sent
+каждые 12 часов	every 12 hours
+Подключить бота	Connect the bot
+бэкап Remnawave	Remnawave backup
+Тест RemnaPilot	RemnaPilot test
+Сколько хранить	How many to keep
+Номера пунктов	Item numbers
+Делаю бэкап...	Backing up...
+Статус сервера	Server status
+Не отправилось	Not sent
+Автообновление	Auto-update
+получи токен.	get the token.
+обновлён до v	updated to v
+каждую ночь в	every night at
+не подключено	not connected
+панель · ноды	panel · nodes
+Всё актуально	Everything is up to date
+всё актуально	everything is up to date
+Без логотипа	No logo
+Раз в неделю	Weekly
+не подключён	not connected
+подключение	connection
+Каждый день	Daily
+одна строка	one line
+Одна строка	One line
+Оформление	Appearance
+Отправлено	Sent
+Токен бота	Bot token
+Расписание	Schedule
+подключено	connected
+панели нет	no panel
+РАСПИСАНИЕ	SCHEDULE
+Отключить	Disconnect
+Автобэкап	Auto-backup
+последние	last
+отключён.	disconnected.
+Выключить	Turn off
+Последний	Last
+Выключено	Off
+Маленький	Small
+подключён	connected
+выключено	off
+выключен	off
+Включить?	Enable?
+показаны	shown
+маленький	small
+большой	big
+без логотипа	no logo
+рамка	box
+скрыт	hidden
+скрыты	hidden
+ЛОГОТИП	LOGO
+Логотип	Logo
+Большой	Big
+Хранить	Keep
+Скрыть	Hide
+СТАТУС	STATUS
+НОМЕРА	NUMBERS
+ПРИМЕР	PREVIEW
+НАСТРОЙКИ	SETTINGS
+Рамка	Box
+Океан	Ocean
+Когда	When
+Закат	Sunset
+Моно	Mono
+Тема	Theme
+ТЕМА	THEME
+Неон	Neon
+Лёд	Ice
+Лес	Forest
+Бот	Bot
+Режим	Mode
+Флаги без значения (--dir, --old…) больше не вешают скрипт	Flags without a value (--dir, --old…) no longer hang the script
+RemnaPilot установлен в /usr/local/bin/rw — дальше запускай командой: rw	RemnaPilot installed to /usr/local/bin/rw — from now on run: rw
+Оформление: 6 тем, стиль номеров (1, 1), [1], 1., ①), большой/маленький логотип, скрытие подсказок, статус рамкой или строкой	Appearance: 6 themes, number style (1, 1), [1], 1., ①), big/small logo, hide hints, status as a box or a line
+Автопроверка обновлений каждую ночь: подсказка в меню, режимы «только проверять», «RemnaPilot сам», «всё сам с бэкапом»	Nightly update check: menu hint, modes "check only", "RemnaPilot itself", "everything with a backup"
+Автобэкап по расписанию: архив с базой, .env и списком нод, хранение N копий, отправка в Telegram	Scheduled backup: archive with the database, .env and node list, keeps N copies, sends to Telegram
+Уведомления в Telegram: бэкапы, результаты автообновления, ошибки	Telegram notifications: backups, auto-update results, errors
+Убран пункт «Указать репозиторий» — обновления всегда из официального репозитория	Removed "Set repository" — updates always come from the official repository
+Исправлено: запуск через bash <(curl …) — теперь ставится в /usr/local/bin/rw, работают перевод и cron	Fixed: running via bash <(curl …) now installs to /usr/local/bin/rw, translation and cron work
+Исправлено: тесты отказываются запускаться на сервере с живой панелью	Fixed: tests refuse to run on a server with a live panel
+Очистка удаляет старые копии .env.bak-*	Cleanup removes old .env.bak-* copies
+Меню снова полным списком, как раньше; разделы — по желанию в «Оформлении»	The menu is a full list again, as before; sections are optional in "Appearance"
+Исправлено: задачи cron не видели ufw/sshd/iptables (урезанный PATH)	Fixed: cron jobs could not see ufw/sshd/iptables (limited PATH)
+Исправлено: если cron не установлен, расписания молча не работали — теперь ставится сам	Fixed: without cron schedules silently did nothing — it is now installed automatically
+Исправлено: самообновление перезаписывало работающий файл на месте — теперь через замену файла	Fixed: self-update overwrote the running file in place — now it replaces the file
+Журнал cron-задач ограничен 5 МБ	Cron job log is capped at 5 MB
+Скрытие подсказок больше не прячет текущие значения в настройках	Hiding hints no longer hides current values in settings
+cron не установлен — расписание работать не будет	cron is not installed — schedules will not work
+Исправлено: панель, подписка и нода показывались «не установлено», когда в образе нет метки версии — теперь версия берётся из тега, package.json или окружения	Fixed: panel, subscription and node showed "not installed" when the image had no version label — the version now comes from the tag, package.json or environment
+Исправлено: из-за этого автообновление не видело новую версию панели	Fixed: because of this auto-update never saw a new panel version
+Если версию определить нельзя — пишется «установлено, версия не определяется», а не «не установлено»	If the version cannot be detected it shows "installed, version unknown" instead of "not installed"
+установлено, версия не определяется	installed, version unknown
+последняя v	latest v
+Лицензия: «Все права защищены» — пользоваться можно, распространять и продавать копии — только с разрешения автора	License: "All rights reserved" — free to use, distributing and selling copies only with the author's permission
+Защита обновлений: каждый релиз с контрольной суммой SHA-256; подменённый файл не установится ни вручную, ни автоматически	Update protection: every release has a SHA-256 checksum; a tampered file is never installed, manually or automatically
+Проверка подлинности: «О программе» и rw --verify показывают, совпадает ли файл с официальным релизом	Authenticity check: "About" and rw --verify show whether the file matches the official release
+Удаление RemnaPilot: Прочее → Удалить RemnaPilot или rw --uninstall; панель, ноды и бэкапы остаются	Uninstall RemnaPilot: Other → Remove RemnaPilot or rw --uninstall; panel, nodes and backups stay
+Меню: избранное наверху, скрытие ненужных пунктов, быстрые клавиши (d, u, c…) и поиск по слову, компактный режим	Menu: favorites on top, hide unused items, quick keys (d, u, c…) and word search, compact mode
+Быстро: d домены · u обновления · c сертификаты · l логи · b бэкап · n ноды · o оформление — или слово для поиска	Quick: d domains · u updates · c certificates · l logs · b backup · n nodes · o appearance — or a word to search
+Ничего не найдено:	Nothing found:
+НАЙДЕНО	FOUND
+ИЗБРАННОЕ	FAVORITES
+Отмеченные пункты будут наверху главного меню под номерами 1, 2, 3…	Marked items will be on top of the main menu as 1, 2, 3…
+Отмеченные пункты пропадут из меню. Найти их можно поиском.	Marked items disappear from the menu. You can still find them by search.
+Номера через пробел — отметить или снять. Enter — готово.	Space-separated numbers — mark or unmark. Enter — done.
+«Оформление» скрыть нельзя — иначе не вернуть скрытое.	"Appearance" cannot be hidden — otherwise you could not bring hidden items back.
+В избранном не больше 9 пунктов.	No more than 9 favorites.
+Избранное	Favorites
+Скрытые пункты	Hidden items
+Компактный режим	Compact mode
+Подсказка о быстрых клавишах	Quick keys hint
+пунктов:	items:
+скрыто:	hidden:
+пусто	empty
+включён	on
+выключен	off
+показана	shown
+скрыта	hidden
+Удалить RemnaPilot	Remove RemnaPilot
+панель и ноды не трогаются	panel and nodes are not touched
+Удаление RemnaPilot	Removing RemnaPilot
+БУДЕТ УДАЛЕНО	WILL BE REMOVED
+ОСТАНЕТСЯ	WILL STAY
+команда rw (/usr/local/bin/rw)	the rw command (/usr/local/bin/rw)
+файл скрипта	script file
+настройки RemnaPilot (/etc/rw): оформление, язык, список нод, Telegram	RemnaPilot settings (/etc/rw): appearance, language, node list, Telegram
+задачи по расписанию: автообновление, автобэкап, geo	scheduled jobs: auto-update, auto-backup, geo
+журнал действий	action log
+панель Remnawave, ноды, база — работают как прежде	Remnawave panel, nodes, database — keep working as before
+сертификаты и их автопродление	certificates and their auto-renewal
+бэкапы базы в	database backups in
+настройки сервера: firewall, SSH, BBR, swap	server settings: firewall, SSH, BBR, swap
+Сохранить настройки и список нод в	Save settings and the node list to
+, чтобы вернуть после переустановки?	, to restore after reinstalling?
+Сохранено:	Saved:
+Удалить и файл	Delete the file too:
+RemnaPilot удалён. Спасибо, что пользовался!	RemnaPilot removed. Thanks for using it!
+Вернуть:	Reinstall:
+Настройки после переустановки:	Settings after reinstalling:
+Подлинность	Authenticity
+официальный релиз	official release
+файл изменён — не совпадает с релизом v	file modified — does not match release v
+не проверить (нет связи или релиз без суммы)	cannot check (no connection or release without checksum)
+© 2026 Dubstep2004 · Все права защищены	© 2026 Dubstep2004 · All rights reserved
+Контрольная сумма не совпала с релизом — файл подменён или повреждён. Обновление отменено.	Checksum does not match the release — the file is tampered or corrupted. Update cancelled.
+Контрольная сумма не совпала с релизом — файл подменён или повреждён. Установка отменена.	Checksum does not match the release — the file is tampered or corrupted. Installation cancelled.
+Подлинность подтверждена: контрольная сумма совпадает с релизом v	Authenticity confirmed: checksum matches release v
+У релиза нет контрольной суммы — подлинность не проверить.	The release has no checksum — authenticity cannot be verified.
+Всё равно установить?	Install anyway?
+Обновление RemnaPilot отменено: контрольная сумма не совпала	RemnaPilot update cancelled: checksum mismatch
+RemnaPilot — контрольная сумма обновления не совпала, обновление отменено	RemnaPilot — update checksum mismatch, update cancelled
+RemnaPilot: контрольная сумма не совпала — обновление отменено.	RemnaPilot: checksum mismatch — update cancelled.
+без контрольной суммы — обнови вручную.	no checksum — update manually.
+Подлинный RemnaPilot v	Genuine RemnaPilot v
+— файл совпадает с официальным релизом	— the file matches the official release
+Файл изменён — не совпадает с официальным релизом v	File modified — does not match the official release v
+Не удалось проверить: нет связи с GitHub или у релиза нет контрольной суммы	Could not verify: no connection to GitHub or the release has no checksum
+Экран «Что нового» после обновления — изменения новой версии по категориям, с цветными значками; вся история — rw --changelog	"What's new" screen after an update — the new version's changes by category with colored icons; full history — rw --changelog
+История изменений разложена по категориям: новое, улучшено, исправлено, безопасность, изменено — в скрипте, README, CHANGELOG и релизах	The changelog is split into categories: new, improved, fixed, security, changed — in the script, README, CHANGELOG and releases
+Красивое описание каждого релиза на GitHub: значки, установка, обновление, проверка подлинности, English	Polished notes for every GitHub release: icons, install, update, authenticity check, English
+«О программе» показывает изменения последних версий, а не всю историю	"About" shows the latest versions' changes instead of the whole history
+Панель, подписка и нода показывались «не установлено», когда в образе нет метки версии — теперь версия берётся из тега, package.json или окружения	Panel, subscription and node showed "not installed" when the image had no version label — the version now comes from the tag, package.json or environment
+Из-за этого автообновление не видело новую версию панели	Because of this auto-update never saw a new panel version
+Задачи cron не видели ufw/sshd/iptables (урезанный PATH)	Cron jobs could not see ufw/sshd/iptables (limited PATH)
+Если cron не установлен, расписания молча не работали — теперь ставится сам	Without cron schedules silently did nothing — it is now installed automatically
+Самообновление перезаписывало работающий файл на месте — теперь через замену файла	Self-update overwrote the running file in place — now it replaces the file
+Запуск через bash <(curl …) — теперь ставится в /usr/local/bin/rw, работают перевод и cron	Running via bash <(curl …) now installs to /usr/local/bin/rw, translation and cron work
+Тесты отказываются запускаться на сервере с живой панелью	Tests refuse to run on a server with a live panel
+Старый заказ acme.sh после смены домена мог при продлении затереть новый сертификат	After a domain change the old acme.sh order could overwrite the new certificate on renewal
+Вылет на необъявленных переменных (set -u)	Crash on undeclared variables (set -u)
+Новое	New
+Улучшено	Improved
+Исправлено	Fixed
+Безопасность	Security
+Изменено	Changed
+Что нового в	What's new in
+Вся история изменений:	Full changelog:
+Что нового	What's new
+Ты обновился до	You've updated to
+Последние изменения	Latest changes
+WARP на ноде: SOCKS5 через Cloudflare + готовые настройки для профиля в панели	WARP on a node: SOCKS5 via Cloudflare + ready settings for the panel profile
+Swap для VPS с маленькой памятью	Swap for low-memory VPS
+Firewall одной кнопкой: SSH, 80, 443, порты Xray, порт ноды только с IP панели	One-click firewall: SSH, 80, 443, Xray ports, node port only from the panel IP
+Сертификаты: понятная причина ошибки — порт закрыт у хостера, прокси Cloudflare, DNS, лимит Let's Encrypt	Certificates: clear error reasons — port closed at the hoster, Cloudflare proxy, DNS, Let's Encrypt rate limit
+Установка одной командой: curl -sSL …/remnapilot.sh | bash	One-command install: curl -sSL …/remnapilot.sh | bash
+«Обновить всё» одной кнопкой: бэкап базы → панель → ноды	"Update all" in one click: DB backup → panel → nodes
+Сертификаты: Let's Encrypt по умолчанию (ZeroSSL просил e-mail и не работал с .ru/.рф)	Certificates: Let's Encrypt by default (ZeroSSL required an e-mail and did not work with .ru/.рф)
+Traefik: алиас старого домена подписки с правильными скобками	Traefik: old subscription domain alias with correct brackets
+Просмотр длинных списков (логи, журнал) больше не падает без терминала — например, при запуске по SSH без tty	Long lists (logs, journal) no longer fail without a terminal — e.g. over SSH without a tty
+История изменений RemnaPilot	RemnaPilot changelog
+Убраны избранное, скрытые пункты и быстрые клавиши — меню снова простым списком; поиск по слову и компактный режим остались	Removed favorites, hidden items and quick keys — the menu is a plain list again; word search and compact mode remain
+Бэкапы в Telegram шифруются паролем (AES-256); пока пароль не задан, архив с секретами в Telegram не уходит. Расшифровать — rw --decrypt	Telegram backups are encrypted with a password (AES-256); until a password is set, the archive with secrets is not sent. Decrypt — rw --decrypt
+Токен Telegram-бота больше не виден в списке процессов (ps)	The Telegram bot token is no longer visible in the process list (ps)
+Защита от одновременного запуска: автобэкап, автообновление и действия в меню больше не меняют сервер одновременно — второе ждёт первое	Concurrency lock: auto-backup, auto-update and menu actions no longer change the server at the same time — the second waits for the first
+Понятная ошибка, если нет Docker Compose v2 (вместо «unknown command»)	A clear error when Docker Compose v2 is missing (instead of "unknown command")
+Проверка подлинности не пугает зря: у старых релизов сверяется сам файл, сообщение спокойнее	The authenticity check no longer raises false alarms: for old releases the file itself is compared, calmer message
+Поиск по меню находит «Сертификаты» по «серт» и на серверах без UTF-8-локали	Menu search is case-insensitive for Russian words even on servers without a UTF-8 locale
+Меню открывается вдвое быстрее: один вызов Docker на экран вместо семи	The menu opens twice as fast: one Docker call per screen instead of seven
+Исходники разбиты на модули в src/, remnapilot.sh собирается из них; CI не даст выпустить изменённый скрипт без новой версии	Sources split into modules in src/, remnapilot.sh is built from them; CI won't release a changed script without a new version
+Сейчас выполняется:	Now running:
+другая копия RemnaPilot	another RemnaPilot instance
+Жду, пока закончится…	Waiting for it to finish…
+Не дождался — попробуй позже	Gave up waiting — try again later
+Нужен Docker Compose v2 — команда «docker compose».	Docker Compose v2 is required — the "docker compose" command.
+Сейчас стоит старый docker-compose v1, RemnaPilot с ним не работает.	The old docker-compose v1 is installed; RemnaPilot does not work with it.
+Установить:	Install:
+(или:	(or:
+не совпадает с релизом v	does not match release v
+— изменён или не из релиза	— modified or not from a release
+Файл не совпадает с официальным релизом v	The file does not match official release v
+: он изменён или скачан не из релиза.	: it was modified or not downloaded from a release.
+Поставить официальный: Панель → Обновления → RemnaPilot → 1	Install the official one: Panel → Updates → RemnaPilot → 1
+Архив для Telegram будет зашифрован паролем (AES-256). Без пароля его не открыть —	The Telegram archive will be encrypted with a password (AES-256). It cannot be opened without it —
+даже если чат или аккаунт Telegram взломают.	even if the chat or Telegram account is hacked.
+Сохрани пароль в менеджере паролей: если сервер сгорит, без пароля бэкап бесполезен.	Keep the password in a password manager: if the server dies, the backup is useless without it.
+Придумать пароль самому	Set my own password
+Сгенерировать надёжный	Generate a strong one
+Не шифровать	Do not encrypt
+архив уйдёт в Telegram как есть	the archive goes to Telegram as is
+Пароль (от 10 символов):	Password (10+ characters):
+Ещё раз:	Again:
+пароли не совпали	passwords do not match
+пароль короче 10 символов	password is shorter than 10 characters
+Шифрование включено	Encryption enabled
+Шифрование включено. Пароль (запиши его сейчас):	Encryption enabled. Password (write it down now):
+Шифрование выключено — в архиве секреты панели.	Encryption disabled — the archive contains panel secrets.
+Расшифровать архив:	Decrypt the archive:
+Шифрование бэкапов:	Backup encryption:
+Шифрование бэкапов	Backup encryption
+включено	enabled
+выключено	disabled
+не настроено	not set up
+Шифрование	Encryption
+В Telegram архив не уходит, пока не задан пароль шифрования — пункт 8.	The archive is not sent to Telegram until an encryption password is set — item 8.
+Шифрование для Telegram	Encryption for Telegram
+Расшифровано:	Decrypted:
+Распаковать:	Unpack:
+Пароль бэкапа:	Backup password:
+Неверный пароль или файл повреждён	Wrong password or corrupted file
+— зашифрован	— encrypted
+бэкап сделан	backup done
+но в Telegram не отправлен — задай пароль шифрования: rw → База → Автобэкап → Шифрование	but not sent to Telegram — set an encryption password: rw → Database → Auto-backup → Encryption
+, 🔒 отправлен в Telegram	, 🔒 sent to Telegram
+, не удалось зашифровать	, encryption failed
+, в Telegram не отправлен — задай пароль шифрования	, not sent to Telegram — set an encryption password
+Укажи файл: rw --decrypt архив.tar.gz.enc	Specify the file: rw --decrypt archive.tar.gz.enc
+Самопроверка сервера rw --selftest: Docker, Compose, cron, сеть, порты, DNS, часы, acme.sh — только проверяет, ничего не меняет	Server self-test rw --selftest: Docker, Compose, cron, network, ports, DNS, clock, acme.sh — read-only
+Самопроверка	Self-test
+Только проверяет — ничего не меняет.	Read-only — changes nothing.
+СИСТЕМА	SYSTEM
+СЕТЬ	NETWORK
+ВРЕМЯ И СЕРТИФИКАТЫ	TIME AND CERTIFICATES
+— нужен 4.4+	— 4.4+ required
+нет python3 — лимиты логов Docker настроятся упрощённо	no python3 — Docker log limits will be set up in a simplified way
+cron работает	cron is running
+cron не запущен — расписания включат его сами	cron is not running — schedules will start it
+свободно на диске:	free disk space:
+мало места на диске:	low disk space:
+docker не установлен	docker is not installed
+нет Docker Compose v2	no Docker Compose v2
+панель:	panel:
+панели нет в	no panel in
+(для сервера-ноды это нормально)	(normal for a node server)
+нода:	node:
+доступен	reachable
+нет связи с	no connection to
+порт	port
+занят:	busy:
+свободен (сертификат через него выпустится без остановки сервисов)	free (a certificate can be issued without stopping services)
+не резолвится	does not resolve
+(этот сервер)	(this server)
+а сервер	but the server is
+(норм, если за Cloudflare)	(OK if behind Cloudflare)
+часы точные	clock is accurate
+часы спешат/отстают на	clock is off by
+с — Reality может не работать	s — Reality may not work
+acme.sh установлен	acme.sh installed
+acme.sh не установлен — поставится при первом выпуске	acme.sh not installed — will be installed on first issuance
+нет socat — поставится при выпуске через порт 80/443	no socat — will be installed when issuing via port 80/443
+ок	ok
+предупреждений	warnings
+ошибок	errors
+Исправь ошибки — иначе часть функций не сработает. Вывод можно прислать автору в Issue.	Fix the errors — otherwise some features won't work. You can send this output to the author in an Issue.
+Проверить, всё ли готово на сервере: rw --selftest	Check that the server is ready: rw --selftest

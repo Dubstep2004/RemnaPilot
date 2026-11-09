@@ -42,28 +42,35 @@ rw
 ---
 
 <!-- whats-new:start -->
-## 🆕 What's new in v2.2.1
+## 🆕 What's new in v2.3
+
+#### ✨ New
+
+- Server self-test rw --selftest: Docker, Compose, cron, network, ports, DNS, clock, acme.sh — read-only
+
+#### 🚀 Improved
+
+- The menu opens twice as fast: one Docker call per screen instead of seven
+- Sources split into modules in src/, remnapilot.sh is built from them; CI won't release a changed script without a new version
+
+#### 🐛 Fixed
+
+- Concurrency lock: auto-backup, auto-update and menu actions no longer change the server at the same time — the second waits for the first
+- A clear error when Docker Compose v2 is missing (instead of "unknown command")
+- The authenticity check no longer raises false alarms: for old releases the file itself is compared, calmer message
+- Menu search is case-insensitive for Russian words even on servers without a UTF-8 locale
+
+#### 🛡️ Security
+
+- Telegram backups are encrypted with a password (AES-256); until a password is set, the archive with secrets is not sent. Decrypt — rw --decrypt
+- The Telegram bot token is no longer visible in the process list (ps)
+
+<details>
+<summary><b>Previous version — v2.2.1</b></summary>
 
 #### 🔄 Changed
 
 - Removed favorites, hidden items and quick keys — the menu is a plain list again; word search and compact mode remain
-
-<details>
-<summary><b>Previous version — v2.2</b></summary>
-
-#### ✨ New
-
-- "What's new" screen after an update — the new version's changes by category with colored icons; full history — rw --changelog
-
-#### 🚀 Improved
-
-- The changelog is split into categories: new, improved, fixed, security, changed — in the script, README, CHANGELOG and releases
-- Polished notes for every GitHub release: icons, install, update, authenticity check, English
-- "About" shows the latest versions' changes instead of the whole history
-
-#### 🐛 Fixed
-
-- Long lists (logs, journal) no longer fail without a terminal — e.g. over SSH without a tty
 
 </details>
 
@@ -112,7 +119,7 @@ rw
 ### 💾 Backups
 - Database backup and restore
 - **Scheduled auto-backup**
-- Archive delivered **to Telegram**
+- Archive delivered **to Telegram**, password-encrypted 🔒
 
 </td>
 </tr>
@@ -180,6 +187,8 @@ Everything is in **Other → Appearance**: theme, number style (`1` `1)` `[1]` `
 | `rw --check-updates` | check what can be updated |
 | `rw --backup` | back up and send to Telegram |
 | `rw --cert-status` | certificate expiry |
+| `rw --decrypt file.tar.gz.enc` | decrypt a backup archive from Telegram |
+| `rw --selftest` | check the server is ready (read-only) |
 | `rw --self-update` | update RemnaPilot itself (authenticity-checked) |
 | `rw --verify` | check that the file matches the official release |
 | `rw --uninstall` | remove RemnaPilot (panel and nodes are not touched) |
@@ -216,7 +225,7 @@ It checks for a new version every night and shows a hint in the menu. Update via
 <details>
 <summary><b>How do I get backups in Telegram?</b></summary>
 
-**Database → Auto-backup → Telegram** → create a bot with @BotFather, paste the token and send the bot any message — the script finds your chat automatically.
+**Database → Auto-backup → Telegram** → create a bot with @BotFather, paste the token and send the bot any message — the script finds your chat automatically. Then set a password in **Encryption for Telegram**: the archive contains panel secrets, so it is not sent without one. Restore: `rw --decrypt archive.tar.gz.enc`. Keep the password in a password manager.
 </details>
 
 ---
