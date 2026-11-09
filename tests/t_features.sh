@@ -55,4 +55,7 @@ out=$(bash -c "$common"'; for st in plain paren bracket dot circle; do UI_NUMS=$
 check "стили номеров" '[ "$out" = "[   3][  3)][ [3]][  3.][   ③][(25)]" ]'
 out=$(TERM=xterm-256color bash -c "$common"'; C0=x; tput(){ echo 256; }; ui_set THEME forest; apply_ui; printf "%q" "$C_ACC"; ui_set THEME ocean; apply_ui; printf " %q" "$C_ACC"')
 check "тема меняет цвета" '[[ "$out" == *"38;5;114m"*" "*"38;5;45m"* ]]'
+out=$(bash -c "$common"'; UI_HINTS=off; print_item 1 6; item 2 "Тема" "Лес"' | nocolor)
+check "скрытые подсказки: в меню скрыты, в настройках видны" '! grep -q "панель · ноды" <<< "$out" && grep -q "Тема  Лес" <<< "$out"'
+check "cron получает полный PATH (sbin)" 'grep -q "^export PATH=.*:/usr/sbin" "$SCRIPT"'
 finish

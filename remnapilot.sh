@@ -35,8 +35,9 @@ if [[ -z "${BASH_SOURCE[0]:-}" || "${BASH_SOURCE[0]}" == bash || "${BASH_SOURCE[
 fi
 
 set -o pipefail
+export PATH="$PATH:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"   # cron даёт урезанный PATH
 RP_NAME="RemnaPilot"
-RP_VERSION="2.0"
+RP_VERSION="2.0.2"
 CERT_METHOD="${CERT_METHOD:-}"
 STOPPED_CT=(); STOPPED_SVC=(); FW_OPENED=()
 
@@ -180,7 +181,7 @@ section() { # заголовок группы в меню:  ДОМЕН ───
 
 item() { # пункт меню: номер, текст, [подсказка]
   printf '  %s%s%s  %s' "$C_ACC$CB" "$(num_fmt "$1")" "$C0" "$2"
-  [[ -n "${3:-}" && "${UI_HINTS:-on}" != off ]] && printf '  %s%s%s' "$C_MUT" "$3" "$C0"
+  [[ -n "${3:-}" ]] && printf '  %s%s%s' "$C_MUT" "$3" "$C0"
   echo
 }
 
@@ -256,7 +257,7 @@ status_box_full() {
     elif [[ "$app" == *"|Up"* ]]; then panel_st="$(dot ok) ${C_OK}работает${C0}"
     elif [[ -n "$app" ]];        then panel_st="$(dot err) ${C_ERR}остановлена${C0}"
     else                              panel_st="$(dot off) ${C_MUT}не найдена${C0}"; fi
-    panel_ver=$(docker inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "${app%%|*}" 2>/dev/null || true)
+    panel_ver=$(local_ver "${app%%|*}")
     [[ -n "$panel_ver" ]] && panel_st+="  ${C_MUT}v${panel_ver}${C0}"
 
     if echo "$ps" | grep -E 'remnawave-db\||postgres' | grep -q '|Up'; then db_st="$(dot ok) ${C_OK}ok${C0}"
@@ -1237,7 +1238,7 @@ restart_all() { echo "Пересоздаю контейнеры..."; stack_down;
 rw_versions() {
   docker ps --format '{{.Names}}\t{{.Image}}' | grep -iE 'remna' | while IFS=$'\t' read -r n img; do
     local v
-    v=$(docker inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "$n" 2>/dev/null)
+    v=$(local_ver "$n")
     printf '  %-28s %s %s\n' "$n" "$img" "${v:+($v)}"
   done
 }
@@ -1668,14 +1669,18 @@ nodes_update() {
     [[ -z "$sel" || ",$sel," == *",$((i+1)),"* ]] || continue
     read -r nm h p <<< "${lines[$i]}"
     echo; bold "→ $nm ($h)"
-    out=$(ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 -p "$p" "$h" "$(ssh_target "$h")" <<'EOS' 2>&1
+    out=$(ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 -p "$p" "$h" "$(ssh_target "$h")" <<EOS 2>&1
+$RP_VER_FN
+$(cat <<'EOS2'
 d=""; for x in /opt/remnanode /opt/remnawave-node; do [ -d "$x" ] && d="$x" && break; done
 [ -n "$d" ] || { echo "NO_NODE_DIR"; exit 3; }
 cd "$d" && docker compose pull -q && docker compose up -d && docker image prune -f >/dev/null
 sleep 3
 st=$(docker ps --filter name=remnanode --format '{{.Status}}')
-v=$(docker inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' remnanode 2>/dev/null)
+v=$(rp_ver remnanode)
 echo "RESULT ${v:-?} | $st"
+EOS2
+)
 EOS
     )
     if echo "$out" | grep -q '^RESULT'; then
@@ -2489,7 +2494,7 @@ geo_update() {
   if [[ " ${TARGETS[*]} " == *" local "* ]]; then
     ask "Обновлять автоматически раз в неделю на этом сервере? [y/N]"; read -r c
     if [[ "$c" =~ ^[Yy]$ ]]; then
-      geo_cron_line "$src" > /etc/cron.d/remnapilot-geo; green "✔ Каждый понедельник в 04:17"
+      ensure_cron; geo_cron_line "$src" > /etc/cron.d/remnapilot-geo; green "✔ Каждый понедельник в 04:17"
     fi
   fi
   echo "  Новые теги (например geosite:ru-blocked) используй в правилах маршрутизации профиля в панели."
@@ -2562,9 +2567,9 @@ swap_menu() {
 }
 
 # ---------- статус всех нод ----------
-NODE_STAT_SCRIPT='
+NODE_STAT_SCRIPT="$RP_VER_FN"'
 st=$(docker ps -a --filter name=^remnanode$ --format "{{.Status}}" 2>/dev/null)
-v=$(docker inspect --format "{{index .Config.Labels \"org.opencontainers.image.version\"}}" remnanode 2>/dev/null)
+v=$(rp_ver remnanode)
 echo "ST=$st"; echo "VER=$v"
 echo "LOAD=$(cut -d" " -f1 /proc/loadavg)"; echo "CPUS=$(nproc)"
 free -m | awk "/^Mem:/{print \"MEM=\" \$3 \"/\" \$2}"
@@ -2999,9 +3004,23 @@ au_mode_name() { case "$1" in off) echo "выключено";; check) echo "то
 
 rp_bin() { [[ -x /usr/local/bin/rw ]] && echo /usr/local/bin/rw || echo "$RP_SELF"; }
 
+ensure_cron() { # без демона cron файлы в /etc/cron.d ничего не делают
+  if systemctl is-active cron >/dev/null 2>&1 || systemctl is-active crond >/dev/null 2>&1; then return 0; fi
+  command -v cron >/dev/null || command -v crond >/dev/null || pkg_install cron || pkg_install cronie || { yel "⚠ cron не установлен — расписание работать не будет (apt install cron)"; return 1; }
+  systemctl enable --now cron >/dev/null 2>&1 || systemctl enable --now crond >/dev/null 2>&1
+  return 0
+}
+
+cron_log_cap() { # журнал cron-задач не больше 5 МБ
+  local f=/var/log/remnapilot-cron.log
+  [[ -f "$f" ]] && (( $(stat -c %s "$f") > 5242880 )) && tail -c 1048576 "$f" > "$f.tmp" && mv -f "$f.tmp" "$f"
+  return 0
+}
+
 au_install_cron() { # раз в сутки, в случайную минуту 4-го часа — чтобы не было пика на GitHub
   local m=$(( RANDOM % 50 + 5 ))
   if [[ "$(au_mode)" == off ]]; then rm -f /etc/cron.d/remnapilot-update; return; fi
+  ensure_cron
   echo "$m 4 * * * root RP_AUTO=1 bash $(rp_bin) --auto-update >> /var/log/remnapilot-cron.log 2>&1" > /etc/cron.d/remnapilot-update
   chmod 644 /etc/cron.d/remnapilot-update
 }
@@ -3018,6 +3037,7 @@ au_check_all() { # обновить кэш последних версий (Remn
 au_run() { # то, что делает cron
   local mode msg="" rc=0 lv lp ln app pv nv t
   mode=$(au_mode); [[ "$mode" == off ]] && return 0
+  cron_log_cap
   au_check_all
   lv=$(cat /etc/rw/.latest_version 2>/dev/null); lp=$(cat /etc/rw/.latest_panel 2>/dev/null); ln=$(cat /etc/rw/.latest_node 2>/dev/null)
   if [[ "$mode" == self || "$mode" == all ]] && ver_newer "$RP_VERSION" "$lv"; then
@@ -3092,6 +3112,7 @@ bk_install_cron() {
     daily)  when="30 3 * * *" ;; 12h) when="30 3,15 * * *" ;; weekly) when="30 3 * * 0" ;;
     *) rm -f /etc/cron.d/remnapilot-backup; return ;;
   esac
+  ensure_cron
   echo "$when root RP_AUTO=1 bash $(rp_bin) --backup >> /var/log/remnapilot-cron.log 2>&1" > /etc/cron.d/remnapilot-backup
   chmod 644 /etc/cron.d/remnapilot-backup
 }
@@ -3099,6 +3120,7 @@ bk_install_cron() {
 bk_run() { # бэкап по расписанию: дамп + .env + список нод → один архив, хранение N, отправка в Telegram
   local keep dump arc tmp rc=0 sz
   keep=$(bk_get KEEP 7)
+  cron_log_cap
   need_panel >/dev/null 2>&1 || { echo "$(date '+%d.%m %H:%M')|FAIL|Автобэкап: панель не найдена" > /etc/rw/.backup_last; return 1; }
   if ! backup_db auto >/dev/null 2>&1; then
     printf '%s|FAIL|Автобэкап базы не удался\n' "$(date '+%d.%m %H:%M')" > /etc/rw/.backup_last
@@ -3212,6 +3234,14 @@ theme_swatch() { # цветные блоки темы
 
 # ---------- версия ----------
 RP_CHANGELOG=(
+  "2.0.2|Исправлено: панель, подписка и нода показывались «не установлено», когда в образе нет метки версии — теперь версия берётся из тега, package.json или окружения"
+  "2.0.2|Исправлено: из-за этого автообновление не видело новую версию панели"
+  "2.0.2|Если версию определить нельзя — пишется «установлено, версия не определяется», а не «не установлено»"
+  "2.0.1|Исправлено: задачи cron не видели ufw/sshd/iptables (урезанный PATH)"
+  "2.0.1|Исправлено: если cron не установлен, расписания молча не работали — теперь ставится сам"
+  "2.0.1|Исправлено: самообновление перезаписывало работающий файл на месте — теперь через замену файла"
+  "2.0.1|Журнал cron-задач ограничен 5 МБ"
+  "2.0.1|Скрытие подсказок больше не прячет текущие значения в настройках"
   "2.0|Оформление: 6 тем, стиль номеров (1, 1), [1], 1., ①), большой/маленький логотип, скрытие подсказок, статус рамкой или строкой"
   "2.0|Автопроверка обновлений каждую ночь: подсказка в меню, режимы «только проверять», «RemnaPilot сам», «всё сам с бэкапом»"
   "2.0|Автобэкап по расписанию: архив с базой, .env и списком нод, хранение N копий, отправка в Telegram"
@@ -3295,7 +3325,8 @@ gh_latest() { # $1 = docker-образ (remnawave/backend) -> последняя
 
 ver_line() { # метка, установленная, последняя
   local cur="${2:-}" last="${3:-}" st
-  if   [[ -z "$cur" ]];  then st="$(dot off) ${C_MUT}не установлено${C0}"
+  if   [[ "$cur" == - ]]; then st="$(dot off) ${C_MUT}не установлено${C0}"
+  elif [[ -z "$cur" ]];  then st="$(dot ok) ${C_MUT}установлено, версия не определяется${last:+ · последняя v$last}${C0}"
   elif [[ -z "$last" ]]; then st="$(dot off) ${C_MUT}v$cur · нет связи с GitHub${C0}"
   elif [[ "$cur" == "$last" ]]; then st="$(dot ok) v$cur ${C_OK}актуальная${C0}"
   elif [[ "$(printf '%s\n%s\n' "$cur" "$last" | sort -V | tail -1)" == "$last" ]]; then
@@ -3308,9 +3339,8 @@ about_screen() {
   local pv nv dv cv app last_v
   info "Проверяю версии..."
   app=$(docker ps -a --format '{{.Names}}\t{{.Image}}' 2>/dev/null | awk -F'\t' '$2 ~ /remnawave\/backend|remnawave\/panel/ {print $1; exit}')
-  [[ -n "$app" ]] && pv=$(docker inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "$app" 2>/dev/null)
-  docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qx remnanode && \
-    nv=$(docker inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' remnanode 2>/dev/null)
+  if [[ -n "$app" ]]; then pv=$(local_ver "$app"); else pv="-"; fi
+  if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qx remnanode; then nv=$(local_ver remnanode); else nv="-"; fi
   dv=$(docker version --format '{{.Server.Version}}' 2>/dev/null)
   cv=$(docker compose version --short 2>/dev/null)
 
@@ -3318,8 +3348,8 @@ about_screen() {
   box_top
   box_line "${CB}${RP_NAME}${C0} ${C_ACC}v${RP_VERSION}${C0}  ${C_MUT}пульт управления Remnawave${C0}"
   box_line ""
-  ver_line "Панель" "${pv#v}" "$( [[ -n "$app" ]] && gh_latest remnawave/backend )"
-  ver_line "Нода"   "${nv#v}" "$( [[ -n "$nv" ]] && gh_latest remnawave/node )"
+  ver_line "Панель" "$pv" "$( [[ "$pv" != - ]] && gh_latest remnawave/backend )"
+  ver_line "Нода"   "$nv" "$( [[ "$nv" != - ]] && gh_latest remnawave/node )"
   box_line "${C_MUT}$(padr "Docker" 11)${C0}${dv:-—}${cv:+  ${C_MUT}compose $cv${C0}}"
   box_line "${C_MUT}$(padr "Bash" 11)${C0}${BASH_VERSION%%(*}"
   local fp; fp=$(readlink -f "$0" 2>/dev/null); (( ${#fp} > W - 17 )) && fp="…${fp: -$((W-18))}"
@@ -3369,8 +3399,39 @@ need_panel() {
 
 UPD_LOG="" # файл с записью последнего обновления (для отката)
 
-local_ver() { # контейнер -> версия из метки образа
-  docker inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "$1" 2>/dev/null | sed 's/^v//'
+# Функция для sh: версия приложения в контейнере. Выполняется и здесь, и на нодах по SSH.
+RP_VER_FN=$(cat <<'VERFN'
+rp_ver() {
+  c="$1"; v=""
+  for k in org.opencontainers.image.version version org.label-schema.version; do
+    v=$(docker inspect -f "{{index .Config.Labels \"$k\"}}" "$c" 2>/dev/null)
+    case "$v" in ""|"<no value>") v="" ;; *) break ;; esac
+  done
+  if [ -z "$v" ]; then
+    t=$(docker inspect -f '{{.Config.Image}}' "$c" 2>/dev/null); t="${t##*/}"; t="${t#*:}"
+    case "$t" in [0-9]*.*|v[0-9]*.*) v="$t" ;; esac
+  fi
+  if [ -z "$v" ]; then
+    v=$(docker exec "$c" sh -c 'for f in /opt/app/package.json /app/package.json /usr/src/app/package.json ./package.json; do [ -f "$f" ] && { sed -n "s/.*\"version\"[^\"]*\"\([^\"]*\)\".*/\1/p" "$f" | head -1; exit 0; }; done' 2>/dev/null)
+  fi
+  if [ -z "$v" ]; then
+    v=$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$c" 2>/dev/null | sed -n 's/^[A-Z_]*VERSION=v\{0,1\}\([0-9][0-9.]*\).*/\1/p' | head -1)
+  fi
+  v="${v#v}"; case "$v" in [0-9]*) echo "$v" ;; esac
+}
+VERFN
+)
+
+local_ver() { # контейнер -> версия (кэш по ID контейнера: после пересоздания — заново)
+  local id f v
+  id=$(docker inspect -f '{{.Id}}' "$1" 2>/dev/null) || return 0
+  [[ -n "$id" ]] || return 0
+  f="/run/remnapilot/ver-${id:0:16}"
+  [[ -s "$f" ]] && { cat "$f"; return 0; }
+  v=$(sh -c "$RP_VER_FN"'
+rp_ver "$1"' _ "$1" 2>/dev/null)
+  [[ -n "$v" ]] && { mkdir -p /run/remnapilot 2>/dev/null; echo "$v" > "$f" 2>/dev/null; }
+  echo "$v"
 }
 
 compose_of() { # каталог -> путь к compose-файлу
@@ -3414,7 +3475,8 @@ new_upd_log() {
 update_panel() { # $1=1 — не задавать вопросов (для «обновить всё»)
   local quiet="${1:-0}" ans c d dirs=() app before after
   need_panel || return 1
-  app=$(app_containers | head -1); before=$(local_ver "$app")
+  local img_before img_after
+  app=$(app_containers | head -1); before=$(local_ver "$app"); img_before=$(docker inspect -f '{{.Image}}' "$app" 2>/dev/null)
   [[ -n "$UPD_LOG" ]] || new_upd_log
 
   if (( quiet )); then backup_db pre-update && echo "DUMP $(ls -1t "$RW_DIR"/backups/db-*-pre-update.sql.gz | head -1)" >> "$UPD_LOG"
@@ -3434,9 +3496,9 @@ update_panel() { # $1=1 — не задавать вопросов (для «о�
 
   info "Жду запуска панели..."
   if wait_healthy "$app" 90; then
-    after=$(local_ver "$app")
-    if [[ "$before" == "$after" ]]; then green "✔ Панель уже на последней версии v${after:-?}"
-    else green "✔ Панель обновлена: v${before:-?} → v${after:-?}"; fi
+    after=$(local_ver "$app"); img_after=$(docker inspect -f '{{.Image}}' "$app" 2>/dev/null)
+    if [[ "$img_before" == "$img_after" ]]; then green "✔ Панель уже на последней версии${after:+ v$after}"
+    else green "✔ Панель обновлена${before:+: v$before}${after:+ → v$after}"; fi
   else
     red "✖ Панель не поднялась после обновления. Последние логи:"
     docker logs --tail 25 "$app" 2>&1 | sed 's/^/    /'
@@ -3594,7 +3656,7 @@ self_update() { # $1 = путь к новому файлу (необязател
   fi
   install -m 755 "$f" /usr/local/bin/rw || return 1
   src=$(readlink -f "$0" 2>/dev/null)
-  [[ -f "$src" && "$src" != /usr/local/bin/rw && "$src" != "$(readlink -f "$f")" ]] && cp -f /usr/local/bin/rw "$src"
+  [[ -f "$src" && "$src" != /usr/local/bin/rw && "$src" != "$(readlink -f "$f")" ]] && cp -f /usr/local/bin/rw "$src.new" && mv -f "$src.new" "$src"
   jlog INFO "RemnaPilot обновлён до v$nv"
   [[ -n "${RP_AUTO:-}" ]] && { green "✔ RemnaPilot v$RP_VERSION → v$nv"; return 0; }
   green "✔ RemnaPilot v$RP_VERSION → v$nv — перезапускаю"; sleep 1
@@ -3714,7 +3776,8 @@ menu_mode_toggle() {
 }
 
 print_item() { # номер_на_экране внутренний_номер
-  local info; info=$(item_info "$2"); item "$1" "${info%%|*}" "${info#*|}"
+  local info hint; info=$(item_info "$2"); hint="${info#*|}"; [[ "${UI_HINTS:-on}" == off ]] && hint=""
+  item "$1" "${info%%|*}" "$hint"
 }
 
 run_item() { # внутренний номер пункта → действие
@@ -5019,4 +5082,15 @@ RemnaPilot установлен в /usr/local/bin/rw — дальше запус
 Исправлено: тесты отказываются запускаться на сервере с живой панелью	Fixed: tests refuse to run on a server with a live panel
 Очистка удаляет старые копии .env.bak-*	Cleanup removes old .env.bak-* copies
 Меню снова полным списком, как раньше; разделы — по желанию в «Оформлении»	The menu is a full list again, as before; sections are optional in "Appearance"
+Исправлено: задачи cron не видели ufw/sshd/iptables (урезанный PATH)	Fixed: cron jobs could not see ufw/sshd/iptables (limited PATH)
+Исправлено: если cron не установлен, расписания молча не работали — теперь ставится сам	Fixed: without cron schedules silently did nothing — it is now installed automatically
+Исправлено: самообновление перезаписывало работающий файл на месте — теперь через замену файла	Fixed: self-update overwrote the running file in place — now it replaces the file
+Журнал cron-задач ограничен 5 МБ	Cron job log is capped at 5 MB
+Скрытие подсказок больше не прячет текущие значения в настройках	Hiding hints no longer hides current values in settings
+cron не установлен — расписание работать не будет	cron is not installed — schedules will not work
+Исправлено: панель, подписка и нода показывались «не установлено», когда в образе нет метки версии — теперь версия берётся из тега, package.json или окружения	Fixed: panel, subscription and node showed "not installed" when the image had no version label — the version now comes from the tag, package.json or environment
+Исправлено: из-за этого автообновление не видело новую версию панели	Fixed: because of this auto-update never saw a new panel version
+Если версию определить нельзя — пишется «установлено, версия не определяется», а не «не установлено»	If the version cannot be detected it shows "installed, version unknown" instead of "not installed"
+установлено, версия не определяется	installed, version unknown
+последняя v	latest v
 __RP_EN_END__
