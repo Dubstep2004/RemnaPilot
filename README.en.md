@@ -4,7 +4,10 @@
 
 [Русский](README.md) · [Changelog (RU)](CHANGELOG.md)
 
-<p align="center"><img src="assets/menu-en.png" width="460" alt="RemnaPilot menu"></p>
+<p align="center">
+  <img src="assets/menu-en.png" width="400" alt="RemnaPilot main screen">
+  <img src="assets/section-en.png" width="400" alt="Panel section">
+</p>
 
 ## Install
 
@@ -20,7 +23,11 @@ The script offers to install the `rw` command — after that just run:
 rw
 ```
 
-Switch the language any time in the menu (item 27) or with `rw --lang en`.
+Switch the language any time: **Other → Language** or `rw --lang en`.
+
+## Menu
+
+The main screen shows the panel status and 7 sections: **Domains, Panel, Database, Nodes, Server, Checks, Other**. Items open inside a section — handy even on a phone. Prefer everything at once? **Other → Menu view → full list**.
 
 ## Features
 
@@ -68,6 +75,14 @@ rw --update-all              # panel + nodes
 rw --cert-status             # certificate status
 rw --self-update             # update RemnaPilot
 rw --help
+```
+
+## Tests
+
+Every push is checked in GitHub Actions on stubs (no network or Docker): domains, certificates, updates and rollback, nodes, geo, firewall, translation and the whole menu in both languages. No release is published if a test fails.
+
+```bash
+sudo bash tests/run.sh
 ```
 
 ## Requirements

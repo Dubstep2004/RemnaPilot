@@ -6,7 +6,7 @@ name: release
 on:
   push:
     branches: [main]
-    paths: ['remnapilot.sh', 'CHANGELOG.md', '.github/workflows/release.yml']
+    paths: ['remnapilot.sh', 'CHANGELOG.md', 'tests/**', '.github/workflows/release.yml']
   workflow_dispatch:
 
 permissions:
@@ -36,11 +36,9 @@ jobs:
             echo "exists=0" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Проверка скрипта
+      - name: Тесты — релиз не выйдет, если хоть один упал
         if: steps.t.outputs.exists == '0'
-        run: |
-          bash -n remnapilot.sh
-          bash remnapilot.sh --version
+        run: sudo bash tests/run.sh
 
       - name: Описание релиза из CHANGELOG.md
         if: steps.t.outputs.exists == '0'
@@ -54,7 +52,7 @@ jobs:
           ```bash
           bash <(curl -sSL https://raw.githubusercontent.com/Dubstep2004/RemnaPilot/main/remnapilot.sh)
           ```
-          **Уже установлен** — `rw` → 6 «Обновления» → 5 → 1, или `rw --self-update`
+          **Уже установлен** — `rw` → Панель → Обновления → RemnaPilot → 1, или `rw --self-update`
           EOF
           sed -i 's/^          //' notes.md
 

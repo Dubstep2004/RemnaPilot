@@ -15,7 +15,7 @@
 #                 --lang en|ru                   язык интерфейса (меню: «Language / Язык»)
 #                 --cert-status                  статус сертификатов
 
-RP_DEFAULT_SOURCE="Dubstep2004/RemnaPilot"   # откуда обновляться по умолчанию (меняется в меню 6 → 5 → 3)
+RP_DEFAULT_SOURCE="Dubstep2004/RemnaPilot"   # откуда обновляться по умолчанию (меняется в меню: Панель → Обновления → RemnaPilot → 3)
 
 # Запуск через «curl … | bash»: stdin занят текстом скрипта, меню не сможет читать ввод.
 # Скачиваем себя в /usr/local/bin/rw и перезапускаемся уже с клавиатурой.
@@ -33,7 +33,7 @@ fi
 
 set -o pipefail
 RP_NAME="RemnaPilot"
-RP_VERSION="1.8.1"
+RP_VERSION="1.9"
 CERT_METHOD="${CERT_METHOD:-}"
 STOPPED_CT=(); STOPPED_SVC=(); FW_OPENED=()
 
@@ -226,7 +226,7 @@ status_box() {
   box_line "$(lbl Ноды)${nodes}${local_node}"
   local lv; lv=$(cat /etc/rw/.latest_version 2>/dev/null)
   if [[ -n "$lv" && "$lv" != "$RP_VERSION" && "$(printf '%s\n%s\n' "$RP_VERSION" "$lv" | sort -V | tail -1)" == "$lv" ]]; then
-    box_line "$(dot warn) ${C_WARN}Доступен RemnaPilot v$lv — пункт 6 → 5${C0}"
+    box_line "$(dot warn) ${C_WARN}Доступен RemnaPilot v$lv — Панель → Обновления${C0}"
   fi
   box_bottom
 }
@@ -867,7 +867,7 @@ change_sub_domain() { # $1 new, $2 dry
   if (( ${#proxy[@]} == 0 )); then
     yel "⚠ Домен подписки не найден в конфигах прокси на этом сервере —"
     yel "  похоже, страница подписки стоит на другом сервере. Здесь поменяется только .env панели,"
-    yel "  а домен и сертификат на сервере подписки нужно сменить там (этим же скриптом, пункт 1)."
+    yel "  а домен и сертификат на сервере подписки нужно сменить там (этим же скриптом: Домены → Сменить домены)."
   fi
 
   if (( dry )); then
@@ -1145,7 +1145,7 @@ rollback() {
   cp -a "${bks[$((n-1))]}/." "$RW_DIR/"
   green "✓ Файлы восстановлены из $(basename "${bks[$((n-1))]}")"
   echo "Пересоздаю контейнеры..."; stack_down; stack_up
-  green "Готово. Сертификат для старого домена, если он в Nginx, перевыпусти в разделе «Сертификаты» (пункт 9)."
+  green "Готово. Сертификат для старого домена, если он в Nginx, перевыпусти: Панель → Сертификаты."
 }
 
 restart_all() { echo "Пересоздаю контейнеры..."; stack_down; stack_up; green "✓ Готово"; }
@@ -2300,7 +2300,7 @@ EOS
   printf '      %s\n' "$(detect_old)" $( s=$(sub_host); [[ -n "$s" && "$s" != "$(detect_old)" ]] && echo "$s" )
   echo "   2. Подожди обновления DNS и открой панель — данные должны быть на месте."
   echo "   3. На новом сервере запусти  rw  → «Сертификаты» → перевыпусти, чтобы заработало автопродление."
-  echo "   4. Если всё хорошо — старую панель можно удалить. Если нет — запусти её здесь: пункт 7 «Пересоздать контейнеры»."
+  echo "   4. Если всё хорошо — старую панель можно удалить. Если нет — запусти её здесь: Панель → Пересоздать контейнеры."
   jlog OK "Перенос панели на $newip завершён"
 }
 
@@ -2313,7 +2313,7 @@ pick_targets() { # $1 = заголовок; заполняет TARGETS: "local" 
   [[ -s "$NODES_FILE" ]] && mapfile -t lines < "$NODES_FILE"
   TARGETS=()
   if (( ! have_local && ${#lines[@]} == 0 )); then
-    yel "Нод нет: ни на этом сервере, ни в списке (пункт 13 → «Добавить ноду в список»)."; return 1
+    yel "Нод нет: ни на этом сервере, ни в списке (Ноды → Установка и обновление нод → Добавить ноду в список)."; return 1
   fi
   section "${1:-ГДЕ}"
   n=0
@@ -2491,7 +2491,7 @@ nodes_status() {
   local lines=() tmp i nm h p f st ver load cpus mem disk up d col
   [[ -s "$NODES_FILE" ]] && mapfile -t lines < "$NODES_FILE"
   node_dir >/dev/null 2>&1 && lines=("$(hostname)|local|-" "${lines[@]}")
-  (( ${#lines[@]} )) || { yel "Нод нет (пункт 13 → «Добавить ноду в список»)."; return 0; }
+  (( ${#lines[@]} )) || { yel "Нод нет (Ноды → Установка и обновление нод → Добавить ноду в список)."; return 0; }
   tmp=$(mktemp -d)
   info "Опрашиваю ${#lines[@]} нод..."
   local pids=()
@@ -2520,7 +2520,7 @@ nodes_status() {
     fi
     echo
     if [[ ! -s "$f" ]]; then
-      if grep -qiE 'denied|permission' "$tmp/$i.err" 2>/dev/null; then printf '  %s %s%s%s  %sнет SSH-ключа — пункт 13 → 7%s\n' "$(dot err)" "$CB" "$nm" "$C0" "$C_ERR" "$C0"
+      if grep -qiE 'denied|permission' "$tmp/$i.err" 2>/dev/null; then printf '  %s %s%s%s  %sнет SSH-ключа — Ноды → Установка → 7%s\n' "$(dot err)" "$CB" "$nm" "$C0" "$C_ERR" "$C0"
       else printf '  %s %s%s%s  %sнедоступна%s\n' "$(dot err)" "$CB" "$nm" "$C0" "$C_ERR" "$C0"; fi
       continue
     fi
@@ -2855,6 +2855,8 @@ time_menu() {
 
 # ---------- версия ----------
 RP_CHANGELOG=(
+  "1.9|Сворачиваемое меню: на главном экране только разделы, пункты — внутри. Полный список — в «Прочее → Вид меню»"
+  "1.9|Автотесты в GitHub Actions: релиз не выходит, если тесты упали"
   "1.8.1|Официальный репозиторий github.com/Dubstep2004/RemnaPilot — установка одной командой и обновления из коробки"
   "1.8|Обновление RemnaPilot с GitHub: репозиторий указывается в меню, в файл не вшит"
   "1.8|Подсказка в главном меню, когда вышла новая версия RemnaPilot"
@@ -2966,7 +2968,7 @@ about_screen() {
       while read -r l; do printf '     %s\n' "$l"; done; }
   done
   echo
-  echo "  Обновить панель, ноды и сам RemnaPilot — пункт 6 «Обновления»."
+  echo "  Обновить панель, ноды и сам RemnaPilot — Панель → Обновления."
 }
 
 # ---------- команда rw ----------
@@ -2994,7 +2996,7 @@ offer_cmd() {
 }
 
 need_panel() {
-  [[ -f "$RW_DIR/.env" ]] || { red "✖ Панель не найдена ($RW_DIR/.env). Пункт 29 — указать другой каталог."; return 1; }
+  [[ -f "$RW_DIR/.env" ]] || { red "✖ Панель не найдена ($RW_DIR/.env). Прочее → Сменить каталог панели."; return 1; }
   command -v docker >/dev/null || { red "✖ Не установлен docker"; return 1; }
   command -v perl   >/dev/null || { red "✖ Не установлен perl (apt install perl)"; return 1; }
 }
@@ -3303,98 +3305,163 @@ change_dir() {
   [[ -f "$in/.env" ]] && { RW_DIR="$in"; green "✓ Каталог: $RW_DIR"; } || red "Там нет .env"
 }
 
+# ---------- меню ----------
+# Пункты меню: номер|название|подсказка. Номера внутренние, на экране — номера внутри раздела.
+item_info() {
+  case "$1" in
+    1)  echo "Сменить домены|панель и/или подписка" ;;
+    2)  echo "Удалить старые домены|алиасы и ненужные" ;;
+    3)  echo "Предпросмотр смены|без изменений" ;;
+    4)  echo "Откатить смену домена|" ;;
+    5)  echo "Настройки и контейнеры|" ;;
+    6)  echo "Обновления|панель · ноды · RemnaPilot" ;;
+    7)  echo "Пересоздать контейнеры|" ;;
+    8)  echo "Логи|" ;;
+    9)  echo "Сертификаты|" ;;
+    10) echo "Безопасность|секреты · БД · админ" ;;
+    11) echo "Сделать бэкап|" ;;
+    12) echo "Восстановить из дампа|" ;;
+    13) echo "Установка и обновление нод|" ;;
+    14) echo "Статус всех нод|CPU · RAM · диск · версия" ;;
+    15) echo "Обновить geoip / geosite|" ;;
+    16) echo "WARP на ноде|Cloudflare для ChatGPT и др." ;;
+    17) echo "Firewall|ufw" ;;
+    18) echo "Защита SSH|порт · fail2ban · ключи" ;;
+    19) echo "Ускорение сети|BBR" ;;
+    20) echo "Swap|если мало RAM" ;;
+    21) echo "Время и часовой пояс|" ;;
+    22) echo "Очистка диска|" ;;
+    23) echo "Перенос панели на другой сервер|" ;;
+    24) echo "Проверка IP сервера|РФ · пинг · скорость" ;;
+    25) echo "Подбор SNI для Reality|" ;;
+    26) echo "Журнал действий|" ;;
+    27) echo "Language / Язык|$( [[ "$RP_LANG" == en ]] && echo English || echo Русский )" ;;
+    28) echo "Установить команду rw|" ;;
+    29) echo "Сменить каталог панели|$RW_DIR" ;;
+    30) echo "О программе и версии|v$RP_VERSION" ;;
+    31) echo "Вид меню|$( [[ "$(menu_mode)" == flat ]] && echo "полный список" || echo "разделы" )" ;;
+  esac
+}
+
+MENU_SECTIONS=(
+  "Домены|смена · удаление · откат|1 2 3 4"
+  "Панель|обновления · сертификаты · логи|5 6 7 8 9 10"
+  "База|бэкап · восстановление|11 12"
+  "Ноды|статус · geo · WARP|13 14 15 16"
+  "Сервер|firewall · SSH · BBR · swap|17 18 19 20 21 22 23"
+  "Проверки|IP · SNI для Reality|24 25"
+  "Прочее|журнал · язык · о программе|26 27 28 29 31 30"
+)
+
+menu_mode() { local m; m=$(cat /etc/rw/menu_mode 2>/dev/null); [[ "$m" == flat ]] && echo flat || echo sections; }
+
+menu_mode_toggle() {
+  mkdir -p /etc/rw
+  if [[ "$(menu_mode)" == flat ]]; then echo sections > /etc/rw/menu_mode; else echo flat > /etc/rw/menu_mode; fi
+}
+
+print_item() { # номер_на_экране внутренний_номер
+  local info; info=$(item_info "$2"); item "$1" "${info%%|*}" "${info#*|}"
+}
+
+run_item() { # внутренний номер пункта → действие
+  local ch="$1"
+  case "$ch" in
+    1|2|3|4|5|7|9|10|11|12|23) need_panel || { pause; return 1; } ;;
+  esac
+  case "$ch" in
+    1|2|3|4|5|7|11|12|14|23|24|28|29) screen "$(case $ch in
+        1) echo "Смена доменов";; 2) echo "Удаление доменов";; 3) echo "Предпросмотр смены доменов";; 4) echo "Откат смены домена";;
+        5) echo "Настройки и контейнеры";; 7) echo "Пересоздание контейнеров";;
+        11) echo "Бэкап базы";; 12) echo "Восстановление базы";; 14) echo "Статус всех нод";;
+        23) echo "Перенос панели";; 24) echo "Проверка IP сервера";; 28) echo "Команда rw";; 29) echo "Каталог панели";;
+      esac)"; echo ;;
+  esac
+  case "$ch" in
+    1)  run_action "Смена доменов" change_domains 0; pause ;;
+    2)  run_action "Удаление доменов" remove_domains; pause ;;
+    3)  change_domains 1; pause ;;
+    4)  run_action "Откат смены домена" rollback; pause ;;
+    5)  show_current; pause ;;
+    6)  update_menu ;;
+    7)  run_action "Пересоздание контейнеров" restart_all; pause ;;
+    8)  logs_menu ;;
+    9)  cert_menu ;;
+    10)  security_menu ;;
+    11) run_action "Бэкап базы" backup_db; pause ;;
+    12) run_action "Восстановление базы" restore_db; pause ;;
+    13) node_menu ;;
+    14) nodes_status; pause ;;
+    15) run_action "geoip/geosite" geo_update; pause ;;
+    16) warp_menu ;;
+    17) firewall_menu ;;
+    18) ssh_menu ;;
+    19) net_menu ;;
+    20) swap_menu ;;
+    21) time_menu ;;
+    22) cleanup_menu ;;
+    23) run_action "Перенос панели" migrate_panel; pause ;;
+    24) run_action "Проверка IP" ip_check; pause ;;
+    25) sni_menu ;;
+    26) journal_menu ;;
+    27) lang_toggle ;;
+    31) menu_mode_toggle ;;
+    28) install_cmd; pause ;;
+    29) change_dir; pause ;;
+    30) about_screen; pause ;;
+    *) ;;
+  esac
+}
+
+section_menu() { # $1 = индекс раздела
+  local name hint nums c i n
+  IFS='|' read -r name hint nums <<< "${MENU_SECTIONS[$1]}"
+  local arr=($nums)
+  while true; do
+    clear; banner; echo
+    status_box
+    section "${name^^}"
+    for i in "${!arr[@]}"; do print_item $((i+1)) "${arr[$i]}"; done
+    hr; item 0 "Назад"
+    ask; read -r c
+    case "$c" in 0|q|Q|"") return ;; esac
+    [[ "$c" =~ ^[0-9]+$ ]] && (( c >= 1 && c <= ${#arr[@]} )) || continue
+    n="${arr[$((c-1))]}"
+    run_item "$n"
+    [[ "$n" == 31 ]] && return        # сменили вид меню — сразу показать
+  done
+}
+
 menu() {
+  local ch i name hint nums
   while true; do
     clear
     banner
     echo
     status_box
-
-    section "ДОМЕН"
-    item 1 "Сменить домены" "панель и/или подписка"
-    item 2 "Удалить старые домены" "алиасы и ненужные"
-    item 3 "Предпросмотр смены" "без изменений"
-    item 4 "Откатить смену домена"
-    section "ПАНЕЛЬ"
-    item 5 "Настройки и контейнеры"
-    item 6 "Обновления" "панель · ноды · RemnaPilot"
-    item 7 "Пересоздать контейнеры"
-    item 8 "Логи"
-    item 9 "Сертификаты"
-    item 10 "Безопасность" "секреты · БД · админ"
-    section "БАЗА"
-    item 11 "Сделать бэкап"
-    item 12 "Восстановить из дампа"
-    section "НОДЫ"
-    item 13 "Установка и обновление нод"
-    item 14 "Статус всех нод" "CPU · RAM · диск · версия"
-    item 15 "Обновить geoip / geosite"
-    item 16 "WARP на ноде" "Cloudflare для ChatGPT и др."
-    section "СЕРВЕР"
-    item 17 "Firewall" "ufw"
-    item 18 "Защита SSH" "порт · fail2ban · ключи"
-    item 19 "Ускорение сети" "BBR"
-    item 20 "Swap" "если мало RAM"
-    item 21 "Время и часовой пояс"
-    item 22 "Очистка диска"
-    item 23 "Перенос панели на другой сервер"
-    section "ПРОВЕРКИ"
-    item 24 "Проверка IP сервера" "РФ · пинг · скорость"
-    item 25 "Подбор SNI для Reality"
-    section "ПРОЧЕЕ"
-    item 26 "Журнал действий"
-    item 27 "Language / Язык" "$( [[ "$RP_LANG" == en ]] && echo English || echo Русский )"
-    item 28 "Установить команду rw"
-    item 29 "Сменить каталог панели" "$RW_DIR"
-    item 30 "О программе и версии" "v$RP_VERSION"
-    item 0 "Выход"
-    hr
-    ask; read -r ch
-    case "$ch" in
-      1|2|3|4|5|7|9|10|11|12|23) need_panel || { pause; continue; } ;;
-    esac
-    case "$ch" in
-      1|2|3|4|5|7|11|12|14|23|24|28|29) screen "$(case $ch in
-          1) echo "Смена доменов";; 2) echo "Удаление доменов";; 3) echo "Предпросмотр смены доменов";; 4) echo "Откат смены домена";;
-          5) echo "Настройки и контейнеры";; 7) echo "Пересоздание контейнеров";;
-          11) echo "Бэкап базы";; 12) echo "Восстановление базы";; 14) echo "Статус всех нод";;
-          23) echo "Перенос панели";; 24) echo "Проверка IP сервера";; 28) echo "Команда rw";; 29) echo "Каталог панели";;
-        esac)"; echo ;;
-    esac
-    case "$ch" in
-      1)  run_action "Смена доменов" change_domains 0; pause ;;
-      2)  run_action "Удаление доменов" remove_domains; pause ;;
-      3)  change_domains 1; pause ;;
-      4)  run_action "Откат смены домена" rollback; pause ;;
-      5)  show_current; pause ;;
-      6)  update_menu ;;
-      7)  run_action "Пересоздание контейнеров" restart_all; pause ;;
-      8)  logs_menu ;;
-      9)  cert_menu ;;
-      10)  security_menu ;;
-      11) run_action "Бэкап базы" backup_db; pause ;;
-      12) run_action "Восстановление базы" restore_db; pause ;;
-      13) node_menu ;;
-      14) nodes_status; pause ;;
-      15) run_action "geoip/geosite" geo_update; pause ;;
-      16) warp_menu ;;
-      17) firewall_menu ;;
-      18) ssh_menu ;;
-      19) net_menu ;;
-      20) swap_menu ;;
-      21) time_menu ;;
-      22) cleanup_menu ;;
-      23) run_action "Перенос панели" migrate_panel; pause ;;
-      24) run_action "Проверка IP" ip_check; pause ;;
-      25) sni_menu ;;
-      26) journal_menu ;;
-      27) lang_toggle ;;
-      28) install_cmd; pause ;;
-      29) change_dir; pause ;;
-      30) about_screen; pause ;;
-      0|q|Q) exit 0 ;;
-      *) ;;
-    esac
+    if [[ "$(menu_mode)" == flat ]]; then
+      # полный список: все пункты со сквозной нумерацией
+      for i in "${!MENU_SECTIONS[@]}"; do
+        IFS='|' read -r name hint nums <<< "${MENU_SECTIONS[$i]}"
+        section "${name^^}"
+        for n in $nums; do print_item "$n" "$n"; done
+      done
+      item 0 "Выход"; hr
+      ask; read -r ch
+      case "$ch" in 0|q|Q) exit 0 ;; esac
+      [[ "$ch" =~ ^[0-9]+$ ]] && (( ch >= 1 && ch <= 31 )) && run_item "$ch"
+    else
+      # разделы: на главном экране только они, пункты — внутри
+      section "РАЗДЕЛЫ"
+      for i in "${!MENU_SECTIONS[@]}"; do
+        IFS='|' read -r name hint nums <<< "${MENU_SECTIONS[$i]}"
+        item $((i+1)) "$name" "$hint"
+      done
+      hr; item 0 "Выход"
+      ask; read -r ch
+      case "$ch" in 0|q|Q) exit 0 ;; esac
+      [[ "$ch" =~ ^[0-9]+$ ]] && (( ch >= 1 && ch <= ${#MENU_SECTIONS[@]} )) && section_menu $((ch-1))
+    fi
   done
 }
 
@@ -3461,10 +3528,10 @@ exit 0
 # Словарь интерфейса RU → EN (используется при RP_LANG=en)
 : <<'__RP_EN_END__'
 __RP_EN__
-Если всё хорошо — старую панель можно удалить. Если нет — запусти её здесь: пункт 7 «Пересоздать контейнеры».	If all is fine, you can delete the old panel. If not, start it here: item 6 "Recreate containers".
+Если всё хорошо — старую панель можно удалить. Если нет — запусти её здесь: Панель → Пересоздать контейнеры.	If all is fine, you can delete the old panel. If not, start it here: Panel → Recreate containers.
 Сертификаты: если способ не сработал — сразу предлагает другой (порт 80, 443, DNS Cloudflare, DNS вручную)	Certificates: if a method fails, another one is offered right away (port 80, 443, DNS Cloudflare, manual DNS)
 Смена домена панели не пугает «старые ссылки подписки перестанут работать», если подписка на своём домене	Panel domain change no longer warns "old subscription links will stop working" when the subscription has its own domain
-Готово. Сертификат для старого домена, если он в Nginx, перевыпусти в разделе «Сертификаты» (пункт 9).	Done. If the old domain's certificate is in Nginx, reissue it in "Certificates" (item 8).
+Готово. Сертификат для старого домена, если он в Nginx, перевыпусти: Панель → Сертификаты.	Done. If the old domain's certificate is in Nginx, reissue it: Panel → Certificates.
 Восстановление не удалось — изменения откачены (одна транзакция). Панель запущена со старыми данными.	Restore failed — changes were rolled back (single transaction). The panel is running with the old data.
 Смена доменов панели и подписки в одном пункте: один бэкап, один перезапуск, сертификаты сразу на оба	Panel and subscription domain change in one item: one backup, one restart, certificates for both at once
 Причина: проверку получил не этот сервер — домен смотрит на другой IP или включён прокси Cloudflare.	Reason: the challenge reached another server — the domain points to another IP or the Cloudflare proxy is on.
@@ -3484,7 +3551,7 @@ __RP_EN__
 Рядом есть .env из того же бэкапа. Восстановить и его? (нужно, если менялись JWT-секреты)	There is a .env from the same backup. Restore it too? (needed if JWT secrets changed)
 Открой его в панели хостера (firewall / security group) или выбери DNS — порты не нужны.	Open it in your hoster's panel (firewall / security group) or choose DNS — no ports needed.
 Порты, опубликованные Docker (ports: в compose), ufw НЕ закрывает — Docker обходит его.	Ports published by Docker (ports: in compose) are NOT blocked by ufw — Docker bypasses it.
-а домен и сертификат на сервере подписки нужно сменить там (этим же скриптом, пункт 1).	and the domain and certificate on the subscription server must be changed there (with this script, item 1).
+а домен и сертификат на сервере подписки нужно сменить там (этим же скриптом: Домены → Сменить домены).	and the domain and certificate on the subscription server must be changed there (with this script: Domains → Change domains).
 Панель здесь будет остановлена на время переноса (подписки и ноды продолжат работать).	The panel here will be stopped during the move (subscriptions and nodes keep working).
 похоже, страница подписки стоит на другом сервере. Здесь поменяется только .env панели	looks like the subscription page is on another server. Only the panel .env will change here
 хуков нет — при standalone-выпуске продление упрётся в занятый порт (исправит пункт 2)	no hooks — with standalone issuance renewal will hit a busy port (item 2 fixes it)
@@ -3521,7 +3588,7 @@ __RP_EN__
 Сертификатов Nginx не найдено (Caddy/Traefik обновляют их сами).	No Nginx certificates found (Caddy/Traefik renew them themselves).
 панели (порт ноды откроется только для него; пусто — пропустить)	panel IP (the node port will be opened only for it; empty — skip)
 На новом сервере: подниму базу, восстановлю дамп, запущу панель	On the new server: start the database, restore the dump, start the panel
-Обновить панель, ноды и сам RemnaPilot — пункт 6 «Обновления».	Update the panel, nodes and RemnaPilot itself — item 5 "Updates".
+Обновить панель, ноды и сам RemnaPilot — Панель → Обновления.	Update the panel, nodes and RemnaPilot itself — Panel → Updates.
 Готово. В панели нажми Next / проверь, что нода стала онлайн.	Done. Press Next in the panel / check that the node is online.
 Оставить старый домен рабочим, чтобы подписки не отвалились?	Keep the old domain working so subscriptions don't break?
 Откат: раздел «Обновления» → «Откатить последнее обновление»	Rollback: "Updates" → "Roll back last update"
@@ -3629,7 +3696,7 @@ __RP_EN__
 не найден — ограничь доступ к порту	not found — restrict access to port
 старые бэкапы — оставлю последние N	old backups — keep the last N
 На сервере нет ни одного SSH-ключа	There are no SSH keys on the server
-Пункт 29 — указать другой каталог.	Item 21 — set another directory.
+Прочее → Сменить каталог панели.	Other → Change panel directory.
 Самообновление RemnaPilot с GitHub	RemnaPilot self-update from GitHub
 Старый домен в конфигах не найден.	Old domain not found in configs.
 Страховочный бэкап текущей базы...	Safety backup of the current database...
@@ -4185,7 +4252,7 @@ Firewall одной кнопкой	One-click firewall
 Новые теги (например geosite:ru-blocked) используй в правилах маршрутизации профиля в панели.	Use new tags (e.g. geosite:ru-blocked) in the routing rules of the profile in the panel.
 МБ включён и переживёт перезагрузку (swappiness 10 — используется только при нехватке RAM)	MB enabled and survives reboots (swappiness 10 — used only when RAM runs out)
 Подбор SNI для Reality: проверка TLS 1.3, H2, X25519, пинга и поиск соседей в подсети	Reality SNI picker: TLS 1.3, H2, X25519, ping check and neighbor search in the subnet
-Нод нет: ни на этом сервере, ни в списке (пункт 13 → «Добавить ноду в список»).	No nodes: neither on this server nor in the list (item 12 → "Add a node to the list").
+Нод нет: ни на этом сервере, ни в списке (Ноды → Установка и обновление нод → Добавить ноду в список).	No nodes: neither on this server nor in the list (Nodes → Node install and update → Add a node to the list).
 Соседей с TLS 1.3 + H2 не нашлось. Попробуй проверить известные домены вручную.	No neighbors with TLS 1.3 + H2 found. Try checking known domains manually.
 Список доменов меняй под себя. Остальной трафик пойдёт как раньше — напрямую.	Adjust the domain list as you like. All other traffic goes directly, as before.
 на ноде: SOCKS5 через Cloudflare + готовые настройки для профиля в панели	on a node: SOCKS5 via Cloudflare + ready settings for the panel profile
@@ -4198,7 +4265,7 @@ Firewall одной кнопкой	One-click firewall
 выход в интернет через Cloudflare. Сайты, которые блокируют IP	internet access via Cloudflare. Sites that block hosting IPs
 трафик туда направляют правила маршрутизации в панели.	traffic is sent there by routing rules in the panel.
 Обновлять автоматически раз в неделю на этом сервере?	Auto-update weekly on this server?
-Нод нет (пункт 13 → «Добавить ноду в список»).	No nodes (item 12 → "Add a node to the list").
+Нод нет (Ноды → Установка и обновление нод → Добавить ноду в список).	No nodes (Nodes → Node install and update → Add a node to the list).
 своп здесь создать нельзя, его выдаёт хостер.	swap cannot be created here, the hoster provides it.
 Панель → Config Profiles → профиль ноды → в	Panel → Config Profiles → node profile → in
 Сейчас у check-host.net нет узлов в РФ.	check-host.net currently has no nodes in Russia.
@@ -4213,7 +4280,7 @@ Firewall одной кнопкой	One-click firewall
 Включить синхронизацию времени	Enable time synchronization
 не установился cloudflare-warp	cloudflare-warp failed to install
 Синхронизация времени включена	Time synchronization enabled
-нет SSH-ключа — пункт 13 → 7	no SSH key — item 12 → 7
+нет SSH-ключа — Ноды → Установка → 7	no SSH key — Nodes → Install → 7
 сертификат не прошёл проверку	certificate failed verification
 Мало места на диске: свободно	Low disk space: free
 Показать настройки для панели	Show settings for the panel
@@ -4407,4 +4474,32 @@ GitHub или файл	GitHub or file
 Не удалось скачать RemnaPilot. Сохрани скрипт в файл и запусти:	Could not download RemnaPilot. Save the script to a file and run:
 Не удалось скачать RemnaPilot — сохрани скрипт в файл и запусти его оттуда.	Could not download RemnaPilot — save the script to a file and run it from there.
 РФ · пинг · скорость	RU · ping · speed
+Сворачиваемое меню: на главном экране только разделы, пункты — внутри. Полный список — в «Прочее → Вид меню»	Collapsible menu: only sections on the main screen, items inside. Full list — in "Other → Menu view"
+Автотесты в GitHub Actions: релиз не выходит, если тесты упали	Automated tests in GitHub Actions: no release if tests fail
+Домены	Domains
+Проверки	Checks
+Прочее	Other
+РАЗДЕЛЫ	SECTIONS
+ДОМЕНЫ	DOMAINS
+смена · удаление · откат	change · remove · rollback
+обновления · сертификаты · логи	updates · certificates · logs
+бэкап · восстановление	backup · restore
+статус · geo · WARP	status · geo · WARP
+firewall · SSH · BBR · swap	firewall · SSH · BBR · swap
+IP · SNI для Reality	IP · SNI for Reality
+журнал · язык · о программе	log · language · about
+Вид меню	Menu view
+полный список	full list
+разделы	sections
+Панель → Обновления → RemnaPilot	Panel → Updates → RemnaPilot
+Панель → Обновления	Panel → Updates
+Домены → Сменить домены	Domains → Change domains
+Панель → Сертификаты	Panel → Certificates
+Панель → Пересоздать контейнеры	Panel → Recreate containers
+Ноды → Установка и обновление нод → Добавить ноду в список	Nodes → Node install and update → Add a node to the list
+Ноды → Установка	Nodes → Install
+Прочее → Сменить каталог панели.	Other → Change panel directory.
+База → Восстановить из дампа	Database → Restore from dump
+перевыпусти:	reissue:
+через	via
 __RP_EN_END__
