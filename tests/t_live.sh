@@ -112,6 +112,9 @@ for _ in range(40):
     except OSError: break
     if w: code = st; break
 out += b"\nEXIT=%d\n" % code
+if code == -1:
+    import subprocess
+    out += b"\n<<PS>>\n" + subprocess.run(["ps","-eo","pid,ppid,stat,wchan:20,args","--forest"],capture_output=True).stdout
 sys.stdout.write(out.decode("utf-8", "replace"))
 P
 for L in ru en; do
@@ -126,6 +129,15 @@ for L in ru en; do
   check "[$L] без ошибок bash" '! grep -qE "line [0-9]+:|command not found|syntax error" <<< "$O"'
 done
 rm -rf /etc/rw "$HOME/.rw-nocmd"
+
+# ожидание ввода не забирает символ (у «read -t» клавиша, пришедшая в момент таймаута, терялась)
+R=$(printf 'x' | bash -c ". '$F'; tty_wait 2; echo rc=\$?; read -rn1 k; echo k=\$k")
+out_has "tty_wait: ввод есть — сразу 0" "rc=0" "$R"
+out_has "tty_wait: символ остался для read" "k=x" "$R"
+R=$( (sleep 2; echo) | bash -c ". '$F'; s=\$(date +%s%N); tty_wait 0.3; echo rc=\$? ms=\$(( (\$(date +%s%N) - s) / 1000000 ))")
+out_has "tty_wait: тишина — 1" "rc=1" "$R"
+check "tty_wait: ждёт заданное время, не дольше" '[[ "$R" =~ ms=([0-9]+) ]] && (( BASH_REMATCH[1] >= 250 && BASH_REMATCH[1] < 1500 ))'
+check "основной цикл не читает терминал через read -t" '! sed -n "/^menu_read()/,/^}/p" "$SCRIPT" | grep -q "read -rs -n1 -t \"\$iv\""'
 
 # без терминала (pipe) и при LIVE=off — обычное чтение строки
 R=$(printf '17\n' | bash -c ". '$F'; UI_LIVE=5; menu_read v; echo \"rc=\$? v=\$v\"")
