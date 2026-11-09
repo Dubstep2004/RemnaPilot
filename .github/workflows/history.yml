@@ -1,0 +1,52 @@
+name: history
+
+# Разовый: создаёт релизы для всех прошлых версий из CHANGELOG.md
+# и пересоздаёт текущий, чтобы он остался последним (Latest) и первым в списке.
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/history.yml']
+
+permissions:
+  contents: write
+
+jobs:
+  history:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Релизы прошлых версий
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cur=$(grep -m1 '^RP_VERSION=' remnapilot.sh | cut -d'"' -f2)
+          for v in $(grep -oP '^## v\K\S+' CHANGELOG.md | sort -V); do
+            [ "$v" = "$cur" ] && continue
+            if gh release view "v$v" >/dev/null 2>&1; then echo "v$v уже есть"; continue; fi
+            awk -v h="## v$v" '$0==h{f=1;next} /^## v/{f=0} f' CHANGELOG.md > notes.md
+            printf '\n> Архивная версия: файл этой версии не сохранился. Ставь актуальную — [v%s](https://github.com/%s/releases/latest).\n' "$cur" "$GITHUB_REPOSITORY" >> notes.md
+            gh release create "v$v" --title "RemnaPilot v$v" --notes-file notes.md --target "$GITHUB_SHA" --latest=false
+            sleep 2
+          done
+
+      - name: Текущая версия — снова последней
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v=$(grep -m1 '^RP_VERSION=' remnapilot.sh | cut -d'"' -f2)
+          awk -v h="## v$v" '$0==h{f=1;next} /^## v/{f=0} f' CHANGELOG.md > notes.md
+          [ -s notes.md ] || echo "- RemnaPilot v$v" > notes.md
+          cat >> notes.md <<'EOF'
+
+          **Установка**
+          ```bash
+          bash <(curl -sSL https://raw.githubusercontent.com/Dubstep2004/RemnaPilot/main/remnapilot.sh)
+          ```
+          **Уже установлен** — `rw` → 6 «Обновления» → 5 → 1, или `rw --self-update`
+          EOF
+          sed -i 's/^          //' notes.md
+          gh release delete "v$v" --yes || true
+          git push --delete origin "v$v" 2>/dev/null || true
+          gh release create "v$v" remnapilot.sh --title "RemnaPilot v$v" --notes-file notes.md --target "$GITHUB_SHA" --latest
