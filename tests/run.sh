@@ -2,6 +2,12 @@
 # Запуск всех тестов: sudo bash tests/run.sh   (нужен root — скрипт проверяет EUID и пишет в /opt, /etc/rw)
 cd "$(dirname "$0")"
 [[ $EUID -eq 0 ]] || { echo "Запусти от root: sudo bash tests/run.sh"; exit 1; }
+# Тесты подменяют /opt/remnawave, /opt/remnanode и /etc/rw — на рабочем сервере это опасно
+if [[ -z "${CI:-}" && -z "${RP_TESTS_FORCE:-}" ]] && [[ -e /opt/remnawave/.env || -e /opt/remnanode ]]; then
+  echo "На этом сервере стоит Remnawave — тесты не запускаю, чтобы ничего не задеть."
+  echo "Запускай их в GitHub Actions или на чистой машине (принудительно: RP_TESTS_FORCE=1)."
+  exit 1
+fi
 total=0; failed=()
 for t in t_*.sh; do
   total=$((total+1))

@@ -14,6 +14,9 @@
 #                 --self-update [файл]           обновить RemnaPilot с GitHub (репозиторий — в меню) или из файла
 #                 --lang en|ru                   язык интерфейса (меню: «Language / Язык»)
 #                 --cert-status                  статус сертификатов
+#                 --check-updates                проверить обновления RemnaPilot, панели, ноды
+#                 --auto-update                  то, что делает автообновление (для cron)
+#                 --backup                       бэкап по расписанию: архив + Telegram (для cron)
 
 RP_DEFAULT_SOURCE="Dubstep2004/RemnaPilot"   # откуда обновляться по умолчанию (меняется в меню: Панель → Обновления → RemnaPilot → 3)
 
@@ -33,7 +36,7 @@ fi
 
 set -o pipefail
 RP_NAME="RemnaPilot"
-RP_VERSION="1.9"
+RP_VERSION="2.0"
 CERT_METHOD="${CERT_METHOD:-}"
 STOPPED_CT=(); STOPPED_SVC=(); FW_OPENED=()
 
@@ -61,6 +64,49 @@ else
   C0=""; CB=""; CD=""; C_ACC=""; C_ACC2=""; C_OK=""; C_WARN=""; C_ERR=""; C_MUT=""; C_LINE=""; GRAD=("" "" "" "" "" "")
 fi
 W=54   # ширина интерфейса
+
+# ---------- настройки оформления (/etc/rw/ui.conf) ----------
+UI_CONF="/etc/rw/ui.conf"
+ui_get() { local v; v=$(grep -m1 "^$1=" "$UI_CONF" 2>/dev/null | cut -d= -f2-); echo "${v:-$2}"; }
+ui_set() {
+  mkdir -p "$(dirname "$UI_CONF")"; touch "$UI_CONF"
+  if grep -q "^$1=" "$UI_CONF"; then sed -i "s|^$1=.*|$1=$2|" "$UI_CONF"; else echo "$1=$2" >> "$UI_CONF"; fi
+}
+
+RP_THEMES=(ocean sunset forest neon ice mono)
+apply_ui() { # тема → цвета акцентов и градиент логотипа
+  UI_THEME=$(ui_get THEME ocean); UI_NUMS=$(ui_get NUMS plain); UI_LOGO=$(ui_get LOGO big)
+  UI_HINTS=$(ui_get HINTS on);    UI_STATUS=$(ui_get STATUS full)
+  [[ -z "$C0" ]] && return 0                       # без цветов — только стиль
+  if (( $(tput colors 2>/dev/null || echo 0) < 256 )); then
+    [[ "$UI_THEME" == mono ]] && { C_ACC="$CB"; C_ACC2="$CB"; GRAD=("$CB" "$CB" "$CB" "$CB" "$CB" "$CB"); }
+    return 0
+  fi
+  local g
+  case "$UI_THEME" in
+    sunset) C_ACC=$'\e[38;5;214m'; C_ACC2=$'\e[38;5;205m'; g="226 220 214 208 203 198" ;;
+    forest) C_ACC=$'\e[38;5;114m'; C_ACC2=$'\e[38;5;149m'; g="48 41 35 71 107 143" ;;
+    neon)   C_ACC=$'\e[38;5;201m'; C_ACC2=$'\e[38;5;51m';  g="201 165 129 93 57 51" ;;
+    ice)    C_ACC=$'\e[38;5;153m'; C_ACC2=$'\e[38;5;189m'; g="195 159 153 117 111 147" ;;
+    mono)   C_ACC=$'\e[1;38;5;255m'; C_ACC2=$'\e[38;5;250m'; g="255 253 251 249 247 245" ;;
+    *)      C_ACC=$'\e[38;5;45m';  C_ACC2=$'\e[38;5;141m'; g="51 45 39 63 99 141" ;;
+  esac
+  GRAD=(); local c; for c in $g; do GRAD+=($'\e[38;5;'"${c}m"); done
+}
+
+theme_name() { case "$1" in ocean) echo "Океан";; sunset) echo "Закат";; forest) echo "Лес";; neon) echo "Неон";; ice) echo "Лёд";; mono) echo "Моно";; esac; }
+
+num_fmt() { # номер пункта в выбранном стиле (ширина 4)
+  local n="$1" circ=(⓪ ① ② ③ ④ ⑤ ⑥ ⑦ ⑧ ⑨ ⑩ ⑪ ⑫ ⑬ ⑭ ⑮ ⑯ ⑰ ⑱ ⑲ ⑳)
+  [[ "$n" =~ ^[0-9]+$ ]] || { printf '%4s' "$n"; return; }
+  case "${UI_NUMS:-plain}" in
+    paren)   printf '%4s' "$n)" ;;
+    bracket) printf '%4s' "[$n]" ;;
+    dot)     printf '%4s' "$n." ;;
+    circle)  if (( n <= 20 )); then printf '%3s%s' "" "${circ[$n]}"; else printf '%4s' "($n)"; fi ;;
+    *)       printf '%4s' "$n" ;;
+  esac
+}
 
 # ---------- язык ----------
 RP_SELF=$(readlink -f "${BASH_SOURCE[0]:-$0}" 2>/dev/null)
@@ -133,8 +179,8 @@ section() { # заголовок группы в меню:  ДОМЕН ───
 }
 
 item() { # пункт меню: номер, текст, [подсказка]
-  printf '   %s%3s%s  %s' "$C_ACC$CB" "$1" "$C0" "$2"
-  [[ -n "${3:-}" ]] && printf '  %s%s%s' "$C_MUT" "$3" "$C0"
+  printf '  %s%s%s  %s' "$C_ACC$CB" "$(num_fmt "$1")" "$C0" "$2"
+  [[ -n "${3:-}" && "${UI_HINTS:-on}" != off ]] && printf '  %s%s%s' "$C_MUT" "$3" "$C0"
   echo
 }
 
@@ -153,6 +199,10 @@ banner() {
   )
   local r i ch out col n=${#GRAD[@]} u="─"
   echo
+  if [[ "${UI_LOGO:-big}" == none ]]; then return 0; fi
+  if [[ "${UI_LOGO:-big}" == small ]]; then
+    printf '   %s◆ %s%sRemnaPilot%s  %sv%s%s\n' "${GRAD[0]}" "$C0" "$CB" "$C0" "$C_LINE" "$RP_VERSION" "$C0"; return 0
+  fi
   if (( ${#u} != 1 )); then for r in "${rows[@]}"; do printf '   %s%s%s\n' "$C_ACC" "$r" "$C0"; done
   else for r in "${rows[@]}"; do
     out="   "
@@ -179,6 +229,22 @@ dot() { # цветная точка статуса: ok|warn|err|off
 }
 
 status_box() {
+  case "${UI_STATUS:-full}" in off) return 0 ;; compact) status_line; return 0 ;; esac
+  status_box_full
+}
+
+status_line() { # одна строка вместо рамки
+  local app st d=ok dom; app=$(docker ps -a --format '{{.Names}}|{{.Status}}|{{.Image}}' 2>/dev/null | awk -F'|' '$3 ~ /remnawave\/backend/ {print; exit}')
+  if [[ ! -f "$RW_DIR/.env" ]]; then st="$(T "панели нет")"; d=off
+  elif [[ "$app" == *"|Up"*unhealthy* || "$app" == *Restarting* ]]; then st="$(T "проблемы")"; d=warn
+  elif [[ "$app" == *"|Up"* ]]; then st="$(T "работает")"
+  else st="$(T "остановлена")"; d=err; fi
+  dom=$(detect_old 2>/dev/null)
+  printf '   %s %s%s%s  %s%s%s\n' "$(dot $d)" "$CB" "${dom:-RemnaPilot}" "$C0" "$C_MUT" "$st" "$C0"
+  update_hints
+}
+
+status_box_full() {
   local panel_st panel_ver dom days ssl nodes db_st lbl
   lbl() { local l; l=$(T "$1"); local w=9; [[ "$RP_LANG" == en ]] && w=13; local pad=$(( w - ${#l} )); (( pad < 1 )) && pad=1; printf '%s%s%s%s' "$C_MUT" "$l" "$C0" "$(repeat ' ' $pad)"; }
 
@@ -224,11 +290,29 @@ status_box() {
   local local_node=""
   docker ps --format '{{.Names}}' 2>/dev/null | grep -qx remnanode && local_node="  $(dot ok) ${C_MUT}+ нода здесь${C0}"
   box_line "$(lbl Ноды)${nodes}${local_node}"
-  local lv; lv=$(cat /etc/rw/.latest_version 2>/dev/null)
-  if [[ -n "$lv" && "$lv" != "$RP_VERSION" && "$(printf '%s\n%s\n' "$RP_VERSION" "$lv" | sort -V | tail -1)" == "$lv" ]]; then
-    box_line "$(dot warn) ${C_WARN}Доступен RemnaPilot v$lv — Панель → Обновления${C0}"
-  fi
   box_bottom
+  update_hints
+}
+
+ver_newer() { [[ -n "$1" && -n "$2" && "$1" != "$2" && "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -1)" == "$2" ]]; } # $2 новее $1
+
+update_hints() { # строки под рамкой: что можно обновить, последние автодействия (только из кэша, без сети)
+  local lv pv lp nv ln app f
+  lv=$(cat /etc/rw/.latest_version 2>/dev/null)
+  ver_newer "$RP_VERSION" "$lv" && printf '   %s %sДоступен RemnaPilot v%s%s\n' "$(dot warn)" "$C_WARN" "$lv" "$C0"
+  if [[ -f "$RW_DIR/.env" ]]; then
+    lp=$(cat /etc/rw/.latest_panel 2>/dev/null)
+    app=$(docker ps --format '{{.Names}}\t{{.Image}}' 2>/dev/null | awk -F'\t' '$2 ~ /remnawave\/backend/ {print $1; exit}')
+    [[ -n "$app" && -n "$lp" ]] && { pv=$(local_ver "$app"); ver_newer "$pv" "$lp" && printf '   %s %sДоступна панель v%s%s  %s(сейчас v%s)%s\n' "$(dot warn)" "$C_WARN" "$lp" "$C0" "$C_MUT" "$pv" "$C0"; }
+  fi
+  ln=$(cat /etc/rw/.latest_node 2>/dev/null)
+  if [[ -n "$ln" ]] && docker ps --format '{{.Names}}' 2>/dev/null | grep -qx remnanode; then
+    nv=$(local_ver remnanode); ver_newer "$nv" "$ln" && printf '   %s %sДоступна нода v%s%s\n' "$(dot warn)" "$C_WARN" "$ln" "$C0"
+  fi
+  for f in /etc/rw/.autoupdate_last /etc/rw/.backup_last; do
+    [[ -f "$f" ]] && grep -q '|FAIL|' "$f" && printf '   %s %s%s%s\n' "$(dot err)" "$C_ERR" "$(cut -d'|' -f3- "$f")" "$C0"
+  done
+  return 0
 }
 
 # ---------- утилиты ----------
@@ -2131,6 +2215,7 @@ EOF
   if [[ -d "$RW_DIR/backups" ]]; then
     ls -1t "$RW_DIR"/backups/db-*.sql.gz 2>/dev/null | tail -n +$((keep + 1)) | while read -r f; do rm -f "$f" "${f%.sql.gz}.env"; done
     ls -1t "$RW_DIR"/backups/update-*.log 2>/dev/null | tail -n +21 | xargs -r rm -f
+    ls -1t "$RW_DIR"/.env.bak-* 2>/dev/null | tail -n +6 | xargs -r rm -f
     ls -1dt "$RW_DIR"/backup-domain-* 2>/dev/null | tail -n +$((keep + 1)) | xargs -r rm -rf
     green "✔ Оставлено последних бэкапов: $keep"
   fi
@@ -2853,8 +2938,289 @@ time_menu() {
   done
 }
 
+# ---------- Telegram ----------
+TG_CONF="/etc/rw/telegram.conf"
+tg_get() { grep -m1 "^$1=" "$TG_CONF" 2>/dev/null | cut -d= -f2-; }
+tg_on()  { [[ -n "$(tg_get TOKEN)" && -n "$(tg_get CHAT)" ]]; }
+tg_api() { curl -fsS --max-time 60 "https://api.telegram.org/bot$(tg_get TOKEN)/$1" "${@:2}"; }
+tg_text() { tg_on || return 0; tg_api sendMessage -d chat_id="$(tg_get CHAT)" --data-urlencode text="$1" >/dev/null 2>&1; }
+tg_file() { # файл, подпись
+  tg_on || return 0
+  (( $(stat -c %s "$1") < 49000000 )) || { tg_text "$2 (файл больше 49 МБ — не отправлен)"; return 1; }
+  tg_api sendDocument -F chat_id="$(tg_get CHAT)" -F document=@"$1" -F caption="$2" >/dev/null 2>&1
+}
+
+tg_setup() {
+  local tok chat ans name
+  echo "  1. В Telegram открой @BotFather → /newbot → получи токен."
+  echo "  2. Напиши своему боту любое сообщение (например /start)."
+  ask "Токен бота"; read -r tok; tok="${tok// /}"
+  [[ "$tok" =~ ^[0-9]+:[A-Za-z0-9_-]{30,}$ ]] || { err "непохоже на токен бота"; return 1; }
+  name=$(curl -fsS --max-time 15 "https://api.telegram.org/bot$tok/getMe" 2>/dev/null | grep -oP '"username":"\K[^"]+')
+  [[ -n "$name" ]] || { err "Telegram не принял токен (или нет связи с api.telegram.org)"; return 1; }
+  info "Бот: @$name. Ищу твой чат..."
+  chat=$(curl -fsS --max-time 15 "https://api.telegram.org/bot$tok/getUpdates" 2>/dev/null | grep -oP '"chat":\{"id":\K-?[0-9]+' | tail -1)
+  if [[ -z "$chat" ]]; then ask "Не нашёл сообщений боту. Напиши ему и нажми Enter (или введи chat_id)"; read -r ans
+    chat="${ans:-$(curl -fsS --max-time 15 "https://api.telegram.org/bot$tok/getUpdates" 2>/dev/null | grep -oP '"chat":\{"id":\K-?[0-9]+' | tail -1)}"; fi
+  [[ "$chat" =~ ^-?[0-9]+$ ]] || { err "chat_id не найден"; return 1; }
+  mkdir -p /etc/rw; printf 'TOKEN=%s\nCHAT=%s\n' "$tok" "$chat" > "$TG_CONF"; chmod 600 "$TG_CONF"
+  if tg_text "✅ RemnaPilot подключён к этому чату ($(hostname))"; then green "✔ Готово — проверь сообщение в Telegram"
+  else red "✖ Сообщение не отправилось — проверь токен и chat_id"; return 1; fi
+  jlog INFO "Telegram подключён"
+}
+
+tg_menu() {
+  local c
+  while true; do
+    screen "Уведомления в Telegram"; echo
+    box_top
+    if tg_on; then box_line "$(dot ok) подключено  ${C_MUT}chat $(tg_get CHAT)${C0}"; else box_line "$(dot off) ${C_MUT}не подключено${C0}"; fi
+    box_bottom
+    echo "  Сюда приходят: автобэкапы базы, результаты автообновления, ошибки."
+    section "ДЕЙСТВИЯ"
+    item 1 "Подключить бота"
+    item 2 "Отправить тестовое сообщение"
+    item 3 "Отключить"
+    hr; item 0 "Назад"
+    ask; read -r c; echo
+    case "$c" in
+      1) run_action "Telegram: подключение" tg_setup; pause ;;
+      2) tg_on && { tg_text "🔔 Тест RemnaPilot ($(hostname))" && green "✔ Отправлено" || red "✖ Не отправилось"; } || yel "Сначала подключи бота."; pause ;;
+      3) rm -f "$TG_CONF"; yel "Telegram отключён."; pause ;;
+      0|q|"") return ;;
+    esac
+  done
+}
+
+# ---------- автообновление ----------
+AU_CONF="/etc/rw/autoupdate.conf"
+au_mode() { local m; m=$(cat "$AU_CONF" 2>/dev/null); echo "${m:-check}"; }
+au_mode_name() { case "$1" in off) echo "выключено";; check) echo "только проверять";; self) echo "RemnaPilot сам";; all) echo "всё сам (ночью, с бэкапом)";; esac; }
+
+rp_bin() { [[ -x /usr/local/bin/rw ]] && echo /usr/local/bin/rw || echo "$RP_SELF"; }
+
+au_install_cron() { # раз в сутки, в случайную минуту 4-го часа — чтобы не было пика на GitHub
+  local m=$(( RANDOM % 50 + 5 ))
+  if [[ "$(au_mode)" == off ]]; then rm -f /etc/cron.d/remnapilot-update; return; fi
+  echo "$m 4 * * * root RP_AUTO=1 bash $(rp_bin) --auto-update >> /var/log/remnapilot-cron.log 2>&1" > /etc/cron.d/remnapilot-update
+  chmod 644 /etc/cron.d/remnapilot-update
+}
+
+au_check_all() { # обновить кэш последних версий (RemnaPilot, панель, нода)
+  mkdir -p /etc/rw
+  rm -f /etc/rw/.latest_version; rp_remote_version >/dev/null 2>&1
+  local v
+  v=$(gh_latest remnawave/backend); [[ -n "$v" ]] && echo "$v" > /etc/rw/.latest_panel
+  v=$(gh_latest remnawave/node);    [[ -n "$v" ]] && echo "$v" > /etc/rw/.latest_node
+  return 0
+}
+
+au_run() { # то, что делает cron
+  local mode msg="" rc=0 lv lp ln app pv nv t
+  mode=$(au_mode); [[ "$mode" == off ]] && return 0
+  au_check_all
+  lv=$(cat /etc/rw/.latest_version 2>/dev/null); lp=$(cat /etc/rw/.latest_panel 2>/dev/null); ln=$(cat /etc/rw/.latest_node 2>/dev/null)
+  if [[ "$mode" == self || "$mode" == all ]] && ver_newer "$RP_VERSION" "$lv"; then
+    t=$(mktemp)
+    if rp_fetch_latest "$t" && RP_AUTO=1 self_update "$t" >/dev/null 2>&1; then msg+="RemnaPilot → v$lv. "; else msg+="RemnaPilot: ошибка обновления. "; rc=1; fi
+    rm -f "$t"
+  fi
+  if [[ "$mode" == all ]]; then
+    if [[ -f "$RW_DIR/.env" ]]; then
+      app=$(app_containers | head -1); pv=$(local_ver "$app")
+      if ver_newer "$pv" "$lp"; then
+        UPD_LOG=""; if update_panel 1 >/dev/null 2>&1; then msg+="Панель v$pv → v$lp. "; else msg+="Панель: ошибка обновления — откати: Панель → Обновления → 6. "; rc=1; fi
+      fi
+    fi
+    if node_dir >/dev/null 2>&1; then
+      nv=$(local_ver remnanode)
+      if ver_newer "$nv" "$ln"; then UPD_LOG=""; update_local_node >/dev/null 2>&1 && msg+="Нода v$nv → v$ln. " || { msg+="Нода: ошибка обновления. "; rc=1; }; fi
+    fi
+  elif [[ "$mode" == check ]]; then
+    ver_newer "$RP_VERSION" "$lv" && msg+="Доступен RemnaPilot v$lv. "
+    [[ -f "$RW_DIR/.env" ]] && { app=$(app_containers | head -1); pv=$(local_ver "$app"); ver_newer "$pv" "$lp" && msg+="Доступна панель v$lp. "; }
+  fi
+  printf '%s|%s|%s\n' "$(date '+%d.%m %H:%M')" "$( ((rc)) && echo FAIL || echo OK)" "${msg:-Всё актуально}" > /etc/rw/.autoupdate_last
+  jlog "$( ((rc)) && echo FAIL || echo INFO)" "Автообновление: ${msg:-всё актуально}"
+  [[ -n "$msg" ]] && tg_text "$( ((rc)) && echo "⚠️" || echo "🔄") $(hostname): $msg"
+  return $rc
+}
+
+au_menu() {
+  local c last
+  while true; do
+    screen "Автообновление"; echo
+    last=$(cat /etc/rw/.autoupdate_last 2>/dev/null)
+    box_top
+    box_line "${C_MUT}$(padr "Режим" 11)${C0}${CB}$(au_mode_name "$(au_mode)")${C0}"
+    box_line "${C_MUT}$(padr "Когда" 11)${C0}$( [[ -f /etc/cron.d/remnapilot-update ]] && echo "каждую ночь в $(awk '{printf "04:%02d", $1}' /etc/cron.d/remnapilot-update)" || echo "—")"
+    [[ -n "$last" ]] && box_line "${C_MUT}$(padr "Последний" 11)${C0}$(cut -d'|' -f1 <<< "$last")  $(cut -d'|' -f3 <<< "$last")"
+    box_line "${C_MUT}$(padr "Telegram" 11)${C0}$(tg_on && echo "$(dot ok) отчёты приходят" || echo "$(dot off) ${C_MUT}не подключён${C0}")"
+    box_bottom
+    section "РЕЖИМ"
+    item 1 "Выключено"
+    item 2 "Только проверять" "подсказка в меню и в Telegram"
+    item 3 "Обновлять RemnaPilot сам"
+    item 4 "Обновлять всё сам" "панель и ноду — с бэкапом базы"
+    section "ДЕЙСТВИЯ"
+    item 5 "Проверить сейчас"
+    hr; item 0 "Назад"
+    ask; read -r c; echo
+    case "$c" in
+      1|2|3|4) local m; m=$(case $c in 1) echo off;; 2) echo check;; 3) echo self;; 4) echo all;; esac)
+         if [[ "$m" == all ]]; then
+           yel "Панель будет обновляться без тебя. Перед каждым обновлением — бэкап базы, при сбое — уведомление и откат вручную."
+           ask "Включить? [y/N]"; read -r a; [[ "$a" =~ ^[Yy]$ ]] || continue
+         fi
+         mkdir -p /etc/rw; echo "$m" > "$AU_CONF"; au_install_cron
+         green "✔ Автообновление: $(au_mode_name "$m")"; jlog INFO "Автообновление: $m"; pause ;;
+      5) info "Проверяю..."; au_check_all; printf '\e[1A\e[2K'; update_hints; [[ -z "$(update_hints)" ]] && green "✔ Всё актуально"; pause ;;
+      0|q|"") return ;;
+    esac
+  done
+}
+
+# ---------- автобэкап ----------
+BK_CONF="/etc/rw/backup.conf"
+bk_get() { local v; v=$(grep -m1 "^$1=" "$BK_CONF" 2>/dev/null | cut -d= -f2-); echo "${v:-$2}"; }
+bk_set() { mkdir -p /etc/rw; touch "$BK_CONF"; if grep -q "^$1=" "$BK_CONF"; then sed -i "s|^$1=.*|$1=$2|" "$BK_CONF"; else echo "$1=$2" >> "$BK_CONF"; fi; }
+bk_sched_name() { case "$1" in daily) echo "каждый день в 03:30";; 12h) echo "каждые 12 часов";; weekly) echo "раз в неделю (вс 03:30)";; *) echo "выключен";; esac; }
+
+bk_install_cron() {
+  local when
+  case "$(bk_get SCHED off)" in
+    daily)  when="30 3 * * *" ;; 12h) when="30 3,15 * * *" ;; weekly) when="30 3 * * 0" ;;
+    *) rm -f /etc/cron.d/remnapilot-backup; return ;;
+  esac
+  echo "$when root RP_AUTO=1 bash $(rp_bin) --backup >> /var/log/remnapilot-cron.log 2>&1" > /etc/cron.d/remnapilot-backup
+  chmod 644 /etc/cron.d/remnapilot-backup
+}
+
+bk_run() { # бэкап по расписанию: дамп + .env + список нод → один архив, хранение N, отправка в Telegram
+  local keep dump arc tmp rc=0 sz
+  keep=$(bk_get KEEP 7)
+  need_panel >/dev/null 2>&1 || { echo "$(date '+%d.%m %H:%M')|FAIL|Автобэкап: панель не найдена" > /etc/rw/.backup_last; return 1; }
+  if ! backup_db auto >/dev/null 2>&1; then
+    printf '%s|FAIL|Автобэкап базы не удался\n' "$(date '+%d.%m %H:%M')" > /etc/rw/.backup_last
+    jlog FAIL "Автобэкап базы не удался"; tg_text "⚠️ $(hostname): автобэкап базы не удался"; return 1
+  fi
+  dump=$(ls -1t "$RW_DIR"/backups/db-*-auto.sql.gz | head -1)
+  tmp=$(mktemp -d); cp "$dump" "$tmp/"; cp "$RW_DIR/.env" "$tmp/remnawave.env"
+  [[ -s "$NODES_FILE" ]] && cp "$NODES_FILE" "$tmp/nodes.list"
+  arc="$RW_DIR/backups/remnawave-$(hostname)-$(date +%Y%m%d-%H%M%S).tar.gz"
+  tar -C "$tmp" -czf "$arc" . && chmod 600 "$arc"; rm -rf "$tmp"
+  # хранить последние N архивов и автодампов
+  ls -1t "$RW_DIR"/backups/remnawave-*.tar.gz 2>/dev/null | tail -n +$((keep + 1)) | xargs -r rm -f
+  ls -1t "$RW_DIR"/backups/db-*-auto.sql.gz 2>/dev/null | tail -n +$((keep + 1)) | while read -r f; do rm -f "$f" "${f%.sql.gz}.env"; done
+  sz=$(du -h "$arc" | cut -f1)
+  if tg_on; then tg_file "$arc" "💾 $(hostname): бэкап Remnawave $(date '+%d.%m %H:%M'), $sz" || rc=1; fi
+  printf '%s|%s|Бэкап %s%s\n' "$(date '+%d.%m %H:%M')" "$( ((rc)) && echo FAIL || echo OK)" "$sz" "$( tg_on && { ((rc)) && echo ", в Telegram не отправился" || echo ", отправлен в Telegram"; })" > /etc/rw/.backup_last
+  jlog "$( ((rc)) && echo FAIL || echo OK)" "Автобэкап: $(basename "$arc") ($sz)"
+  return $rc
+}
+
+bk_menu() {
+  local c last n
+  while true; do
+    screen "Автобэкап"; echo
+    last=$(cat /etc/rw/.backup_last 2>/dev/null)
+    box_top
+    box_line "${C_MUT}$(padr "Расписание" 11)${C0}${CB}$(bk_sched_name "$(bk_get SCHED off)")${C0}"
+    box_line "${C_MUT}$(padr "Хранить" 11)${C0}последние $(bk_get KEEP 7)"
+    [[ -n "$last" ]] && box_line "${C_MUT}$(padr "Последний" 11)${C0}$(cut -d'|' -f1 <<< "$last")  $(cut -d'|' -f3 <<< "$last")"
+    box_line "${C_MUT}$(padr "Telegram" 11)${C0}$(tg_on && echo "$(dot ok) архив приходит в чат" || echo "$(dot off) ${C_MUT}не подключён${C0}")"
+    box_bottom
+    echo "  В архиве: дамп базы, .env панели и список нод."
+    tg_on && yel "  ⚠ В .env есть секреты — чат с ботом должен быть только твоим."
+    section "РАСПИСАНИЕ"
+    item 1 "Выключить"
+    item 2 "Каждый день"
+    item 3 "Каждые 12 часов"
+    item 4 "Раз в неделю"
+    section "ДЕЙСТВИЯ"
+    item 5 "Сколько хранить"
+    item 6 "Telegram" "отправка архива в чат"
+    item 7 "Сделать бэкап сейчас" "как по расписанию"
+    hr; item 0 "Назад"
+    ask; read -r c; echo
+    case "$c" in
+      1|2|3|4) bk_set SCHED "$(case $c in 1) echo off;; 2) echo daily;; 3) echo 12h;; 4) echo weekly;; esac)"; bk_install_cron
+         green "✔ Автобэкап: $(bk_sched_name "$(bk_get SCHED off)")"; jlog INFO "Автобэкап: $(bk_get SCHED off)"; pause ;;
+      5) ask "Сколько последних бэкапов хранить [$(bk_get KEEP 7)]"; read -r n
+         [[ "$n" =~ ^[0-9]+$ ]] && (( n >= 1 && n <= 365 )) && { bk_set KEEP "$n"; green "✔ Хранить: $n"; }; pause ;;
+      6) tg_menu ;;
+      7) info "Делаю бэкап..."; if run_action "Автобэкап вручную" bk_run; then green "✔ $(cut -d'|' -f3 /etc/rw/.backup_last)"; else red "✖ $(cut -d'|' -f3 /etc/rw/.backup_last)"; fi; pause ;;
+      0|q|"") return ;;
+    esac
+  done
+}
+
+# ---------- оформление ----------
+ui_preview() {
+  section "ПРИМЕР"
+  item 1 "Сменить домены" "панель и/или подписка"
+  item 2 "Обновления" "панель · ноды"
+}
+
+ui_menu() {
+  local c i t
+  while true; do
+    apply_ui
+    screen "Оформление"; echo
+    banner
+    ui_preview
+    section "НАСТРОЙКИ"
+    item 1 "Тема" "$(theme_name "$UI_THEME")"
+    item 2 "Номера пунктов" "$(num_fmt 1 | tr -d ' ')"
+    item 3 "Логотип" "$(case $UI_LOGO in big) echo большой;; small) echo маленький;; none) echo без логотипа;; esac)"
+    item 4 "Подсказки у пунктов" "$( [[ $UI_HINTS == off ]] && echo скрыты || echo показаны)"
+    item 5 "Статус сервера" "$(case $UI_STATUS in full) echo рамка;; compact) echo одна строка;; off) echo скрыт;; esac)"
+    item 6 "Вид меню" "$( [[ "$(menu_mode)" == flat ]] && echo "полный список" || echo "разделы" )"
+    item 7 "Сбросить по умолчанию"
+    hr; item 0 "Назад"
+    ask; read -r c; echo
+    case "$c" in
+      1) section "ТЕМА"
+         for i in "${!RP_THEMES[@]}"; do
+           t="${RP_THEMES[$i]}"
+           printf '  %s%s%s  %s  %s\n' "$C_ACC$CB" "$(num_fmt $((i+1)))" "$C0" "$(padr "$(theme_name "$t")" 8)" "$(theme_swatch "$t")"
+         done
+         ask; read -r c; [[ "$c" =~ ^[0-9]+$ ]] && (( c >= 1 && c <= ${#RP_THEMES[@]} )) && ui_set THEME "${RP_THEMES[$((c-1))]}" ;;
+      2) section "НОМЕРА"
+         local st=(plain paren bracket dot circle) ex=("1  2  3" "1)  2)  3)" "[1] [2] [3]" "1.  2.  3." "①  ②  ③")
+         for i in "${!st[@]}"; do item $((i+1)) "${ex[$i]}"; done
+         ask; read -r c; [[ "$c" =~ ^[1-5]$ ]] && ui_set NUMS "${st[$((c-1))]}" ;;
+      3) section "ЛОГОТИП"; item 1 "Большой"; item 2 "Маленький" "одна строка"; item 3 "Без логотипа"
+         ask; read -r c; case "$c" in 1) ui_set LOGO big;; 2) ui_set LOGO small;; 3) ui_set LOGO none;; esac ;;
+      4) [[ "$UI_HINTS" == off ]] && ui_set HINTS on || ui_set HINTS off ;;
+      5) section "СТАТУС"; item 1 "Рамка"; item 2 "Одна строка"; item 3 "Скрыть"
+         ask; read -r c; case "$c" in 1) ui_set STATUS full;; 2) ui_set STATUS compact;; 3) ui_set STATUS off;; esac ;;
+      6) menu_mode_toggle ;;
+      7) rm -f "$UI_CONF"; rm -f /etc/rw/menu_mode ;;
+      0|q|"") return ;;
+    esac
+  done
+}
+
+theme_swatch() { # цветные блоки темы
+  local saved=("${GRAD[@]}") sa="$C_ACC" sb="$C_ACC2" out="" g
+  local f; f=$(mktemp); printf 'THEME=%s\n' "$1" > "$f"
+  UI_CONF="$f" apply_ui; for g in "${GRAD[@]}"; do out+="${g}██"; done; out+="$C0"
+  rm -f "$f"; GRAD=("${saved[@]}"); C_ACC="$sa"; C_ACC2="$sb"
+  printf '%s' "$out"
+}
+
 # ---------- версия ----------
 RP_CHANGELOG=(
+  "2.0|Оформление: 6 тем, стиль номеров (1, 1), [1], 1., ①), большой/маленький логотип, скрытие подсказок, статус рамкой или строкой"
+  "2.0|Автопроверка обновлений каждую ночь: подсказка в меню, режимы «только проверять», «RemnaPilot сам», «всё сам с бэкапом»"
+  "2.0|Автобэкап по расписанию: архив с базой, .env и списком нод, хранение N копий, отправка в Telegram"
+  "2.0|Уведомления в Telegram: бэкапы, результаты автообновления, ошибки"
+  "2.0|Меню снова полным списком, как раньше; разделы — по желанию в «Оформлении»"
+  "2.0|Убран пункт «Указать репозиторий» — обновления всегда из официального репозитория"
+  "2.0|Исправлено: запуск через bash <(curl …) — теперь ставится в /usr/local/bin/rw, работают перевод и cron"
+  "2.0|Исправлено: тесты отказываются запускаться на сервере с живой панелью"
+  "2.0|Очистка удаляет старые копии .env.bak-*"
   "1.9|Сворачиваемое меню: на главном экране только разделы, пункты — внутри. Полный список — в «Прочее → Вид меню»"
   "1.9|Автотесты в GitHub Actions: релиз не выходит, если тесты упали"
   "1.8.1|Официальный репозиторий github.com/Dubstep2004/RemnaPilot — установка одной командой и обновления из коробки"
@@ -3181,29 +3547,12 @@ rp_remote_version() { # версия на GitHub (кэш на 6 часов, чт
   local cache=/etc/rw/.latest_version t
   [[ -n "$(rp_source)" ]] || return 1
   if [[ -f "$cache" ]] && (( $(date +%s) - $(stat -c %Y "$cache") < 21600 )); then cat "$cache"; return 0; fi
+  mkdir -p /etc/rw 2>/dev/null
   t=$(mktemp); rp_fetch_latest "$t" && grep -m1 '^RP_VERSION=' "$t" | cut -d'"' -f2 | tee "$cache" 2>/dev/null; rm -f "$t"
-}
-
-rp_set_source() {
-  local v cur; cur=$(rp_source)
-  echo "  Укажи репозиторий на GitHub, где лежит remnapilot.sh:"
-  echo "   • owner/repo — например  user/remnapilot"
-  echo "     (берётся файл из последнего релиза, иначе из ветки main)"
-  echo "   • или прямая ссылка https://… на файл"
-  ask "Репозиторий${cur:+ [$cur]}"; read -r v; v="${v:-$cur}"
-  [[ -z "$v" ]] && return 0
-  [[ "$v" =~ ^https:// || "$v" =~ ^(github\.com/)?[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { err "непохоже на owner/repo или ссылку"; return 1; }
-  mkdir -p /etc/rw; echo "$v" > "$RP_SRC_FILE"; rm -f /etc/rw/.latest_version
-  info "Проверяю..."
-  local t; t=$(mktemp)
-  if rp_fetch_latest "$t"; then green "✔ Найден RemnaPilot v$(grep -m1 '^RP_VERSION=' "$t" | cut -d'"' -f2)"
-  else yel "⚠ Файл remnapilot.sh по этому адресу не найден (репозиторий закрыт или файла нет). Источник сохранён."; fi
-  rm -f "$t"; jlog INFO "Источник обновлений: $v"
 }
 
 self_update_online() {
   local t nv
-  [[ -n "$(rp_source)" ]] || { yel "Источник обновлений не задан."; rp_set_source || return 1; [[ -n "$(rp_source)" ]] || return 0; }
   info "Скачиваю с GitHub..."
   t=$(mktemp); rm -f /etc/rw/.latest_version
   rp_fetch_latest "$t" || { rm -f "$t"; red "✖ Не удалось скачать remnapilot.sh ($(rp_source))"; return 1; }
@@ -3213,22 +3562,17 @@ self_update_online() {
 }
 
 self_update_menu() {
-  local c rv src; src=$(rp_source)
+  local c rv
+  rv=$(rp_remote_version)
   section "RemnaPilot"
-  if [[ -n "$src" ]]; then
-    rv=$(rp_remote_version)
-    echo "   Источник: $src"
-    echo "   Сейчас v$RP_VERSION, на GitHub ${rv:+v$rv}${rv:-—}"
-  fi
-  item 1 "Обновить с GitHub" "${src:-источник не задан}"
+  echo "   Сейчас v$RP_VERSION, на GitHub ${rv:+v$rv}${rv:-—}"
+  item 1 "Обновить с GitHub"
   item 2 "Обновить из файла" "загруженного на сервер"
-  item 3 "Указать репозиторий GitHub"
   item 0 "Назад"
   ask; read -r c; echo
   case "$c" in
     1) run_action "Обновление RemnaPilot (GitHub)" self_update_online ;;
     2) run_action "Обновление RemnaPilot (файл)" self_update ;;
-    3) rp_set_source ;;
   esac
 }
 
@@ -3244,12 +3588,16 @@ self_update() { # $1 = путь к новому файлу (необязател
   nv=$(grep -m1 '^RP_VERSION=' "$f" | cut -d'"' -f2)
   if [[ "$nv" == "$RP_VERSION" ]]; then green "✔ Это та же версия (v$RP_VERSION)"; return 0; fi
   if [[ "$(printf '%s\n%s\n' "$RP_VERSION" "$nv" | sort -V | tail -1)" != "$nv" ]]; then
-    yel "В файле версия v$nv — она старее текущей v$RP_VERSION."; ask "Всё равно заменить? [y/N]"; read -r a; [[ "$a" =~ ^[Yy]$ ]] || return 0
+    yel "В файле версия v$nv — она старее текущей v$RP_VERSION."
+    [[ -n "${RP_AUTO:-}" ]] && return 0
+    ask "Всё равно заменить? [y/N]"; read -r a; [[ "$a" =~ ^[Yy]$ ]] || return 0
   fi
   install -m 755 "$f" /usr/local/bin/rw || return 1
   src=$(readlink -f "$0" 2>/dev/null)
   [[ -f "$src" && "$src" != /usr/local/bin/rw && "$src" != "$(readlink -f "$f")" ]] && cp -f /usr/local/bin/rw "$src"
-  green "✔ RemnaPilot v$RP_VERSION → v$nv — перезапускаю"; jlog INFO "RemnaPilot обновлён до v$nv"; sleep 1
+  jlog INFO "RemnaPilot обновлён до v$nv"
+  [[ -n "${RP_AUTO:-}" ]] && { green "✔ RemnaPilot v$RP_VERSION → v$nv"; return 0; }
+  green "✔ RemnaPilot v$RP_VERSION → v$nv — перезапускаю"; sleep 1
   rp_reexec /usr/local/bin/rw
 }
 
@@ -3284,6 +3632,7 @@ update_menu() {
     section "ВЕРСИИ"
     item 6 "Откатить последнее обновление"
     item 7 "Закрепить версию панели" "или вернуть latest"
+    item 8 "Автообновление" "$(au_mode_name "$(au_mode)")"
     hr; item 0 "Назад"
     ask; read -r c; echo
     case "$c" in
@@ -3294,6 +3643,7 @@ update_menu() {
       5) self_update_menu; pause ;;
       6) run_action "Откат обновления" rollback_update; pause ;;
       7) run_action "Закрепление версии панели" pin_panel_version; pause ;;
+      8) au_menu ;;
       0|q) return ;;
     esac
   done
@@ -3340,20 +3690,23 @@ item_info() {
     29) echo "Сменить каталог панели|$RW_DIR" ;;
     30) echo "О программе и версии|v$RP_VERSION" ;;
     31) echo "Вид меню|$( [[ "$(menu_mode)" == flat ]] && echo "полный список" || echo "разделы" )" ;;
+    32) echo "Автобэкап|$(bk_sched_name "$(bk_get SCHED off)")" ;;
+    33) echo "Оформление|тема · номера · логотип" ;;
+    34) echo "Уведомления в Telegram|$(tg_on && echo подключено || echo выключено)" ;;
   esac
 }
 
 MENU_SECTIONS=(
   "Домены|смена · удаление · откат|1 2 3 4"
   "Панель|обновления · сертификаты · логи|5 6 7 8 9 10"
-  "База|бэкап · восстановление|11 12"
+  "База|бэкап · автобэкап · восстановление|11 32 12"
   "Ноды|статус · geo · WARP|13 14 15 16"
   "Сервер|firewall · SSH · BBR · swap|17 18 19 20 21 22 23"
   "Проверки|IP · SNI для Reality|24 25"
-  "Прочее|журнал · язык · о программе|26 27 28 29 31 30"
+  "Прочее|оформление · Telegram · язык|33 34 26 27 28 29 30"
 )
 
-menu_mode() { local m; m=$(cat /etc/rw/menu_mode 2>/dev/null); [[ "$m" == flat ]] && echo flat || echo sections; }
+menu_mode() { local m; m=$(cat /etc/rw/menu_mode 2>/dev/null); [[ "$m" == sections ]] && echo sections || echo flat; }
 
 menu_mode_toggle() {
   mkdir -p /etc/rw
@@ -3406,6 +3759,9 @@ run_item() { # внутренний номер пункта → действие
     26) journal_menu ;;
     27) lang_toggle ;;
     31) menu_mode_toggle ;;
+    32) bk_menu ;;
+    33) ui_menu ;;
+    34) tg_menu ;;
     28) install_cmd; pause ;;
     29) change_dir; pause ;;
     30) about_screen; pause ;;
@@ -3428,7 +3784,7 @@ section_menu() { # $1 = индекс раздела
     [[ "$c" =~ ^[0-9]+$ ]] && (( c >= 1 && c <= ${#arr[@]} )) || continue
     n="${arr[$((c-1))]}"
     run_item "$n"
-    [[ "$n" == 31 ]] && return        # сменили вид меню — сразу показать
+    [[ "$n" == 33 && "$(menu_mode)" == flat ]] && return   # сменили вид меню — сразу показать
   done
 }
 
@@ -3441,15 +3797,16 @@ menu() {
     status_box
     if [[ "$(menu_mode)" == flat ]]; then
       # полный список: все пункты со сквозной нумерацией
+      local ids=() k=0
       for i in "${!MENU_SECTIONS[@]}"; do
         IFS='|' read -r name hint nums <<< "${MENU_SECTIONS[$i]}"
         section "${name^^}"
-        for n in $nums; do print_item "$n" "$n"; done
+        for n in $nums; do k=$((k+1)); ids+=("$n"); print_item "$k" "$n"; done
       done
       item 0 "Выход"; hr
       ask; read -r ch
       case "$ch" in 0|q|Q) exit 0 ;; esac
-      [[ "$ch" =~ ^[0-9]+$ ]] && (( ch >= 1 && ch <= 31 )) && run_item "$ch"
+      [[ "$ch" =~ ^[0-9]+$ ]] && (( ch >= 1 && ch <= ${#ids[@]} )) && run_item "${ids[$((ch-1))]}"
     else
       # разделы: на главном экране только они, пункты — внутри
       section "РАЗДЕЛЫ"
@@ -3466,6 +3823,7 @@ menu() {
 }
 
 # ---------- старт ----------
+RP_ARGS=("$@")
 need_val() { [[ -n "${2:-}" && "$2" != -* ]] || { echo "Флаг $1 требует значение (см. --help)"; exit 1; }; }
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -3479,6 +3837,9 @@ while [[ $# -gt 0 ]]; do
     --cert-method) CERT_METHOD="$2"; [[ "$CERT_METHOD" =~ ^(http|alpn|dns|manual)$ ]] || { echo "--cert-method: http|alpn|dns|manual"; exit 1; }; shift 2 ;;
     --update)    DO_UPDATE=1; shift ;;
     --update-all) DO_UPDATE_ALL=1; shift ;;
+    --auto-update) DO_AU=1; shift ;;
+    --backup)    DO_BACKUP=1; shift ;;
+    --check-updates) DO_CHECK=1; shift ;;
     --geo-update-local) DO_GEO="${2:-loyal}"; [[ "$DO_GEO" == -* ]] && DO_GEO=loyal || shift; shift ;;
     --self-update) [[ $EUID -eq 0 ]] || { echo "Нужен root"; exit 1; }
                    if [[ -n "${2:-}" && "$2" != -* ]]; then self_update "$2"; else self_update_online; fi; exit $? ;;
@@ -3493,6 +3854,20 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ $EUID -eq 0 ]] || { red "Запусти от root (sudo)"; exit 1; }
+
+# Запуск через «bash <(curl …)»: файла скрипта нет — ставим его в /usr/local/bin/rw и перезапускаемся оттуда,
+# иначе не работают перевод, cron-задачи и смена языка
+if [[ ! -f "$RP_SELF" ]]; then
+  _t=$(mktemp)
+  if rp_fetch_latest "$_t" && install -m 755 "$_t" /usr/local/bin/rw; then
+    rm -f "$_t"; echo "RemnaPilot установлен в /usr/local/bin/rw — дальше запускай командой: rw"
+    exec /usr/local/bin/rw "${RP_ARGS[@]}"
+  fi
+  rm -f "$_t"
+fi
+
+apply_ui
+
 if [[ "$RP_LANG" == en && -f "$RP_SELF" ]] && command -v perl >/dev/null; then
   rp_load_dict
   exec 3>&1 4>&2
@@ -3504,7 +3879,13 @@ if [[ -n "$NEW" || -n "${SUB_NEW:-}" || ${DO_UPDATE:-0} == 1 || ${DO_CERT_STATUS
   need_panel || exit 1
 fi
 
-if [[ -n "${DO_GEO:-}" ]]; then
+if (( ${DO_AU:-0} )); then
+  au_run; exit $?
+elif (( ${DO_BACKUP:-0} )); then
+  bk_run; rc=$?; [[ -f /etc/rw/.backup_last ]] && cut -d'|' -f3 /etc/rw/.backup_last; exit $rc
+elif (( ${DO_CHECK:-0} )); then
+  au_check_all; update_hints | sed -E 's/\x1b\[[0-9;]*m//g'; exit 0
+elif [[ -n "${DO_GEO:-}" ]]; then
   bash -s <<< "$(geo_script "$DO_GEO")"
 elif (( ${DO_CERT_STATUS:-0} )); then
   cert_status
@@ -3518,8 +3899,11 @@ elif [[ -n "$NEW" ]]; then
   change_domain "$NEW" "$OLD" "$DRY"
 else
   offer_cmd
-  if [[ -n "$(rp_source)" ]] && { [[ ! -f /etc/rw/.latest_version ]] || (( $(date +%s) - $(stat -c %Y /etc/rw/.latest_version) > 86400 )); }; then
-    ( rp_remote_version >/dev/null 2>&1 & ) 2>/dev/null
+  # автопроверка обновлений включена по умолчанию (раз в сутки ночью); выключается в Панель → Обновления → Автообновление
+  [[ -f "$AU_CONF" || -f /etc/cron.d/remnapilot-update ]] || au_install_cron 2>/dev/null
+  # раз в сутки при запуске — тихо обновить кэш версий в фоне
+  if [[ ! -f /etc/rw/.latest_version ]] || (( $(date +%s) - $(stat -c %Y /etc/rw/.latest_version 2>/dev/null || echo 0) > 86400 )); then
+    ( au_check_all >/dev/null 2>&1 & ) 2>/dev/null
   fi
   menu
 fi
@@ -4502,4 +4886,137 @@ IP · SNI для Reality	IP · SNI for Reality
 База → Восстановить из дампа	Database → Restore from dump
 перевыпусти:	reissue:
 через	via
+Панель будет обновляться без тебя. Перед каждым обновлением — бэкап базы, при сбое — уведомление и откат вручную.	The panel will update without you. A DB backup before each update; on failure — a notification and a manual rollback.
+Не удалось скачать RemnaPilot. Сохрани скрипт в файл и запусти:	Could not download RemnaPilot. Save the script to a file and run:
+Меню снова полным списком, как раньше; разделы — по желанию в «Оформлении»	The menu is a full list again, as before; sections are optional in "Appearance"
+Сюда приходят: автобэкапы базы, результаты автообновления, ошибки.	You get here: DB auto-backups, auto-update results, errors.
+Панель: ошибка обновления — откати: Панель → Обновления → 6.	Panel: update error — roll back: Panel → Updates → 6.
+В .env есть секреты — чат с ботом должен быть только твоим.	.env contains secrets — the chat with the bot must be yours only.
+Напиши своему боту любое сообщение (например /start).	Send your bot any message (e.g. /start).
+не принял токен (или нет связи с api.telegram.org)	did not accept the token (or no connection to api.telegram.org)
+Не нашёл сообщений боту. Напиши ему и нажми Enter	No messages to the bot found. Send it one and press Enter
+Сообщение не отправилось — проверь токен и chat	The message was not sent — check the token and chat
+В архиве: дамп базы, .env панели и список нод.	The archive has: the DB dump, the panel .env and the node list.
+Готово — проверь сообщение в Telegram	Done — check the message in Telegram
+бэкап · автобэкап · восстановление	backup · auto-backup · restore
+файл больше 49 МБ — не отправлен	file over 49 MB — not sent
+Сколько последних бэкапов хранить	How many recent backups to keep
+панель и ноду — с бэкапом базы	panel and node — with a DB backup
+подсказка в меню и в Telegram	hint in the menu and in Telegram
+оформление · Telegram · язык	appearance · Telegram · language
+Автобэкап: панель не найдена	Auto-backup: panel not found
+Отправить тестовое сообщение	Send a test message
+всё сам (ночью, с бэкапом)	everything (at night, with a backup)
+Автобэкап базы не удался	DB auto-backup failed
+автобэкап базы не удался	DB auto-backup failed
+в Telegram не отправился	not sent to Telegram
+Обновлять RemnaPilot сам	Update RemnaPilot automatically
+Нода: ошибка обновления.	Node: update error.
+тема · номера · логотип	theme · numbers · logo
+раз в неделю (вс 03:30)	weekly (Sun 03:30)
+Уведомления в Telegram	Telegram notifications
+непохоже на токен бота	does not look like a bot token
+подключён к этому чату	is connected to this chat
+Сначала подключи бота.	Connect the bot first.
+отправка архива в чат	send the archive to the chat
+Сбросить по умолчанию	Reset to defaults
+отправлен в Telegram	sent to Telegram
+Сделать бэкап сейчас	Back up now
+архив приходит в чат	archive is sent to the chat
+каждый день в 03:30	daily at 03:30
+Подсказки у пунктов	Item hints
+Обновлять всё сам	Update everything automatically
+Автобэкап вручную	Manual auto-backup
+Доступна панель v	Panel available v
+Доступна нода v	Node available v
+как по расписанию	as scheduled
+В Telegram открой	In Telegram open
+только проверять	check only
+Только проверять	Check only
+Проверить сейчас	Check now
+Ищу твой чат...	Looking for your chat...
+Каждые 12 часов	Every 12 hours
+отчёты приходят	reports are sent
+каждые 12 часов	every 12 hours
+Подключить бота	Connect the bot
+бэкап Remnawave	Remnawave backup
+Тест RemnaPilot	RemnaPilot test
+Сколько хранить	How many to keep
+Номера пунктов	Item numbers
+Делаю бэкап...	Backing up...
+Статус сервера	Server status
+Не отправилось	Not sent
+Автообновление	Auto-update
+получи токен.	get the token.
+обновлён до v	updated to v
+каждую ночь в	every night at
+не подключено	not connected
+панель · ноды	panel · nodes
+Всё актуально	Everything is up to date
+всё актуально	everything is up to date
+Без логотипа	No logo
+Раз в неделю	Weekly
+не подключён	not connected
+подключение	connection
+Каждый день	Daily
+одна строка	one line
+Одна строка	One line
+Оформление	Appearance
+Отправлено	Sent
+Токен бота	Bot token
+Расписание	Schedule
+подключено	connected
+панели нет	no panel
+РАСПИСАНИЕ	SCHEDULE
+Отключить	Disconnect
+Автобэкап	Auto-backup
+последние	last
+отключён.	disconnected.
+Выключить	Turn off
+Последний	Last
+Выключено	Off
+Маленький	Small
+подключён	connected
+выключено	off
+выключен	off
+Включить?	Enable?
+показаны	shown
+маленький	small
+большой	big
+без логотипа	no logo
+рамка	box
+скрыт	hidden
+скрыты	hidden
+ЛОГОТИП	LOGO
+Логотип	Logo
+Большой	Big
+Хранить	Keep
+Скрыть	Hide
+СТАТУС	STATUS
+НОМЕРА	NUMBERS
+ПРИМЕР	PREVIEW
+НАСТРОЙКИ	SETTINGS
+Рамка	Box
+Океан	Ocean
+Когда	When
+Закат	Sunset
+Моно	Mono
+Тема	Theme
+ТЕМА	THEME
+Неон	Neon
+Лёд	Ice
+Лес	Forest
+Бот	Bot
+Режим	Mode
+Флаги без значения (--dir, --old…) больше не вешают скрипт	Flags without a value (--dir, --old…) no longer hang the script
+RemnaPilot установлен в /usr/local/bin/rw — дальше запускай командой: rw	RemnaPilot installed to /usr/local/bin/rw — from now on run: rw
+Оформление: 6 тем, стиль номеров (1, 1), [1], 1., ①), большой/маленький логотип, скрытие подсказок, статус рамкой или строкой	Appearance: 6 themes, number style (1, 1), [1], 1., ①), big/small logo, hide hints, status as a box or a line
+Автопроверка обновлений каждую ночь: подсказка в меню, режимы «только проверять», «RemnaPilot сам», «всё сам с бэкапом»	Nightly update check: menu hint, modes "check only", "RemnaPilot itself", "everything with a backup"
+Автобэкап по расписанию: архив с базой, .env и списком нод, хранение N копий, отправка в Telegram	Scheduled backup: archive with the database, .env and node list, keeps N copies, sends to Telegram
+Уведомления в Telegram: бэкапы, результаты автообновления, ошибки	Telegram notifications: backups, auto-update results, errors
+Убран пункт «Указать репозиторий» — обновления всегда из официального репозитория	Removed "Set repository" — updates always come from the official repository
+Исправлено: запуск через bash <(curl …) — теперь ставится в /usr/local/bin/rw, работают перевод и cron	Fixed: running via bash <(curl …) now installs to /usr/local/bin/rw, translation and cron work
+Исправлено: тесты отказываются запускаться на сервере с живой панелью	Fixed: tests refuse to run on a server with a live panel
+Очистка удаляет старые копии .env.bak-*	Cleanup removes old .env.bak-* copies
+Меню снова полным списком, как раньше; разделы — по желанию в «Оформлении»	The menu is a full list again, as before; sections are optional in "Appearance"
 __RP_EN_END__
