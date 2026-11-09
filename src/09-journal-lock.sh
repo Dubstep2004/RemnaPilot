@@ -12,7 +12,7 @@ RP_LOCKED=""
 with_lock() { # название, команда… — выполнить, пока никто другой (меню, cron) ничего не меняет
   local name="$1" rc who; shift
   if [[ -n "$RP_LOCKED" ]] || ! command -v flock >/dev/null; then "$@"; return; fi
-  exec 8>"$RP_LOCK" 2>/dev/null || { "$@"; return; }
+  { exec 8>"$RP_LOCK"; } 2>/dev/null || { "$@"; return; }     # 2>/dev/null именно снаружи: иначе exec навсегда отключит вывод ошибок
   if ! flock -n 8; then
     who=$(cat "$RP_LOCK.who" 2>/dev/null)
     if [[ -n "${RP_AUTO:-}" ]]; then
@@ -26,6 +26,15 @@ with_lock() { # название, команда… — выполнить, по
   RP_LOCKED=1; "$@"; rc=$?; RP_LOCKED=""
   rm -f "$RP_LOCK.who"; flock -u 8; exec 8>&-
   return $rc
+}
+
+lock_timeout() { # название, файл результата — задача по расписанию не дождалась очереди: не молчим
+  local who; who=$(cat "$RP_LOCK.who" 2>/dev/null)
+  mkdir -p /etc/rw
+  printf '%s|FAIL|%s не выполнен: 30 минут было занято (%s)\n' "$(date '+%d.%m %H:%M')" "$1" "${who:-другое действие RemnaPilot}" > "$2"
+  jlog FAIL "$1: не дождался очереди (${who:-другое действие})"
+  tg_text "⚠️ $(hostname): $1 не выполнен — 30 минут было занято: ${who:-другое действие RemnaPilot}"
+  return 0
 }
 
 run_action() { # название, команда… — журнал + блокировка

@@ -53,7 +53,7 @@ fi
 set -o pipefail
 export PATH="$PATH:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"   # cron даёт урезанный PATH
 RP_NAME="RemnaPilot"
-RP_VERSION="2.3"
+RP_VERSION="2.4"
 CERT_METHOD="${CERT_METHOD:-}"
 STOPPED_CT=(); STOPPED_SVC=(); FW_OPENED=()
 

@@ -53,7 +53,7 @@ fi
 set -o pipefail
 export PATH="$PATH:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"   # cron даёт урезанный PATH
 RP_NAME="RemnaPilot"
-RP_VERSION="2.3"
+RP_VERSION="2.4"
 CERT_METHOD="${CERT_METHOD:-}"
 STOPPED_CT=(); STOPPED_SVC=(); FW_OPENED=()
 
@@ -95,6 +95,8 @@ apply_ui() { # тема → цвета акцентов и градиент ло
   UI_THEME=$(ui_get THEME ocean); UI_NUMS=$(ui_get NUMS plain); UI_LOGO=$(ui_get LOGO big)
   UI_HINTS=$(ui_get HINTS on);    UI_STATUS=$(ui_get STATUS full)
   UI_COMPACT=$(ui_get COMPACT off)
+  UI_LIVE=$(ui_get LIVE 5); [[ "$UI_LIVE" =~ ^(off|3|5|10|30)$ ]] || UI_LIVE=5
+  [[ -n "${RP_NO_LIVE:-}" ]] && UI_LIVE=off          # для автоматических прогонов с готовым вводом
   [[ -z "$C0" ]] && return 0                       # без цветов — только стиль
   if (( $(tput colors 2>/dev/null || echo 0) < 256 )); then
     [[ "$UI_THEME" == mono ]] && { C_ACC="$CB"; C_ACC2="$CB"; GRAD=("$CB" "$CB" "$CB" "$CB" "$CB" "$CB"); }
@@ -167,6 +169,9 @@ T() {
 
 rp_reexec() { # перезапустить скрипт с чистым stdout/stderr
   [[ -n "${RP_TR_PID:-}" ]] && { exec 1>&3 2>&4; trap - EXIT; }
+  tty_restore
+  if [[ -n "${RP_LOCKED:-}" ]]; then rm -f "$RP_LOCK.who"; flock -u 8 2>/dev/null; RP_LOCKED=""; fi   # не уносить блокировку в новый процесс
+  { exec 8>&-; } 2>/dev/null
   exec "$@"
 }
 
@@ -1755,7 +1760,7 @@ RP_LOCKED=""
 with_lock() { # название, команда… — выполнить, пока никто другой (меню, cron) ничего не меняет
   local name="$1" rc who; shift
   if [[ -n "$RP_LOCKED" ]] || ! command -v flock >/dev/null; then "$@"; return; fi
-  exec 8>"$RP_LOCK" 2>/dev/null || { "$@"; return; }
+  { exec 8>"$RP_LOCK"; } 2>/dev/null || { "$@"; return; }     # 2>/dev/null именно снаружи: иначе exec навсегда отключит вывод ошибок
   if ! flock -n 8; then
     who=$(cat "$RP_LOCK.who" 2>/dev/null)
     if [[ -n "${RP_AUTO:-}" ]]; then
@@ -1769,6 +1774,15 @@ with_lock() { # название, команда… — выполнить, по
   RP_LOCKED=1; "$@"; rc=$?; RP_LOCKED=""
   rm -f "$RP_LOCK.who"; flock -u 8; exec 8>&-
   return $rc
+}
+
+lock_timeout() { # название, файл результата — задача по расписанию не дождалась очереди: не молчим
+  local who; who=$(cat "$RP_LOCK.who" 2>/dev/null)
+  mkdir -p /etc/rw
+  printf '%s|FAIL|%s не выполнен: 30 минут было занято (%s)\n' "$(date '+%d.%m %H:%M')" "$1" "${who:-другое действие RemnaPilot}" > "$2"
+  jlog FAIL "$1: не дождался очереди (${who:-другое действие})"
+  tg_text "⚠️ $(hostname): $1 не выполнен — 30 минут было занято: ${who:-другое действие RemnaPilot}"
+  return 0
 }
 
 run_action() { # название, команда… — журнал + блокировка
@@ -3185,7 +3199,12 @@ bk_run() { # бэкап по расписанию: дамп + .env + списо�
   tmp=$(mktemp -d); cp "$dump" "$tmp/"; cp "$RW_DIR/.env" "$tmp/remnawave.env"
   [[ -s "$NODES_FILE" ]] && cp "$NODES_FILE" "$tmp/nodes.list"
   arc="$RW_DIR/backups/remnawave-$(hostname)-$(date +%Y%m%d-%H%M%S).tar.gz"
-  tar -C "$tmp" -czf "$arc" . && chmod 600 "$arc"; rm -rf "$tmp"
+  if ! tar -C "$tmp" -czf "$arc" . 2>/dev/null; then
+    rm -rf "$tmp"; rm -f "$arc"
+    printf '%s|FAIL|Автобэкап: не удалось собрать архив (нет места на диске?)\n' "$(date '+%d.%m %H:%M')" > /etc/rw/.backup_last
+    jlog FAIL "Автобэкап: не удалось собрать архив"; tg_text "⚠️ $(hostname): автобэкап не удался — не собрался архив (проверь место на диске)"; return 1
+  fi
+  chmod 600 "$arc"; rm -rf "$tmp"
   # хранить последние N архивов и автодампов
   ls -1t "$RW_DIR"/backups/remnawave-*.tar.gz 2>/dev/null | tail -n +$((keep + 1)) | xargs -r rm -f
   ls -1t "$RW_DIR"/backups/db-*-auto.sql.gz 2>/dev/null | tail -n +$((keep + 1)) | while read -r f; do rm -f "$f" "${f%.sql.gz}.env"; done
@@ -3247,7 +3266,7 @@ bk_decrypt() { # файл .enc → рядом без .enc
   [[ -f "$f" ]] || { err "файл не найден: $f"; return 1; }
   [[ "$out" == "$f" ]] && out="$f.dec"
   if [[ -s "$BK_PASS" ]]; then
-    openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass "file:$BK_PASS" -in "$f" -out "$out" 2>/dev/null && { green "✔ Расшифровано: $out"; return 0; }
+    openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass "file:$BK_PASS" -in "$f" -out "$out" 2>/dev/null && { green "✔ Расшифровано: $out"; echo "  Распаковать:  tar -xzf $out"; return 0; }
   fi
   read -rsp "Пароль бэкапа: " p; echo
   if printf '%s' "$p" | openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass stdin -in "$f" -out "$out" 2>/dev/null; then
@@ -3358,6 +3377,7 @@ rp_uninstall() {
   echo "   ✖ команда rw (/usr/local/bin/rw)"
   [[ -f "$self" && "$self" != /usr/local/bin/rw ]] && echo "   ✖ файл скрипта $self"
   echo "   ✖ настройки RemnaPilot (/etc/rw): оформление, язык, список нод, Telegram"
+  [[ -s "$BK_PASS" ]] && yel "   ⚠ пароль шифрования бэкапов (/etc/rw/backup.pass) — без него архивы из Telegram не открыть; проверь, что он у тебя записан"
   echo "   ✖ задачи по расписанию: автообновление, автобэкап, geo"
   echo "   ✖ журнал действий"
   section "ОСТАНЕТСЯ"
@@ -3378,7 +3398,7 @@ rp_uninstall() {
   [[ "$ans" == YES ]] || { echo "  Отменено."; return 0; }
 
   rm -f /etc/cron.d/remnapilot-update /etc/cron.d/remnapilot-backup /etc/cron.d/remnapilot-geo
-  rm -rf /etc/rw /run/remnapilot
+  rm -rf /etc/rw /run/remnapilot; rm -f "$RP_LOCK" "$RP_LOCK.who"
   rm -f /var/log/remnapilot.log /var/log/remnapilot-cron.log /var/log/remnapilot-geo.log
   rm -f "$HOME/.rw-nocmd" /root/.rw-nocmd /usr/local/bin/rw
   if [[ -f "$self" && "$self" != /usr/local/bin/rw ]]; then
@@ -3412,7 +3432,8 @@ ui_menu() {
     item 5 "Статус сервера" "$(case $UI_STATUS in full) echo рамка;; compact) echo одна строка;; off) echo скрыт;; esac)"
     item 6 "Вид меню" "$( [[ "$(menu_mode)" == flat ]] && echo "полный список" || echo "разделы" )"
     item 7 "Компактный режим" "$( [[ "$UI_COMPACT" == on ]] && echo "включён" || echo "выключен")"
-    item 8 "Сбросить по умолчанию"
+    item 8 "Живой статус" "$( [[ "$UI_LIVE" == off ]] && echo "выключен" || echo "каждые $UI_LIVE с")"
+    item 9 "Сбросить по умолчанию"
     hr; item 0 "Назад"
     ask; read -r c; echo
     case "$c" in
@@ -3433,7 +3454,10 @@ ui_menu() {
          ask; read -r c; case "$c" in 1) ui_set STATUS full;; 2) ui_set STATUS compact;; 3) ui_set STATUS off;; esac ;;
       6) menu_mode_toggle ;;
       7) [[ "$UI_COMPACT" == on ]] && ui_set COMPACT off || ui_set COMPACT on ;;
-      8) rm -f "$UI_CONF"; rm -f /etc/rw/menu_mode ;;
+      8) section "ЖИВОЙ СТАТУС"; info "Рамка статуса сама обновляется, пока меню открыто"
+         item 1 "Каждые 3 с"; item 2 "Каждые 5 с"; item 3 "Каждые 10 с"; item 4 "Каждые 30 с"; item 5 "Выключить"
+         ask; read -r c; case "$c" in 1) ui_set LIVE 3;; 2) ui_set LIVE 5;; 3) ui_set LIVE 10;; 4) ui_set LIVE 30;; 5) ui_set LIVE off;; esac ;;
+      9) rm -f "$UI_CONF"; rm -f /etc/rw/menu_mode ;;
       0|q|"") return ;;
     esac
   done
@@ -3449,6 +3473,12 @@ theme_swatch() { # цветные блоки темы
 
 # ---------- версия ----------
 RP_CHANGELOG=(
+  "2.4|new|Живой статус: рамка статуса сама обновляется, пока меню открыто — упала панель или вышло обновление, и это видно сразу. Интервал и выключение — Прочее → Оформление → Живой статус"
+  "2.4|fix|После первого действия в меню пропадали сообщения об ошибках и часть подсказок (например «Пароль:» при настройке шифрования) — вывод ошибок больше не отключается"
+  "2.4|fix|После обновления RemnaPilot из меню блокировка оставалась занятой, и автобэкап с автообновлением ждали впустую — теперь освобождается"
+  "2.4|fix|Автобэкап: если архив не собрался (нет места на диске), это ошибка с уведомлением, а не «успех»"
+  "2.4|fix|Задача по расписанию, не дождавшаяся очереди за 30 минут, пишет об этом в журнал и в Telegram, а не пропускается молча"
+  "2.4|improve|Удаление RemnaPilot предупреждает о пароле шифрования бэкапов и убирает за собой файлы блокировки"
   "2.3|security|Бэкапы в Telegram шифруются паролем (AES-256); пока пароль не задан, архив с секретами в Telegram не уходит. Расшифровать — rw --decrypt"
   "2.3|security|Токен Telegram-бота больше не виден в списке процессов (ps)"
   "2.3|fix|Защита от одновременного запуска: автобэкап, автообновление и действия в меню больше не меняют сервер одновременно — второе ждёт первое"
@@ -4227,6 +4257,59 @@ menu_lookup() { # слово → MENU_PICK = внутренний номер п�
   [[ -n "$MENU_PICK" ]]
 }
 
+# ---------- живой статус ----------
+# Пока меню открыто и ничего не вводится, раз в несколько секунд проверяем, изменилось ли то,
+# что показывает рамка статуса; изменилось — перерисовываем экран. Без изменений экран не трогаем.
+RP_STTY=""
+tty_restore() { [[ -n "$RP_STTY" ]] && { stty "$RP_STTY" 2>/dev/null; RP_STTY=""; }; return 0; }
+trap tty_restore EXIT
+
+live_sig() { # отпечаток состояния: контейнеры (без «3 minutes ago»), файлы настроек, дата
+  docker ps -a --format '{{.Names}}|{{.Status}}|{{.Image}}' 2>/dev/null \
+    | sed -E 's/(About )?(an?|[0-9]+|Less than a) (second|minute|hour|day|week|month|year)s?( ago)?//g'
+  stat -c '%n %Y %s' "$RW_DIR/.env" "$RW_DIR/nginx/fullchain.pem" "${NODES_FILE:-/etc/rw/nodes.list}" \
+    /etc/rw/.latest_version /etc/rw/.latest_panel /etc/rw/.latest_node \
+    /etc/rw/.autoupdate_last /etc/rw/.backup_last 2>/dev/null
+  date +%F
+}
+
+buf_chop() { # убрать последний символ из buf (и в UTF-8, и в байтовой локали)
+  local LC_ALL=C last
+  while [[ -n "$buf" ]]; do last="${buf: -1}"; buf="${buf%?}"; [[ "$last" == [$'\x80'-$'\xbf'] ]] || break; done
+}
+
+menu_read() { # имя_переменной → 0: ввод готов; 2: статус изменился, экран надо перерисовать
+  local -n _out="$1"; local iv="${UI_LIVE:-5}" buf="" k rc sig
+  _out=""
+  if [[ ! -t 0 || "$iv" == off || "${UI_STATUS:-full}" == off ]] || ! RP_STTY=$(stty -g 2>/dev/null) || [[ -z "$RP_STTY" ]]; then
+    RP_STTY=""; read -r _out; return 0
+  fi
+  stty -echo -icanon min 1 time 0 2>/dev/null
+  sig=$(live_sig)
+  while true; do
+    IFS= read -rs -n1 -t "$iv" k; rc=$?
+    if (( rc > 128 )); then                      # тишина: проверяем, не изменилось ли что-то
+      [[ -n "$buf" ]] && continue                # человек печатает — не мешаем
+      [[ "$(live_sig)" == "$sig" ]] && continue
+      tty_restore; return 2
+    fi
+    if (( rc != 0 )); then tty_restore; echo; _out=0; return 0; fi   # терминал закрыт
+    case "$k" in
+      "")            # ввод «с запасом» (вставили несколько строк разом) отбрасываем: иначе он попал бы не в тот вопрос
+                     while IFS= read -rs -n1 -t 0.001 k; do :; done
+                     tty_restore; echo; _out="$buf"; return 0 ;;
+      $'\x7f'|$'\b') [[ -n "$buf" ]] && { buf_chop; printf '\b \b'; } ;;
+      $'\x15')       while [[ -n "$buf" ]]; do buf_chop; printf '\b \b'; done ;;
+      $'\e')         # стрелки и F-клавиши — пропустить ровно одну последовательность
+                     if IFS= read -rs -n1 -t 0.05 k && [[ "$k" == '[' || "$k" == O ]]; then
+                       while IFS= read -rs -n1 -t 0.05 k; do [[ "$k" == [@-~] ]] && break; done
+                     fi ;;
+      [[:cntrl:]])   ;;
+      *)             buf+="$k"; printf '%s' "$k" ;;
+    esac
+  done
+}
+
 menu_handle() { # ввод, массив номеров на экране (имя) → выполнить; 1 — выход/назад
   local ch="$1"; local -n _ids="$2"
   case "$ch" in 0|q|Q|й|Й) return 1 ;; "") return 0 ;; esac
@@ -4249,7 +4332,7 @@ section_menu() { # $1 = индекс раздела
     ids=()
     for n in $nums; do ids+=("$n"); print_item "${#ids[@]}" "$n"; done
     hr; item 0 "Назад"
-    ask; read -r c
+    ask; menu_read c; (( $? == 2 )) && continue
     menu_handle "$c" ids || return
     [[ "$(menu_mode)" == flat ]] && return      # сменили вид меню — сразу показать
   done
@@ -4280,7 +4363,7 @@ menu() {
       done
     fi
     item 0 "Выход"; hr
-    ask; read -r ch
+    ask; menu_read ch; (( $? == 2 )) && continue
     menu_handle "$ch" ids || exit 0
   done
 }
@@ -4342,7 +4425,7 @@ if [[ "$RP_LANG" == en && -f "$RP_SELF" ]] && command -v perl >/dev/null; then
   exec 3>&1 4>&2
   exec > >(rp_translate) 2>&1
   RP_TR_PID=$!
-  trap 'exec >&- 2>&-; wait "$RP_TR_PID" 2>/dev/null' EXIT
+  trap 'tty_restore; exec >&- 2>&-; wait "$RP_TR_PID" 2>/dev/null' EXIT
 fi
 if [[ -n "$NEW" || -n "${SUB_NEW:-}" || ${DO_UPDATE:-0} == 1 || ${DO_CERT_STATUS:-0} == 1 ]]; then
   need_panel || exit 1
@@ -4366,9 +4449,9 @@ elif (( ${DO_VERIFY:-0} )); then
     *)        yel "Не удалось проверить: нет связи с GitHub или у релиза нет контрольной суммы"; exit 3 ;;
   esac
 elif (( ${DO_AU:-0} )); then
-  with_lock "Автообновление" au_run; exit $?
+  with_lock "Автообновление" au_run; rc=$?; (( rc == 75 )) && lock_timeout "Автообновление" /etc/rw/.autoupdate_last; exit $rc
 elif (( ${DO_BACKUP:-0} )); then
-  with_lock "Автобэкап" bk_run; rc=$?; [[ -f /etc/rw/.backup_last ]] && cut -d'|' -f3 /etc/rw/.backup_last; exit $rc
+  with_lock "Автобэкап" bk_run; rc=$?; (( rc == 75 )) && lock_timeout "Автобэкап" /etc/rw/.backup_last; [[ -f /etc/rw/.backup_last ]] && cut -d'|' -f3 /etc/rw/.backup_last; exit $rc
 elif (( ${DO_CHECK:-0} )); then
   au_check_all; update_hints | sed -E 's/\x1b\[[0-9;]*m//g'; exit 0
 elif [[ -n "${DO_GEO:-}" ]]; then
@@ -5708,4 +5791,27 @@ acme.sh не установлен — поставится при первом �
 ошибок	errors
 Исправь ошибки — иначе часть функций не сработает. Вывод можно прислать автору в Issue.	Fix the errors — otherwise some features won't work. You can send this output to the author in an Issue.
 Проверить, всё ли готово на сервере: rw --selftest	Check that the server is ready: rw --selftest
+Живой статус: рамка статуса сама обновляется, пока меню открыто — упала панель или вышло обновление, и это видно сразу. Интервал и выключение — Прочее → Оформление → Живой статус	Live status: the status box refreshes by itself while the menu is open — a stopped panel or a new update shows up right away. Interval and off switch — Other → Appearance → Live status
+Рамка статуса сама обновляется, пока меню открыто	The status box refreshes by itself while the menu is open
+ЖИВОЙ СТАТУС	LIVE STATUS
+Живой статус	Live status
+Каждые 30 с	Every 30 s
+Каждые 10 с	Every 10 s
+Каждые 3 с	Every 3 s
+Каждые 5 с	Every 5 s
+каждые 30 с	every 30 s
+каждые 10 с	every 10 s
+каждые 3 с	every 3 s
+каждые 5 с	every 5 s
+не выполнен: 30 минут было занято	not run: busy for 30 minutes
+не выполнен — 30 минут было занято:	not run — busy for 30 minutes:
+другое действие RemnaPilot	another RemnaPilot action
+Автобэкап: не удалось собрать архив (нет места на диске?)	Auto-backup: could not build the archive (disk full?)
+автобэкап не удался — не собрался архив (проверь место на диске)	auto-backup failed — the archive was not built (check disk space)
+⚠ пароль шифрования бэкапов (/etc/rw/backup.pass) — без него архивы из Telegram не открыть; проверь, что он у тебя записан	⚠ backup encryption password (/etc/rw/backup.pass) — Telegram archives can't be opened without it; make sure you have it written down
+После первого действия в меню пропадали сообщения об ошибках и часть подсказок (например «Пароль:» при настройке шифрования) — вывод ошибок больше не отключается	After the first menu action, error messages and some prompts (e.g. "Password:" in encryption setup) disappeared — error output is no longer switched off
+После обновления RemnaPilot из меню блокировка оставалась занятой, и автобэкап с автообновлением ждали впустую — теперь освобождается	After updating RemnaPilot from the menu the lock stayed held, so auto-backup and auto-update waited in vain — it is released now
+Автобэкап: если архив не собрался (нет места на диске), это ошибка с уведомлением, а не «успех»	Auto-backup: if the archive could not be built (disk full), it is an error with a notification, not a "success"
+Задача по расписанию, не дождавшаяся очереди за 30 минут, пишет об этом в журнал и в Telegram, а не пропускается молча	A scheduled task that waited 30 minutes for its turn now reports it to the log and Telegram instead of being skipped silently
+Удаление RemnaPilot предупреждает о пароле шифрования бэкапов и убирает за собой файлы блокировки	Removing RemnaPilot warns about the backup encryption password and cleans up its lock files
 __RP_EN_END__
