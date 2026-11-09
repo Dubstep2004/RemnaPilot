@@ -51,7 +51,7 @@ fi
 set -o pipefail
 export PATH="$PATH:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"   # cron даёт урезанный PATH
 RP_NAME="RemnaPilot"
-RP_VERSION="2.2"
+RP_VERSION="2.2.1"
 CERT_METHOD="${CERT_METHOD:-}"
 STOPPED_CT=(); STOPPED_SVC=(); FW_OPENED=()
 
@@ -92,8 +92,7 @@ RP_THEMES=(ocean sunset forest neon ice mono)
 apply_ui() { # тема → цвета акцентов и градиент логотипа
   UI_THEME=$(ui_get THEME ocean); UI_NUMS=$(ui_get NUMS plain); UI_LOGO=$(ui_get LOGO big)
   UI_HINTS=$(ui_get HINTS on);    UI_STATUS=$(ui_get STATUS full)
-  UI_FAV=$(ui_get FAV "");         UI_HIDE=$(ui_get HIDE "")
-  UI_COMPACT=$(ui_get COMPACT off); UI_KEYS=$(ui_get KEYS on)
+  UI_COMPACT=$(ui_get COMPACT off)
   [[ -z "$C0" ]] && return 0                       # без цветов — только стиль
   if (( $(tput colors 2>/dev/null || echo 0) < 256 )); then
     [[ "$UI_THEME" == mono ]] && { C_ACC="$CB"; C_ACC2="$CB"; GRAD=("$CB" "$CB" "$CB" "$CB" "$CB" "$CB"); }
@@ -3259,11 +3258,8 @@ ui_menu() {
     item 4 "Подсказки у пунктов" "$( [[ $UI_HINTS == off ]] && echo скрыты || echo показаны)"
     item 5 "Статус сервера" "$(case $UI_STATUS in full) echo рамка;; compact) echo одна строка;; off) echo скрыт;; esac)"
     item 6 "Вид меню" "$( [[ "$(menu_mode)" == flat ]] && echo "полный список" || echo "разделы" )"
-    item 7 "Избранное" "$( [[ -n "$UI_FAV" ]] && echo "пунктов: $(tr ',' '\n' <<< "$UI_FAV" | grep -c .)" || echo "пусто")"
-    item 8 "Скрытые пункты" "$( [[ -n "$UI_HIDE" ]] && echo "скрыто: $(tr ',' '\n' <<< "$UI_HIDE" | grep -c .)" || echo "нет")"
-    item 9 "Компактный режим" "$( [[ "$UI_COMPACT" == on ]] && echo "включён" || echo "выключен")"
-    item 10 "Подсказка о быстрых клавишах" "$( [[ "$UI_KEYS" == off ]] && echo "скрыта" || echo "показана")"
-    item 11 "Сбросить по умолчанию"
+    item 7 "Компактный режим" "$( [[ "$UI_COMPACT" == on ]] && echo "включён" || echo "выключен")"
+    item 8 "Сбросить по умолчанию"
     hr; item 0 "Назад"
     ask; read -r c; echo
     case "$c" in
@@ -3283,45 +3279,10 @@ ui_menu() {
       5) section "СТАТУС"; item 1 "Рамка"; item 2 "Одна строка"; item 3 "Скрыть"
          ask; read -r c; case "$c" in 1) ui_set STATUS full;; 2) ui_set STATUS compact;; 3) ui_set STATUS off;; esac ;;
       6) menu_mode_toggle ;;
-      7) pick_items FAV "Избранное" ;;
-      8) pick_items HIDE "Скрытые пункты" ;;
-      9) [[ "$UI_COMPACT" == on ]] && ui_set COMPACT off || ui_set COMPACT on ;;
-      10) [[ "$UI_KEYS" == off ]] && ui_set KEYS on || ui_set KEYS off ;;
-      11) rm -f "$UI_CONF"; rm -f /etc/rw/menu_mode ;;
+      7) [[ "$UI_COMPACT" == on ]] && ui_set COMPACT off || ui_set COMPACT on ;;
+      8) rm -f "$UI_CONF"; rm -f /etc/rw/menu_mode ;;
       0|q|"") return ;;
     esac
-  done
-}
-
-pick_items() { # $1 = FAV | HIDE, $2 = заголовок: отметить пункты номерами
-  local key="$1" all=() cur sel n id i name mark
-  mapfile -t all < <(all_items)
-  while true; do
-    cur=$(ui_get "$key" "")
-    screen "$2"; echo
-    if [[ "$key" == FAV ]]; then echo "  Отмеченные пункты будут наверху главного меню под номерами 1, 2, 3…"
-    else echo "  Отмеченные пункты пропадут из меню. Найти их можно поиском."; fi
-    echo
-    for i in "${!all[@]}"; do
-      id="${all[$i]}"; name=$(item_info "$id"); name="${name%%|*}"
-      if [[ ",$cur," == *",$id,"* ]]; then mark="${C_OK}✔${C0}"; else mark="${C_LINE}·${C0}"; fi
-      printf '  %s%s%s  %s %s\n' "$C_ACC$CB" "$(num_fmt $((i+1)))" "$C0" "$mark" "$(T "$name")"
-    done
-    echo; echo "  Номера через пробел — отметить или снять. Enter — готово."
-    ask; read -r sel
-    [[ -z "$sel" || "$sel" == 0 ]] && return
-    for n in $sel; do
-      [[ "$n" =~ ^[0-9]+$ ]] && (( n >= 1 && n <= ${#all[@]} )) || continue
-      id="${all[$((n-1))]}"
-      if [[ ",$cur," == *",$id,"* ]]; then
-        cur=$(tr ',' '\n' <<< "$cur" | grep -vx "$id" | paste -sd, -)
-      elif [[ "$key" == HIDE && "$id" == 33 ]]; then
-        yel "  «Оформление» скрыть нельзя — иначе не вернуть скрытое."; sleep 1
-      elif [[ "$key" == FAV ]] && (( $(tr ',' '\n' <<< "$cur" | grep -c .) >= 9 )); then
-        yel "  В избранном не больше 9 пунктов."; sleep 1
-      else cur="${cur:+$cur,}$id"; fi
-    done
-    ui_set "$key" "$cur"; apply_ui
   done
 }
 
@@ -3335,6 +3296,7 @@ theme_swatch() { # цветные блоки темы
 
 # ---------- версия ----------
 RP_CHANGELOG=(
+  "2.2.1|change|Убраны избранное, скрытые пункты и быстрые клавиши — меню снова простым списком; поиск по слову и компактный режим остались"
   "2.2|new|Экран «Что нового» после обновления — изменения новой версии по категориям, с цветными значками; вся история — rw --changelog"
   "2.2|improve|История изменений разложена по категориям: новое, улучшено, исправлено, безопасность, изменено — в скрипте, README, CHANGELOG и релизах"
   "2.2|improve|Красивое описание каждого релиза на GitHub: значки, установка, обновление, проверка подлинности, English"
@@ -4052,27 +4014,15 @@ run_item() { # внутренний номер пункта → действие
   esac
 }
 
-# ----- быстрые клавиши и поиск -----
-# буква → внутренний номер пункта; русская раскладка понимается так же
-MENU_KEYS="d:1 u:6 c:9 l:8 b:11 n:15 f:18 s:19 i:25 o:33 j:29"
-MENU_KEYS_RU="в:d г:u с:c д:l и:b т:n а:f ы:s ш:i щ:o о:j"
+# ----- поиск по слову -----
 MENU_PICK=""
 
-is_hidden() { [[ ",${UI_HIDE:-}," == *",$1,"* ]]; }
-is_fav()    { [[ ",${UI_FAV:-}," == *",$1,"* ]]; }
 all_items() { local x n; for x in "${MENU_SECTIONS[@]}"; do for n in ${x##*|}; do echo "$n"; done; done; }
 
-keys_legend() {
-  [[ "${UI_KEYS:-on}" == off ]] && return 0
-  printf '  %s%s%s\n' "$C_MUT" "$(T "Быстро: d домены · u обновления · c сертификаты · l логи · b бэкап · n ноды · o оформление — или слово для поиска")" "$C0"
-}
-
-menu_lookup() { # ввод (буква или слово) → MENU_PICK = внутренний номер пункта
-  local q="${1,,}" k id name hint hits=() i c
+menu_lookup() { # слово → MENU_PICK = внутренний номер пункта
+  local q="${1,,}" id name hint hits=() i c
   MENU_PICK=""
   q="${q#"${q%%[![:space:]]*}"}"; q="${q%"${q##*[![:space:]]}"}"
-  for k in $MENU_KEYS_RU; do [[ "$q" == "${k%%:*}" ]] && q="${k#*:}"; done
-  for k in $MENU_KEYS; do [[ "$q" == "${k%%:*}" ]] && { MENU_PICK="${k#*:}"; return 0; }; done
   (( ${#q} >= 2 )) || return 1
   while read -r id; do
     IFS='|' read -r name hint <<< "$(item_info "$id")"
@@ -4102,16 +4052,6 @@ menu_handle() { # ввод, массив номеров на экране (им�
   return 0
 }
 
-print_favs() { # печатает избранное, дописывает номера в массив
-  local -n _o="$1"; local id
-  [[ -n "${UI_FAV:-}" ]] || return 0
-  section "ИЗБРАННОЕ"
-  for id in ${UI_FAV//,/ }; do
-    item_info "$id" >/dev/null 2>&1 && [[ -n "$(item_info "$id")" ]] || continue
-    _o+=("$id"); print_item "${#_o[@]}" "$id"
-  done
-}
-
 section_menu() { # $1 = индекс раздела
   local name hint nums c n ids
   IFS='|' read -r name hint nums <<< "${MENU_SECTIONS[$1]}"
@@ -4120,9 +4060,8 @@ section_menu() { # $1 = индекс раздела
     status_box
     section "${name^^}"
     ids=()
-    for n in $nums; do is_hidden "$n" && continue; ids+=("$n"); print_item "${#ids[@]}" "$n"; done
+    for n in $nums; do ids+=("$n"); print_item "${#ids[@]}" "$n"; done
     hr; item 0 "Назад"
-    keys_legend
     ask; read -r c
     menu_handle "$c" ids || return
     [[ "$(menu_mode)" == flat ]] && return      # сменили вид меню — сразу показать
@@ -4130,7 +4069,7 @@ section_menu() { # $1 = индекс раздела
 }
 
 menu() {
-  local ch i n name hint nums ids vis
+  local ch i n name hint nums ids
   while true; do
     apply_ui
     clear
@@ -4138,15 +4077,12 @@ menu() {
     echo
     status_box
     ids=()
-    print_favs ids
     if [[ "$(menu_mode)" == flat ]]; then
       # полный список: все пункты со сквозной нумерацией
       for i in "${!MENU_SECTIONS[@]}"; do
         IFS='|' read -r name hint nums <<< "${MENU_SECTIONS[$i]}"
-        vis=(); for n in $nums; do is_hidden "$n" || is_fav "$n" || vis+=("$n"); done
-        (( ${#vis[@]} )) || continue
         section "${name^^}"
-        for n in "${vis[@]}"; do ids+=("$n"); print_item "${#ids[@]}" "$n"; done
+        for n in $nums; do ids+=("$n"); print_item "${#ids[@]}" "$n"; done
       done
     else
       # разделы: на главном экране только они, пункты — внутри
@@ -4157,7 +4093,6 @@ menu() {
       done
     fi
     item 0 "Выход"; hr
-    keys_legend
     ask; read -r ch
     menu_handle "$ch" ids || exit 0
   done
@@ -5485,4 +5420,5 @@ Firewall одной кнопкой: SSH, 80, 443, порты Xray, порт но
 Traefik: алиас старого домена подписки с правильными скобками	Traefik: old subscription domain alias with correct brackets
 Просмотр длинных списков (логи, журнал) больше не падает без терминала — например, при запуске по SSH без tty	Long lists (logs, journal) no longer fail without a terminal — e.g. over SSH without a tty
 История изменений RemnaPilot	RemnaPilot changelog
+Убраны избранное, скрытые пункты и быстрые клавиши — меню снова простым списком; поиск по слову и компактный режим остались	Removed favorites, hidden items and quick keys — the menu is a plain list again; word search and compact mode remain
 __RP_EN_END__

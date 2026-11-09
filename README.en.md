@@ -42,7 +42,14 @@ rw
 ---
 
 <!-- whats-new:start -->
-## 🆕 What's new in v2.2
+## 🆕 What's new in v2.2.1
+
+#### 🔄 Changed
+
+- Removed favorites, hidden items and quick keys — the menu is a plain list again; word search and compact mode remain
+
+<details>
+<summary><b>Previous version — v2.2</b></summary>
 
 #### ✨ New
 
@@ -57,23 +64,6 @@ rw
 #### 🐛 Fixed
 
 - Long lists (logs, journal) no longer fail without a terminal — e.g. over SSH without a tty
-
-<details>
-<summary><b>Previous version — v2.1</b></summary>
-
-#### ✨ New
-
-- Uninstall RemnaPilot: Other → Remove RemnaPilot or rw --uninstall; panel, nodes and backups stay
-- Menu: favorites on top, hide unused items, quick keys (d, u, c…) and word search, compact mode
-
-#### 🛡️ Security
-
-- Update protection: every release has a SHA-256 checksum; a tampered file is never installed, manually or automatically
-- Authenticity check: "About" and rw --verify show whether the file matches the official release
-
-#### 🔄 Changed
-
-- License: "All rights reserved" — free to use, distributing and selling copies only with the author's permission
 
 </details>
 
@@ -157,7 +147,7 @@ rw
 
 ### 🎨 Comfort
 - 6 themes, number style, logo
-- **Favorites**, hidden items, **quick keys** and search
+- Word **search** and compact mode
 - English and Russian, action log
 
 </td>
@@ -168,11 +158,9 @@ rw
 
 ## 🎨 Make it yours
 
-Everything is in **Other → Appearance**: theme, number style (`1` `1)` `[1]` `1.` `①`), logo, status view, **favorites** on top (up to 9), **hidden items**, compact mode and a sectioned menu.
+Everything is in **Other → Appearance**: theme, number style (`1` `1)` `[1]` `1.` `①`), logo, status view, compact mode and a sectioned menu.
 
-**Quick keys** — type a letter instead of a number: `d` domains · `u` updates · `c` certificates · `l` logs · `b` backup · `n` nodes · `f` firewall · `s` SSH · `i` IP check · `o` appearance · `j` log.
-
-**Search** — type a word like `cert`, `backup` or `warp` and the item opens right away.
+**Search** — instead of a number, type a word like `cert`, `backup` or `warp` and the item opens right away.
 
 <div align="center">
 <img src="assets/themes.png" width="820" alt="6 themes">
