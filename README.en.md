@@ -41,6 +41,51 @@ rw
 
 ---
 
+<!-- whats-new:start -->
+## 🆕 What's new in v2.2
+
+#### ✨ New
+
+- "What's new" screen after an update — the new version's changes by category with colored icons; full history — rw --changelog
+
+#### 🚀 Improved
+
+- The changelog is split into categories: new, improved, fixed, security, changed — in the script, README, CHANGELOG and releases
+- Polished notes for every GitHub release: icons, install, update, authenticity check, English
+- "About" shows the latest versions' changes instead of the whole history
+
+#### 🐛 Fixed
+
+- Long lists (logs, journal) no longer fail without a terminal — e.g. over SSH without a tty
+
+<details>
+<summary><b>Previous version — v2.1</b></summary>
+
+#### ✨ New
+
+- Uninstall RemnaPilot: Other → Remove RemnaPilot or rw --uninstall; panel, nodes and backups stay
+- Menu: favorites on top, hide unused items, quick keys (d, u, c…) and word search, compact mode
+
+#### 🛡️ Security
+
+- Update protection: every release has a SHA-256 checksum; a tampered file is never installed, manually or automatically
+- Authenticity check: "About" and rw --verify show whether the file matches the official release
+
+#### 🔄 Changed
+
+- License: "All rights reserved" — free to use, distributing and selling copies only with the author's permission
+
+</details>
+
+📜 [Full changelog (RU)](CHANGELOG.md) · 🏷️ [All releases](https://github.com/Dubstep2004/RemnaPilot/releases)
+
+> After an update RemnaPilot shows what's new by itself. Full history in the terminal — `rw --changelog`.
+
+
+<!-- whats-new:end -->
+
+---
+
 ## ✨ Features
 
 <table>

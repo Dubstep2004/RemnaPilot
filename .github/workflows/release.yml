@@ -7,7 +7,7 @@ name: release
 on:
   push:
     branches: [main]
-    paths: ['remnapilot.sh', 'CHANGELOG.md', 'tests/**', '.github/workflows/release.yml']
+    paths: ['remnapilot.sh', 'CHANGELOG.md', 'tests/**', 'tools/**', '.github/workflows/release.yml']
   workflow_dispatch:
 
 permissions:
@@ -41,21 +41,9 @@ jobs:
         if: steps.t.outputs.exists == '0'
         run: sudo bash tests/run.sh
 
-      - name: Описание релиза из CHANGELOG.md
+      - name: Описание релиза
         if: steps.t.outputs.exists == '0'
-        run: |
-          v="${{ steps.v.outputs.version }}"
-          awk -v h="## v$v" '$0==h{f=1;next} /^## v/{f=0} f' CHANGELOG.md > notes.md || true
-          [ -s notes.md ] || echo "- RemnaPilot v$v" > notes.md
-          cat >> notes.md <<'EOF'
-
-          **Установка**
-          ```bash
-          bash <(curl -sSL https://raw.githubusercontent.com/Dubstep2004/RemnaPilot/main/remnapilot.sh)
-          ```
-          **Уже установлен** — `rw` → Панель → Обновления → RemnaPilot → 1, или `rw --self-update`
-          EOF
-          sed -i 's/^          //' notes.md
+        run: python3 tools/changelog.py --release "${{ steps.v.outputs.version }}" > notes.md
 
       - name: Создать релиз
         if: steps.t.outputs.exists == '0'
@@ -66,7 +54,22 @@ jobs:
           sha256sum remnapilot.sh > remnapilot.sh.sha256
           cat remnapilot.sh.sha256
           gh release create "v$v" remnapilot.sh remnapilot.sh.sha256 \
-            --title "RemnaPilot v$v" \
+            --title "🛰️ RemnaPilot v$v" \
             --notes-file notes.md \
             --target "$GITHUB_SHA" \
             --latest
+
+      - name: Обновить описания всех релизов
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for t in $(gh release list --limit 200 --json tagName --jq '.[].tagName'); do
+            v="${t#v}"
+            grep -qx "## v$v" CHANGELOG.md || continue
+            if gh release view "$t" --json assets --jq '.assets[].name' | grep -qx remnapilot.sh; then
+              python3 tools/changelog.py --release "$v" > notes.md
+            else
+              python3 tools/changelog.py --release "$v" --archived > notes.md
+            fi
+            gh release edit "$t" --title "🛰️ RemnaPilot $t" --notes-file notes.md >/dev/null && echo "✔ $t"
+          done
