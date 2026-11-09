@@ -1,0 +1,71 @@
+name: release
+
+# Новый релиз создаётся сам, когда в remnapilot.sh меняется RP_VERSION.
+# Файл remnapilot.sh прикрепляется к релизу — скрипт обновляется именно оттуда.
+
+on:
+  push:
+    branches: [main]
+    paths: ['remnapilot.sh', 'CHANGELOG.md', '.github/workflows/release.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Версия из скрипта
+        id: v
+        run: |
+          v=$(grep -m1 '^RP_VERSION=' remnapilot.sh | cut -d'"' -f2)
+          [ -n "$v" ] || { echo "RP_VERSION не найден"; exit 1; }
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+      - name: Релиз уже есть?
+        id: t
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "v${{ steps.v.outputs.version }}" >/dev/null 2>&1; then
+            echo "exists=1" >> "$GITHUB_OUTPUT"; echo "Релиз v${{ steps.v.outputs.version }} уже есть — пропускаю"
+          else
+            echo "exists=0" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Проверка скрипта
+        if: steps.t.outputs.exists == '0'
+        run: |
+          bash -n remnapilot.sh
+          bash remnapilot.sh --version
+
+      - name: Описание релиза из CHANGELOG.md
+        if: steps.t.outputs.exists == '0'
+        run: |
+          v="${{ steps.v.outputs.version }}"
+          awk -v h="## v$v" '$0==h{f=1;next} /^## v/{f=0} f' CHANGELOG.md > notes.md || true
+          [ -s notes.md ] || echo "- RemnaPilot v$v" > notes.md
+          cat >> notes.md <<'EOF'
+
+          **Установка**
+          ```bash
+          bash <(curl -sSL https://raw.githubusercontent.com/Dubstep2004/RemnaPilot/main/remnapilot.sh)
+          ```
+          **Уже установлен** — `rw` → 6 «Обновления» → 5 → 1, или `rw --self-update`
+          EOF
+          sed -i 's/^          //' notes.md
+
+      - name: Создать релиз
+        if: steps.t.outputs.exists == '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v="${{ steps.v.outputs.version }}"
+          gh release create "v$v" remnapilot.sh \
+            --title "RemnaPilot v$v" \
+            --notes-file notes.md \
+            --target "$GITHUB_SHA" \
+            --latest
