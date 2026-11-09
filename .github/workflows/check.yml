@@ -1,0 +1,26 @@
+name: check
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Синтаксис bash
+        run: bash -n remnapilot.sh
+
+      - name: Версия указана
+        run: grep -qE '^RP_VERSION="[0-9]+(\.[0-9]+)+"' remnapilot.sh
+
+      - name: Запуск --version и --help
+        run: |
+          bash remnapilot.sh --version
+          bash remnapilot.sh --help >/dev/null
+
+      - name: ShellCheck (только ошибки, не блокирует)
+        continue-on-error: true
+        run: shellcheck -S error remnapilot.sh
