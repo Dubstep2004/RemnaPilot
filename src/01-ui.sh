@@ -1,7 +1,7 @@
 # ---------- оформление ----------
 # UTF-8 нужен для рамок и правильного выравнивания
 if [[ "${LANG:-}${LC_ALL:-}" != *[Uu][Tt][Ff]* ]]; then
-  for l in C.UTF-8 C.utf8 en_US.UTF-8; do locale -a 2>/dev/null | grep -qix "${l/UTF-8/utf8}\|$l" && { export LC_ALL="$l"; break; }; done
+  for l in C.UTF-8 C.utf8 en_US.UTF-8; do grep -qix "${l/UTF-8/utf8}\|$l" < <(locale -a 2>/dev/null) && { export LC_ALL="$l"; break; }; done
 fi
 
 if [[ -t 1 && -z "${NO_COLOR:-}" ]] && (( $(tput colors 2>/dev/null || echo 0) >= 256 )); then
@@ -198,7 +198,7 @@ banner() {
 }
 
 screen() { # экран подменю: заголовок-плашка
-  clear
+  clear 2>/dev/null
   local t; t=$(T "$1"); local n; n=$(( W - 6 - $(vislen "$t") ))
   echo
   printf '  %s◆%s %s%s%s %s%s%s\n' "$C_ACC" "$C0" "$CB" "$t" "$C0" "$C_LINE" "$(repeat ─ $n)" "$C0"

@@ -29,8 +29,13 @@ check "бэкап создан" 'ls -d "$T"/rw/backup-domain-* >/dev/null 2>&1'
 printf 'FRONT_END_DOMAIN=panel.example.com\nSUB_PUBLIC_DOMAIN=sub.example.com\n' > "$T/rw/.env"
 printf 'server {\n  server_name sub.example.com;\n  ssl_certificate /ssl/s.pem;\n  ssl_certificate_key /ssl/s.key;\n}\n' > "$T/rw/nginx.conf"
 out=$(bash -c 'source "'"$T"'/funcs.sh"; RW_DIR="'"$T"'/rw"; JOURNAL=/dev/null; docker(){ :; }; stack_down(){ :; }; stack_up(){ :; }; check_dns(){ :; }; issue_cert(){ :; }
-  printf "\nonly-sub.example.org\nn\ny\n" | change_domains 0' 2>&1 | nocolor)
+  printf "\nonly-sub.example.org\n" | change_domains 0' 2>&1 | nocolor)
 has "подписка без /api/sub" "SUB_PUBLIC_DOMAIN=only-sub.example.org" "$T/rw/.env"
 has "панель не тронута" "FRONT_END_DOMAIN=panel.example.com" "$T/rw/.env"
-has_not "без алиаса, если отказались" "sub.example.com;" "$T/rw/nginx.conf"
+has "старый домен подписки остаётся рабочим сам, без вопроса" "server_name only-sub.example.org sub.example.com;" "$T/rw/nginx.conf"
+check "домен указывает на сервер — «применить?» не спрашивается" '! grep -q "Всё равно применить" <<< "$out"'
+out=$(bash -c 'source "'"$T"'/funcs.sh"; RW_DIR="'"$T"'/rw"; JOURNAL=/dev/null; docker(){ :; }; stack_down(){ :; }; stack_up(){ :; }; issue_cert(){ :; }
+  check_dns(){ DNS_WARN=1; return 1; }; printf "\nother.example.org\nn\n" | change_domains 0' 2>&1 | nocolor)
+out_has "домен не указывает на сервер — спрашивает" "Всё равно применить" "$out"
+has "…и при «нет» ничего не меняет" "SUB_PUBLIC_DOMAIN=only-sub.example.org" "$T/rw/.env"
 finish

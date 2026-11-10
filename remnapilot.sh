@@ -63,7 +63,7 @@ NEW=""; OLD=""; DRY=0; SKIP_CERT=0
 # ---------- оформление ----------
 # UTF-8 нужен для рамок и правильного выравнивания
 if [[ "${LANG:-}${LC_ALL:-}" != *[Uu][Tt][Ff]* ]]; then
-  for l in C.UTF-8 C.utf8 en_US.UTF-8; do locale -a 2>/dev/null | grep -qix "${l/UTF-8/utf8}\|$l" && { export LC_ALL="$l"; break; }; done
+  for l in C.UTF-8 C.utf8 en_US.UTF-8; do grep -qix "${l/UTF-8/utf8}\|$l" < <(locale -a 2>/dev/null) && { export LC_ALL="$l"; break; }; done
 fi
 
 if [[ -t 1 && -z "${NO_COLOR:-}" ]] && (( $(tput colors 2>/dev/null || echo 0) >= 256 )); then
@@ -260,7 +260,7 @@ banner() {
 }
 
 screen() { # экран подменю: заголовок-плашка
-  clear
+  clear 2>/dev/null
   local t; t=$(T "$1"); local n; n=$(( W - 6 - $(vislen "$t") ))
   echo
   printf '  %s◆%s %s%s%s %s%s%s\n' "$C_ACC" "$C0" "$CB" "$t" "$C0" "$C_LINE" "$(repeat ─ $n)" "$C0"
@@ -585,9 +585,9 @@ manual_dns_issue() { # $1 = лог; ручной DNS-01: показать TXT, �
     ok=1
     for ((i=0; i<${#rec[@]}; i+=2)); do
       if command -v dig >/dev/null; then
-        dig +short TXT "${rec[i]}" @1.1.1.1 | tr -d '"' | grep -qxF "${rec[i+1]}" || ok=0
+        grep -qxF "${rec[i+1]}" < <(dig +short TXT "${rec[i]}" @1.1.1.1 | tr -d '"') || ok=0
       else
-        curl -fsS "https://dns.google/resolve?name=${rec[i]}&type=TXT" | grep -qF "${rec[i+1]}" || ok=0
+        grep -qF "${rec[i+1]}" < <(curl -fsS "https://dns.google/resolve?name=${rec[i]}&type=TXT") || ok=0
       fi
     done
     (( ok )) && { green "✔ TXT-записи видны"; break; }
@@ -632,11 +632,11 @@ explain_acme_error() { # $1 лог acme.sh, $2 способ — причина �
 #     ✖ Панель не обновилась
 #        Причина:    Docker Hub не отвечает с этого сервера
 #        Что делать: …
-cause() { printf '   %s%s%s %s\n' "$C_WARN" "$(padr "Причина:" 12)" "$C0" "$1"; }
-todo()  { local l first=1; for l in "$@"; do
-            if (( first )); then printf '   %s%s%s %s\n' "$C_ACC" "$(padr "Что делать:" 12)" "$C0" "$l"; first=0
+cause() { TODO_SHOWN=""; printf '   %s%s%s %s\n' "$C_WARN" "$(padr "Причина:" 12)" "$C0" "$1"; }
+todo()  { local l; for l in "$@"; do        # метка «Что делать:» — один раз на блок ошибки
+            if [[ -z "${TODO_SHOWN:-}" ]]; then printf '   %s%s%s %s\n' "$C_ACC" "$(padr "Что делать:" 12)" "$C0" "$l"; TODO_SHOWN=1
             else printf '   %12s %s\n' "" "$l"; fi; done; }
-fail()  { red "✖ $1"; [[ -n "${2:-}" ]] && why "$2" "${3:-}"; return 1; }
+fail()  { TODO_SHOWN=""; red "✖ $1"; [[ -n "${2:-}" ]] && why "$2" "${3:-}"; return 1; }
 
 log_tail() { # последние значимые строки, если причину не узнали
   [[ -n "$1" ]] || return 0
@@ -679,7 +679,7 @@ why() { # вид (docker|container|apt|ssh|net|telegram|db), текст лога
         cause "ошибка в docker-compose.yml"; todo "покажет строку с ошибкой: docker compose config" "бэкап конфига — файлы *.bak-* рядом"
       else log_tail "$t"; return 1; fi ;;
     container)
-      if grep -qiE 'password authentication failed' <<< "$t"; then
+      if grep -qiE 'password authentication failed|Authentication failed against database server|credentials for .* are not valid|P1000' <<< "$t"; then
         cause "пароль базы в .env не совпадает с паролем в Postgres"
         todo "Панель → Безопасность → 1 — сверит и предложит исправить"
       elif grep -qiE "ECONNREFUSED[^ ]*:5432|Can't reach database|connect ECONNREFUSED|getaddrinfo .*(db|postgres)" <<< "$t"; then
@@ -699,7 +699,7 @@ why() { # вид (docker|container|apt|ssh|net|telegram|db), текст лога
         todo "сравни .env с .env.sample из документации новой версии: docs.rw"
       else log_tail "$t" 8; return 1; fi ;;
     db)
-      if grep -qiE 'password authentication failed|role .* does not exist' <<< "$t"; then
+      if grep -qiE 'password authentication failed|Authentication failed against database server|role .* does not exist' <<< "$t"; then
         cause "логин или пароль базы в .env не подходят"; todo "Панель → Безопасность → 1"
       elif grep -qiE 'database .* does not exist' <<< "$t"; then
         cause "в .env указана база, которой нет"; todo "проверь DATABASE_URL в $RW_DIR/.env"
@@ -978,14 +978,14 @@ free_port() { # временно освобождает порт
 fw_open() { # открывает порт в ufw/firewalld, если закрыт
   local p="$1"
   if command -v ufw >/dev/null && ufw status 2>/dev/null | grep -q '^Status: active'; then
-    if ! ufw status | grep -qE "^($p|$p/tcp)[[:space:]]+ALLOW"; then
+    if ! grep -qE "^($p|$p/tcp)[[:space:]]+ALLOW" < <(ufw status); then
       ufw allow "$p/tcp" >/dev/null && FW_OPENED+=("ufw:$p") && yel "Временно открыл $p/tcp в ufw"
     fi
   elif command -v firewall-cmd >/dev/null && firewall-cmd --state >/dev/null 2>&1; then
     if ! firewall-cmd --query-port="$p/tcp" >/dev/null 2>&1; then
       firewall-cmd --add-port="$p/tcp" >/dev/null && FW_OPENED+=("fwd:$p") && yel "Временно открыл $p/tcp в firewalld"
     fi
-  elif command -v iptables >/dev/null && iptables -S INPUT 2>/dev/null | grep -qE '^-P INPUT (DROP|REJECT)'; then
+  elif command -v iptables >/dev/null && grep -qE '^-P INPUT (DROP|REJECT)' < <(iptables -S INPUT 2>/dev/null); then
     iptables -I INPUT -p tcp --dport "$p" -j ACCEPT && FW_OPENED+=("ipt:$p") && yel "Временно открыл $p/tcp в iptables"
   fi
 }
@@ -1516,8 +1516,13 @@ restore_db() {
   [[ -f "$f" ]] || { err "файл не найден: $f"; return 1; }
 
   local cat=(cat); [[ "$f" == *.gz ]] && cat=(gzip -cd)
-  "${cat[@]}" "$f" | head -c 300 >/dev/null 2>&1 || { err "файл повреждён"; return 1; }
-  if "${cat[@]}" "$f" | head -c 4000 | grep -q 'database cluster dump'; then kind=cluster; else kind=db; fi
+  # целостность: у .gz — полная проверка архива; начало файла читаем без pipefail (head обрывает канал, это не ошибка)
+  if [[ "$f" == *.gz ]] && ! gzip -t "$f" 2>/dev/null; then
+    fail "Дамп повреждён: $(basename "$f")"; cause "архив обрезан или испорчен — например, скачался не до конца"; todo "возьми другой дамп из $RW_DIR/backups"; return 1
+  fi
+  local top; top=$( set +o pipefail; "${cat[@]}" "$f" 2>/dev/null | head -c 4000 )
+  [[ -n "$top" ]] || { fail "Дамп пустой: $(basename "$f")"; todo "возьми другой дамп из $RW_DIR/backups"; return 1; }
+  if grep -q 'database cluster dump' <<< "$top"; then kind=cluster; else kind=db; fi
 
   db_info || { err "контейнер БД не запущен"; return 1; }
   red "ВНИМАНИЕ: текущие данные базы $DB_NAME будут заменены содержимым $(basename "$f")."
@@ -3042,7 +3047,7 @@ sni_check_one() { # домен -> печатает строку оценки; в
   tc=$(for _ in 1 2 3; do curl -s -o /dev/null --max-time 5 -w '%{time_connect}\n' "https://$d/"; done | sort -n | head -1)
   tc=$(awk -v t="${tc:-9}" 'BEGIN{printf "%.0f", t*1000}')
   if (( tc <= 20 )); then score=$((score+1)); elif (( tc > 80 )); then notes+=("далеко (${tc} мс)"); fi
-  if curl -sI --max-time 6 "https://$d/" | grep -qiE '^server: *cloudflare|^cf-ray'; then notes+=("за Cloudflare — нежелательно"); else score=$((score+1)); fi
+  if grep -qiE '^server: *cloudflare|^cf-ray' < <(curl -sI --max-time 6 "https://$d/"); then notes+=("за Cloudflare — нежелательно"); else score=$((score+1)); fi
   local col="$C_OK" mark="✔"; (( score < 7 )) && { col="$C_WARN"; mark="⚠"; }; (( !tls13 || !h2 || !x25519 )) && { col="$C_ERR"; mark="✖"; }
   local nt="всё отлично"; (( ${#notes[@]} )) && nt=$(printf '%s, ' "${notes[@]}") && nt="${nt%, }"
   printf '  %s%s %-30s%s %3s мс  %s%s%s\n' "$col" "$mark" "${d:0:30}" "$C0" "$tc" "$C_MUT" "$nt" "$C0"
@@ -3235,7 +3240,7 @@ time_set_tz() {
   ask; read -r c
   case "$c" in 1) tz=UTC ;; 2) tz=Europe/Moscow ;; 3) tz=Asia/Yekaterinburg ;; 4) tz=Europe/Berlin ;;
     5) ask "Часовой пояс"; read -r tz ;; *) return 0 ;; esac
-  timedatectl list-timezones 2>/dev/null | grep -qx "$tz" || [[ "$tz" == UTC ]] || { err "нет такого пояса: $tz"; return 1; }
+  grep -qx "$tz" < <(timedatectl list-timezones 2>/dev/null) || [[ "$tz" == UTC ]] || { err "нет такого пояса: $tz"; return 1; }
   timedatectl set-timezone "$tz" && green "✔ Часовой пояс: $tz" && jlog INFO "Часовой пояс: $tz"
 }
 
@@ -3762,6 +3767,10 @@ RP_CHANGELOG=(
   "2.5|improve|Журнал по дням: «Сегодня», «Вчера», значки и длительность действий; фильтры «только ошибки», «за сегодня» и поиск по слову"
   "2.5|improve|Прогресс у долгих операций: обновление, автобэкап и перенос панели показывают шаг 2/4 и сколько всё заняло"
   "2.5|improve|Полный английский перевод, включая объяснения ошибок и сообщения в Telegram; тесты проверяют, что в EN-режиме не осталось русского"
+  "2.5|fix|Восстановление базы из настоящего сжатого дампа ошибочно отвечало «файл повреждён» — теперь архив проверяется целиком, а обрезанный дамп честно называется обрезанным"
+  "2.5|fix|Команды без меню (rw --update, rw домен и другие) всегда завершались с кодом 0 — теперь cron и скрипты видят, что действие не удалось"
+  "2.5|fix|Неверный пароль базы распознаётся по сообщению самой панели (Prisma), а не принимается за сбой миграции"
+  "2.5|fix|Часовой пояс мог ошибочно считаться несуществующим, а UTF-8 — не включаться на системах с большим числом локалей"
   "2.5|change|Меньше вопросов «да/нет»: подтверждение только перед необратимым или опасным — удаление, восстановление базы, firewall, SSH, перенос. Смена домена спрашивает, только если домен не указывает на сервер; старый домен подписки остаётся рабочим сам"
   "2.5|change|Перед обновлением панели бэкап базы делается всегда; если он не удался, автообновление не обновляет, а в меню спросит"
   "2.4|new|Живой статус: рамка статуса сама обновляется, пока меню открыто — упала панель или вышло обновление, и это видно сразу. Интервал и выключение — Прочее → Оформление → Живой статус"
@@ -4848,7 +4857,7 @@ else
   fi
   menu
 fi
-exit 0
+exit $?          # код действия: cron и скрипты видят, если обновление или смена домена не удались
 
 # Словарь интерфейса RU → EN (используется при RP_LANG=en)
 : <<'__RP_EN_END__'
@@ -6480,4 +6489,11 @@ docker-compose не найден в	docker-compose not found in
 Полный английский перевод, включая объяснения ошибок и сообщения в Telegram; тесты проверяют, что в EN-режиме не осталось русского	Full English translation, including error explanations and Telegram messages; tests check that no Russian is left in EN mode
 Меньше вопросов «да/нет»: подтверждение только перед необратимым или опасным — удаление, восстановление базы, firewall, SSH, перенос. Смена домена спрашивает, только если домен не указывает на сервер; старый домен подписки остаётся рабочим сам	Fewer yes/no questions: confirmation only before irreversible or risky actions — deletion, database restore, firewall, SSH, migration. Domain change asks only if the domain doesn't point to the server; the old subscription domain keeps working automatically
 Перед обновлением панели бэкап базы делается всегда; если он не удался, автообновление не обновляет, а в меню спросит	A database backup is always made before a panel update; if it fails, auto-update does not update and the menu asks
+Дамп повреждён:	Dump is damaged:
+архив обрезан или испорчен — например, скачался не до конца	the archive is truncated or corrupted — for example, it was not downloaded completely
+Дамп пустой:	Dump is empty:
+Восстановление базы из настоящего сжатого дампа ошибочно отвечало «файл повреждён» — теперь архив проверяется целиком, а обрезанный дамп честно называется обрезанным	Restoring the database from a real compressed dump wrongly said "file is damaged" — the archive is now checked in full, and a truncated dump is reported as truncated
+Команды без меню (rw --update, rw домен и другие) всегда завершались с кодом 0 — теперь cron и скрипты видят, что действие не удалось	Commands without the menu (rw --update, rw domain and others) always exited with code 0 — now cron and scripts see when an action failed
+Неверный пароль базы распознаётся по сообщению самой панели (Prisma), а не принимается за сбой миграции	A wrong database password is recognized from the panel's own (Prisma) message instead of being taken for a migration failure
+Часовой пояс мог ошибочно считаться несуществующим, а UTF-8 — не включаться на системах с большим числом локалей	A valid time zone could be reported as nonexistent, and UTF-8 not enabled on systems with many locales
 __RP_EN_END__

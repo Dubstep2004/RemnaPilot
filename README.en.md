@@ -56,6 +56,13 @@ rw
 - Progress for long operations: update, auto-backup and panel migration show step 2/4 and the total time
 - Full English translation, including error explanations and Telegram messages; tests check that no Russian is left in EN mode
 
+#### 🐛 Fixed
+
+- Restoring the database from a real compressed dump wrongly said "file is damaged" — the archive is now checked in full, and a truncated dump is reported as truncated
+- Commands without the menu (rw --update, rw domain and others) always exited with code 0 — now cron and scripts see when an action failed
+- A wrong database password is recognized from the panel's own (Prisma) message instead of being taken for a migration failure
+- A valid time zone could be reported as nonexistent, and UTF-8 not enabled on systems with many locales
+
 #### 🔄 Changed
 
 - Fewer yes/no questions: confirmation only before irreversible or risky actions — deletion, database restore, firewall, SSH, migration. Domain change asks only if the domain doesn't point to the server; the old subscription domain keeps working automatically
@@ -162,7 +169,9 @@ rw
 ### 🎨 Comfort
 - 6 themes, number style, logo
 - Word **search** and compact mode
-- English and Russian, action log
+- **Clear errors**: the cause and what to do
+- Log by day with filters and search
+- English and Russian
 
 </td>
 </tr>
@@ -187,6 +196,7 @@ Everything is in **Other → Appearance**: theme, number style (`1` `1)` `[1]` `
 | Command | What it does |
 |---|---|
 | `rw` | open the menu |
+| `rw --help` | every command with examples |
 | `rw new.domain.com` | change the panel domain |
 | `rw --sub sub.domain.com` | change the subscription domain |
 | `rw --dry-run new.domain.com` | preview without changes |
@@ -245,7 +255,10 @@ It checks for a new version every night and shows a hint in the menu. Update via
 
 ## 🧪 Tests
 
-Every change runs in GitHub Actions on stubs: domains, certificates, updates and rollback, nodes, backups, firewall, appearance and the whole menu in both languages. **No release is published if a test fails.**
+Two stages, both in GitHub Actions. **No release is published if any check fails.**
+
+- **On stubs** — every change: domains, certificates, updates and rollback, nodes, backups, firewall, the whole menu in both languages and English translation completeness.
+- **On a real Remnawave** — the panel is installed per [docs.rw](https://docs.rw) on a clean machine, and RemnaPilot really changes the domain and rolls it back, backs up and restores the database, updates the panel, and explains real Docker errors on a deliberately broken panel. Also weekly, to catch a new Remnawave version breaking something.
 
 ## 📄 License
 

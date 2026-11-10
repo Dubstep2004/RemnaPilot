@@ -4,11 +4,11 @@
 #     ✖ Панель не обновилась
 #        Причина:    Docker Hub не отвечает с этого сервера
 #        Что делать: …
-cause() { printf '   %s%s%s %s\n' "$C_WARN" "$(padr "Причина:" 12)" "$C0" "$1"; }
-todo()  { local l first=1; for l in "$@"; do
-            if (( first )); then printf '   %s%s%s %s\n' "$C_ACC" "$(padr "Что делать:" 12)" "$C0" "$l"; first=0
+cause() { TODO_SHOWN=""; printf '   %s%s%s %s\n' "$C_WARN" "$(padr "Причина:" 12)" "$C0" "$1"; }
+todo()  { local l; for l in "$@"; do        # метка «Что делать:» — один раз на блок ошибки
+            if [[ -z "${TODO_SHOWN:-}" ]]; then printf '   %s%s%s %s\n' "$C_ACC" "$(padr "Что делать:" 12)" "$C0" "$l"; TODO_SHOWN=1
             else printf '   %12s %s\n' "" "$l"; fi; done; }
-fail()  { red "✖ $1"; [[ -n "${2:-}" ]] && why "$2" "${3:-}"; return 1; }
+fail()  { TODO_SHOWN=""; red "✖ $1"; [[ -n "${2:-}" ]] && why "$2" "${3:-}"; return 1; }
 
 log_tail() { # последние значимые строки, если причину не узнали
   [[ -n "$1" ]] || return 0
@@ -51,7 +51,7 @@ why() { # вид (docker|container|apt|ssh|net|telegram|db), текст лога
         cause "ошибка в docker-compose.yml"; todo "покажет строку с ошибкой: docker compose config" "бэкап конфига — файлы *.bak-* рядом"
       else log_tail "$t"; return 1; fi ;;
     container)
-      if grep -qiE 'password authentication failed' <<< "$t"; then
+      if grep -qiE 'password authentication failed|Authentication failed against database server|credentials for .* are not valid|P1000' <<< "$t"; then
         cause "пароль базы в .env не совпадает с паролем в Postgres"
         todo "Панель → Безопасность → 1 — сверит и предложит исправить"
       elif grep -qiE "ECONNREFUSED[^ ]*:5432|Can't reach database|connect ECONNREFUSED|getaddrinfo .*(db|postgres)" <<< "$t"; then
@@ -71,7 +71,7 @@ why() { # вид (docker|container|apt|ssh|net|telegram|db), текст лога
         todo "сравни .env с .env.sample из документации новой версии: docs.rw"
       else log_tail "$t" 8; return 1; fi ;;
     db)
-      if grep -qiE 'password authentication failed|role .* does not exist' <<< "$t"; then
+      if grep -qiE 'password authentication failed|Authentication failed against database server|role .* does not exist' <<< "$t"; then
         cause "логин или пароль базы в .env не подходят"; todo "Панель → Безопасность → 1"
       elif grep -qiE 'database .* does not exist' <<< "$t"; then
         cause "в .env указана база, которой нет"; todo "проверь DATABASE_URL в $RW_DIR/.env"

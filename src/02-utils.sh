@@ -217,9 +217,9 @@ manual_dns_issue() { # $1 = лог; ручной DNS-01: показать TXT, �
     ok=1
     for ((i=0; i<${#rec[@]}; i+=2)); do
       if command -v dig >/dev/null; then
-        dig +short TXT "${rec[i]}" @1.1.1.1 | tr -d '"' | grep -qxF "${rec[i+1]}" || ok=0
+        grep -qxF "${rec[i+1]}" < <(dig +short TXT "${rec[i]}" @1.1.1.1 | tr -d '"') || ok=0
       else
-        curl -fsS "https://dns.google/resolve?name=${rec[i]}&type=TXT" | grep -qF "${rec[i+1]}" || ok=0
+        grep -qF "${rec[i+1]}" < <(curl -fsS "https://dns.google/resolve?name=${rec[i]}&type=TXT") || ok=0
       fi
     done
     (( ok )) && { green "✔ TXT-записи видны"; break; }

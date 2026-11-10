@@ -207,14 +207,14 @@ free_port() { # временно освобождает порт
 fw_open() { # открывает порт в ufw/firewalld, если закрыт
   local p="$1"
   if command -v ufw >/dev/null && ufw status 2>/dev/null | grep -q '^Status: active'; then
-    if ! ufw status | grep -qE "^($p|$p/tcp)[[:space:]]+ALLOW"; then
+    if ! grep -qE "^($p|$p/tcp)[[:space:]]+ALLOW" < <(ufw status); then
       ufw allow "$p/tcp" >/dev/null && FW_OPENED+=("ufw:$p") && yel "Временно открыл $p/tcp в ufw"
     fi
   elif command -v firewall-cmd >/dev/null && firewall-cmd --state >/dev/null 2>&1; then
     if ! firewall-cmd --query-port="$p/tcp" >/dev/null 2>&1; then
       firewall-cmd --add-port="$p/tcp" >/dev/null && FW_OPENED+=("fwd:$p") && yel "Временно открыл $p/tcp в firewalld"
     fi
-  elif command -v iptables >/dev/null && iptables -S INPUT 2>/dev/null | grep -qE '^-P INPUT (DROP|REJECT)'; then
+  elif command -v iptables >/dev/null && grep -qE '^-P INPUT (DROP|REJECT)' < <(iptables -S INPUT 2>/dev/null); then
     iptables -I INPUT -p tcp --dport "$p" -j ACCEPT && FW_OPENED+=("ipt:$p") && yel "Временно открыл $p/tcp в iptables"
   fi
 }

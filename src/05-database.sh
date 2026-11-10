@@ -59,8 +59,13 @@ restore_db() {
   [[ -f "$f" ]] || { err "файл не найден: $f"; return 1; }
 
   local cat=(cat); [[ "$f" == *.gz ]] && cat=(gzip -cd)
-  "${cat[@]}" "$f" | head -c 300 >/dev/null 2>&1 || { err "файл повреждён"; return 1; }
-  if "${cat[@]}" "$f" | head -c 4000 | grep -q 'database cluster dump'; then kind=cluster; else kind=db; fi
+  # целостность: у .gz — полная проверка архива; начало файла читаем без pipefail (head обрывает канал, это не ошибка)
+  if [[ "$f" == *.gz ]] && ! gzip -t "$f" 2>/dev/null; then
+    fail "Дамп повреждён: $(basename "$f")"; cause "архив обрезан или испорчен — например, скачался не до конца"; todo "возьми другой дамп из $RW_DIR/backups"; return 1
+  fi
+  local top; top=$( set +o pipefail; "${cat[@]}" "$f" 2>/dev/null | head -c 4000 )
+  [[ -n "$top" ]] || { fail "Дамп пустой: $(basename "$f")"; todo "возьми другой дамп из $RW_DIR/backups"; return 1; }
+  if grep -q 'database cluster dump' <<< "$top"; then kind=cluster; else kind=db; fi
 
   db_info || { err "контейнер БД не запущен"; return 1; }
   red "ВНИМАНИЕ: текущие данные базы $DB_NAME будут заменены содержимым $(basename "$f")."

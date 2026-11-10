@@ -18,17 +18,20 @@ check() { if eval "$2"; then ok "$1"; else bad "$1"; fi; }
 has()  { if grep -qF -- "$2" <<< "$3"; then ok "$1"; else bad "$1 — нет «$2»"; printf '%s\n' "$3" | tail -25 | sed 's/^/      │ /'; fi; }
 sec()  { printf '\n\e[1m▸ %s\e[0m\n' "$1"; }
 plain() { sed -E 's/\x1b\[[0-9;]*[A-Za-z]//g' | tr -d '\r'; }
-noerr() { check "$1: без ошибок bash" '! grep -qE "line [0-9]+:|command not found|syntax error|unbound variable|bad substitution" <<< "$2"'; }
+noerr() { # название, вывод — нет ошибок самого bash
+  local e; e=$(grep -E "line [0-9]+:|command not found|syntax error|unbound variable|bad substitution" <<< "$2")
+  if [[ -z "$e" ]]; then ok "$1: без ошибок bash"; else bad "$1: ошибки bash"; printf '%s\n' "$e" | head -5 | sed 's/^/      │ /'; fi
+}
 rw()   { bash "$RP" "$@" 2>&1 | plain; }
 F="$(mktemp)"; awk '/^# ---------- старт/{exit} {print}' "$RP" > "$F"
 fn()   { bash -c 'source "'"$F"'"; RW_DIR='"$RW"'; JOURNAL=/var/log/remnapilot.log; '"$1" 2>&1 | plain; }
 psql_q() { docker exec remnawave-db psql -U postgres -d postgres -tAc "$1" 2>&1; }
-panel_up() { # ждёт, пока приложение панели работает и отвечает на порту
-  local i; for i in $(seq 1 60); do
-    [[ "$(docker inspect -f '{{.State.Status}}' remnawave 2>/dev/null)" == running ]] \
-      && curl -s -o /dev/null --max-time 3 http://127.0.0.1:3000/ && return 0
+panel_up() { # ждёт, пока контейнер панели здоров (healthcheck образа), до 3 минут
+  local i st; for i in $(seq 1 60); do
+    st=$(docker inspect -f '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}}' remnawave 2>/dev/null)
+    [[ "$st" == "running healthy" ]] && return 0
     sleep 3
-  done; return 1
+  done; echo "      │ состояние панели: $st"; return 1
 }
 envv() { grep -m1 "^$1=" "$RW/.env" | cut -d= -f2- | tr -d '"'; }
 
@@ -81,8 +84,8 @@ sec "Бэкап и восстановление базы"
 psql_q "CREATE TABLE rp_live_marker(v text); INSERT INTO rp_live_marker VALUES ('до бэкапа');" >/dev/null
 out=$(fn 'backup_db live'); noerr "бэкап" "$out"
 dump=$(ls -1t "$RW"/backups/db-*-live.sql.gz 2>/dev/null | head -1)
-check "дамп создан и не пустой" '[[ -s "$dump" ]] && (( $(gzip -cd "$dump" | wc -l) > 100 ))'
-check "в дампе есть данные панели" 'gzip -cd "$dump" | grep -q "rp_live_marker"'
+check "дамп создан и не пустой" '[[ -s "$dump" ]] && (( $(zcat "$dump" | wc -l) > 100 ))'
+check "в дампе есть данные панели" 'zgrep -q "rp_live_marker" "$dump"'
 psql_q "DROP TABLE rp_live_marker;" >/dev/null
 check "маркер удалён перед восстановлением" '! psql_q "SELECT v FROM rp_live_marker" | grep -q "до бэкапа"'
 out=$(printf 'YES\n' | fn "RESTORE_FILE='$dump' restore_db"); noerr "восстановление" "$out"
@@ -90,10 +93,16 @@ has "восстановление прошло" "База восстановле
 check "данные вернулись из дампа" 'psql_q "SELECT v FROM rp_live_marker" | grep -q "до бэкапа"'
 check "панель работает после восстановления" panel_up
 
+head -c 3000 "$dump" > /tmp/broken.sql.gz
+out=$(printf 'YES\n' | fn "RESTORE_FILE=/tmp/broken.sql.gz restore_db")
+has "обрезанный дамп — понятная ошибка" "Дамп повреждён" "$out"
+check "…и база не тронута" 'psql_q "SELECT v FROM rp_live_marker" | grep -q "до бэкапа"'
+
 out=$(rw --backup); noerr "автобэкап" "$out"
 arc=$(ls -1t "$RW"/backups/remnawave-*.tar.gz 2>/dev/null | head -1)
 check "архив автобэкапа создан" '[[ -s "$arc" ]]'
-check "в архиве база, .env и только они" 'tar -tzf "$arc" | grep -q "\.sql\.gz$" && tar -tzf "$arc" | grep -q "remnawave.env"'
+list=$(tar -tzf "$arc" 2>&1)
+check "в архиве дамп базы и .env" 'grep -q "\.sql\.gz$" <<< "$list" && grep -q "remnawave.env" <<< "$list"'
 
 # ─────────────────────────────────────────────────────────────
 sec "Обновление панели"
