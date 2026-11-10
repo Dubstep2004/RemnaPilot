@@ -137,7 +137,8 @@ swap_create() {
   chmod 600 /swapfile && mkswap /swapfile >/dev/null
   if ! swapon /swapfile 2>/dev/null; then
     rm -f /swapfile; dd if=/dev/zero of=/swapfile bs=1M count="$sz" status=none
-    chmod 600 /swapfile && mkswap /swapfile >/dev/null && swapon /swapfile || { red "✖ Не удалось включить swap"; rm -f /swapfile; return 1; }
+    chmod 600 /swapfile && mkswap /swapfile >/dev/null && swapon /swapfile || { fail "Swap не включился"; cause "файловая система или виртуализация не разрешают swap-файл (так бывает на btrfs и у части хостеров)"
+                              todo "попроси swap у хостера или возьми тариф с большим объёмом памяти"; rm -f /swapfile; return 1; }
   fi
   grep -q '^/swapfile ' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
   printf 'vm.swappiness = 10\nvm.vfs_cache_pressure = 50\n' > /etc/sysctl.d/98-remnapilot-swap.conf

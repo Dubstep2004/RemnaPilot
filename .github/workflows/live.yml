@@ -1,0 +1,30 @@
+name: live
+
+# Проверка на настоящей Remnawave: панель ставится по docs.rw в чистой машине GitHub,
+# RemnaPilot меняет домен, делает бэкап и восстановление, обновляет панель и объясняет настоящие ошибки.
+# Раз в неделю — чтобы сразу заметить, если новая версия Remnawave что-то сломала.
+on:
+  push:
+    branches-ignore: [main]          # в main живые тесты запускает release.yml перед выпуском
+    paths: ['remnapilot.sh', 'tests/live/**', '.github/workflows/live.yml']
+  workflow_dispatch:
+  workflow_call:
+  schedule:
+    - cron: '17 3 * * 1'
+
+jobs:
+  remnawave:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Docker и Compose
+        run: docker version --format 'Docker {{.Server.Version}}' && docker compose version
+      - name: RemnaPilot на настоящей Remnawave
+        run: sudo env CI=1 bash tests/live/run.sh
+      - name: Логи панели при ошибке
+        if: failure()
+        run: |
+          sudo docker ps -a
+          sudo docker logs --tail 80 remnawave 2>&1 || true
+          sudo tail -40 /var/log/remnapilot.log || true

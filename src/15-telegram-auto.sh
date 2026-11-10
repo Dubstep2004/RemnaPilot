@@ -4,14 +4,19 @@ tg_get() { grep -m1 "^$1=" "$TG_CONF" 2>/dev/null | cut -d= -f2-; }
 tg_on()  { [[ -n "$(tg_get TOKEN)" && -n "$(tg_get CHAT)" ]]; }
 tg_curl() { # токен, метод, аргументы curl… — адрес с токеном идёт через stdin, а не в командной строке (её видно в ps)
   local tok="$1" m="$2"; shift 2
-  printf 'url = "https://api.telegram.org/bot%s/%s"\n' "$tok" "$m" | curl -fsS --max-time 60 -K - "$@"
+  local out rc
+  out=$(printf 'url = "https://api.telegram.org/bot%s/%s"\n' "$tok" "$m" | curl -sS --max-time 60 -K - "$@" 2>&1); rc=$?
+  printf '%s' "$out"
+  if (( rc == 0 )) && [[ "$out" == *'"ok":true'* ]]; then TG_ERR=""; return 0; fi
+  TG_ERR="${out:-нет ответа}"; return 1    # ответ Telegram или ошибка curl — для why telegram
 }
 tg_api() { tg_curl "$(tg_get TOKEN)" "$@"; }
-tg_text() { tg_on || return 0; tg_api sendMessage -d chat_id="$(tg_get CHAT)" --data-urlencode text="$1" >/dev/null 2>&1; }
+tg_text() { tg_on || return 0; tg_api sendMessage -d chat_id="$(tg_get CHAT)" --data-urlencode text="$(T "$1")" >/dev/null; }
+tg_why() { local w; w=$(why_short telegram "$TG_ERR"); [[ -n "$w" ]] && printf ': %s' "$w"; }
 tg_file() { # файл, подпись
   tg_on || return 0
   (( $(stat -c %s "$1") < 49000000 )) || { tg_text "$2 (файл больше 49 МБ — не отправлен)"; return 1; }
-  tg_api sendDocument -F chat_id="$(tg_get CHAT)" -F document=@"$1" -F caption="$2" >/dev/null 2>&1
+  tg_api sendDocument -F chat_id="$(tg_get CHAT)" -F document=@"$1" -F caption="$(T "$2")" >/dev/null
 }
 
 tg_setup() {
@@ -20,16 +25,16 @@ tg_setup() {
   echo "  2. Напиши своему боту любое сообщение (например /start)."
   ask "Токен бота"; read -r tok; tok="${tok// /}"
   [[ "$tok" =~ ^[0-9]+:[A-Za-z0-9_-]{30,}$ ]] || { err "непохоже на токен бота"; return 1; }
-  name=$(tg_curl "$tok" getMe 2>/dev/null | grep -oP '"username":"\K[^"]+')
-  [[ -n "$name" ]] || { err "Telegram не принял токен (или нет связи с api.telegram.org)"; return 1; }
+  local r; r=$(tg_curl "$tok" getMe); name=$(grep -oP '"username":"\K[^"]+' <<< "$r")
+  [[ -n "$name" ]] || { fail "Бот не подключился" telegram "$r"; return 1; }
   info "Бот: @$name. Ищу твой чат..."
   chat=$(tg_curl "$tok" getUpdates 2>/dev/null | grep -oP '"chat":\{"id":\K-?[0-9]+' | tail -1)
   if [[ -z "$chat" ]]; then ask "Не нашёл сообщений боту. Напиши ему и нажми Enter (или введи chat_id)"; read -r ans
     chat="${ans:-$(tg_curl "$tok" getUpdates 2>/dev/null | grep -oP '"chat":\{"id":\K-?[0-9]+' | tail -1)}"; fi
-  [[ "$chat" =~ ^-?[0-9]+$ ]] || { err "chat_id не найден"; return 1; }
+  [[ "$chat" =~ ^-?[0-9]+$ ]] || { fail "Не нашёл чат с ботом"; cause "боту ещё никто не написал"; todo "открой бота в Telegram, нажми Start и повтори"; return 1; }
   mkdir -p /etc/rw; printf 'TOKEN=%s\nCHAT=%s\n' "$tok" "$chat" > "$TG_CONF"; chmod 600 "$TG_CONF"
   if tg_text "✅ RemnaPilot подключён к этому чату ($(hostname))"; then green "✔ Готово — проверь сообщение в Telegram"
-  else red "✖ Сообщение не отправилось — проверь токен и chat_id"; return 1; fi
+  else fail "Сообщение не отправилось" telegram "$TG_ERR"; return 1; fi
   jlog INFO "Telegram подключён"
 }
 
@@ -49,7 +54,9 @@ tg_menu() {
     ask; read -r c; echo
     case "$c" in
       1) run_action "Telegram: подключение" tg_setup; pause ;;
-      2) tg_on && { tg_text "🔔 Тест RemnaPilot ($(hostname))" && green "✔ Отправлено" || red "✖ Не отправилось"; } || yel "Сначала подключи бота."; pause ;;
+      2) if ! tg_on; then yel "Сначала подключи бота."
+         elif tg_text "🔔 Тест RemnaPilot ($(hostname))"; then green "✔ Отправлено"
+         else fail "Не отправилось" telegram "$TG_ERR"; fi; pause ;;
       3) rm -f "$TG_CONF"; yel "Telegram отключён."; pause ;;
       0|q|"") return ;;
     esac
@@ -152,7 +159,6 @@ au_menu() {
       1|2|3|4) local m; m=$(case $c in 1) echo off;; 2) echo check;; 3) echo self;; 4) echo all;; esac)
          if [[ "$m" == all ]]; then
            yel "Панель будет обновляться без тебя. Перед каждым обновлением — бэкап базы, при сбое — уведомление и откат вручную."
-           ask "Включить? [y/N]"; read -r a; [[ "$a" =~ ^[Yy]$ ]] || continue
          fi
          mkdir -p /etc/rw; echo "$m" > "$AU_CONF"; au_install_cron
          green "✔ Автообновление: $(au_mode_name "$m")"; jlog INFO "Автообновление: $m"; pause ;;
@@ -184,10 +190,14 @@ bk_run() { # бэкап по расписанию: дамп + .env + списо�
   keep=$(bk_get KEEP 7)
   cron_log_cap
   need_panel >/dev/null 2>&1 || { echo "$(date '+%d.%m %H:%M')|FAIL|Автобэкап: панель не найдена" > /etc/rw/.backup_last; return 1; }
+  steps 3
+  step "Дамп базы"
   if ! backup_db auto >/dev/null 2>&1; then
-    printf '%s|FAIL|Автобэкап базы не удался\n' "$(date '+%d.%m %H:%M')" > /etc/rw/.backup_last
-    jlog FAIL "Автобэкап базы не удался"; tg_text "⚠️ $(hostname): автобэкап базы не удался"; return 1
+    local why; why=$(why_short db "$BK_ERR"); why="${why:+: $why}"
+    printf '%s|FAIL|Автобэкап базы не удался%s\n' "$(date '+%d.%m %H:%M')" "$why" > /etc/rw/.backup_last
+    jlog FAIL "Автобэкап базы не удался$why"; tg_text "⚠️ $(hostname): автобэкап базы не удался$why"; steps_done; return 1
   fi
+  step "Собираю архив: база, .env, список нод"
   dump=$(ls -1t "$RW_DIR"/backups/db-*-auto.sql.gz | head -1)
   tmp=$(mktemp -d); cp "$dump" "$tmp/"; cp "$RW_DIR/.env" "$tmp/remnawave.env"
   [[ -s "$NODES_FILE" ]] && cp "$NODES_FILE" "$tmp/nodes.list"
@@ -195,7 +205,7 @@ bk_run() { # бэкап по расписанию: дамп + .env + списо�
   if ! tar -C "$tmp" -czf "$arc" . 2>/dev/null; then
     rm -rf "$tmp"; rm -f "$arc"
     printf '%s|FAIL|Автобэкап: не удалось собрать архив (нет места на диске?)\n' "$(date '+%d.%m %H:%M')" > /etc/rw/.backup_last
-    jlog FAIL "Автобэкап: не удалось собрать архив"; tg_text "⚠️ $(hostname): автобэкап не удался — не собрался архив (проверь место на диске)"; return 1
+    jlog FAIL "Автобэкап: не удалось собрать архив"; tg_text "⚠️ $(hostname): автобэкап не удался — не собрался архив (проверь место на диске)"; steps_done; return 1
   fi
   chmod 600 "$arc"; rm -rf "$tmp"
   # хранить последние N архивов и автодампов
@@ -203,14 +213,15 @@ bk_run() { # бэкап по расписанию: дамп + .env + списо�
   ls -1t "$RW_DIR"/backups/db-*-auto.sql.gz 2>/dev/null | tail -n +$((keep + 1)) | while read -r f; do rm -f "$f" "${f%.sql.gz}.env"; done
   sz=$(du -h "$arc" | cut -f1)
   local tgst=""
+  step "$(tg_on && echo "Отправляю в Telegram" || echo "Храню последние $keep архивов")"
   if tg_on; then
     case "$(bk_get ENC "")" in
       on)  local enc="$arc.enc"
            if bk_encrypt "$arc" "$enc"; then
-             tg_file "$enc" "💾🔒 $(hostname): бэкап Remnawave $(date '+%d.%m %H:%M'), $sz — зашифрован" && tgst=", 🔒 отправлен в Telegram" || { rc=1; tgst=", в Telegram не отправился"; }
+             tg_file "$enc" "💾🔒 $(hostname): бэкап Remnawave $(date '+%d.%m %H:%M'), $sz — зашифрован" && tgst=", 🔒 отправлен в Telegram" || { rc=1; tgst=", в Telegram не отправился$(tg_why)"; }
            else rc=1; tgst=", не удалось зашифровать"; fi
            rm -f "$enc" ;;
-      off) tg_file "$arc" "💾 $(hostname): бэкап Remnawave $(date '+%d.%m %H:%M'), $sz" && tgst=", отправлен в Telegram" || { rc=1; tgst=", в Telegram не отправился"; } ;;
+      off) tg_file "$arc" "💾 $(hostname): бэкап Remnawave $(date '+%d.%m %H:%M'), $sz" && tgst=", отправлен в Telegram" || { rc=1; tgst=", в Telegram не отправился$(tg_why)"; } ;;
       *)   # пароль не задан — архив с секретами в открытом виде не отправляем
            tg_text "💾 $(hostname): бэкап сделан ($sz), но в Telegram не отправлен — задай пароль шифрования: rw → База → Автобэкап → Шифрование"
            tgst=", в Telegram не отправлен — задай пароль шифрования" ;;
@@ -218,6 +229,7 @@ bk_run() { # бэкап по расписанию: дамп + .env + списо�
   fi
   printf '%s|%s|Бэкап %s%s\n' "$(date '+%d.%m %H:%M')" "$( ((rc)) && echo FAIL || echo OK)" "$sz" "$tgst" > /etc/rw/.backup_last
   jlog "$( ((rc)) && echo FAIL || echo OK)" "Автобэкап: $(basename "$arc") ($sz)"
+  steps_done "$( ((rc)) || echo "Бэкап $sz")"
   return $rc
 }
 

@@ -51,9 +51,11 @@ check_dns() { # $1 = domain
   sip=$(curl -4 -s --max-time 5 https://ifconfig.me || true)
   dip=$(getent ahostsv4 "$1" | awk 'NR==1{print $1}' || true)
   if [[ -z "$dip" ]]; then
-    yel "⚠ $1 не резолвится — сертификат может не выпуститься."
+    yel "⚠ $1 не найден в DNS — сертификат не выпустится, панель по этому адресу не откроется."
+    DNS_WARN=1; return 1
   elif [[ -n "$sip" && "$dip" != "$sip" ]]; then
     yel "⚠ $1 -> $dip, IP сервера $sip (ок, если домен за Cloudflare)."
+    DNS_WARN=1; return 1
   else
     green "✓ DNS: $1 -> $dip"
   fi
@@ -87,9 +89,9 @@ issue_cert() { # $1 = домен; доп. домены в CERT_EXTRA, пути �
   fi
   acme=$(acme_bin) || acme=""
   if [[ -z "$acme" ]]; then
-    ask "acme.sh не установлен. Установить? [Y/n]"; read -r x
-    [[ "$x" =~ ^[Nn]$ ]] && { yel "⚠ Сертификат для $1 не выпущен."; return 1; }
-    curl -fsSL https://get.acme.sh | sh >/dev/null 2>&1; acme=$(acme_bin) || { red "✖ acme.sh не установился"; return 1; }
+    info "Устанавливаю acme.sh — он выпускает и продлевает сертификаты Let's Encrypt..."
+    local alog; alog=$( { curl -fsSL https://get.acme.sh | sh; } 2>&1)
+    acme=$(acme_bin) || { fail "acme.sh не установился" net "$alog"; yel "⚠ Сертификат для $1 не выпущен."; return 1; }
     green "✔ acme.sh установлен"
   fi
   "$acme" --set-default-ca --server letsencrypt >/dev/null 2>&1
@@ -157,8 +159,8 @@ try_cert_method() { # $1 = http|alpn|dns|manual -> 0 при успехе
     if port_busy "$port"; then free_port "$port" || { restore_after_cert; return 1; }; fi
     if ! command -v socat >/dev/null; then       # acme.sh standalone/alpn без socat не работает
       info "Устанавливаю socat..."
-      { apt-get install -y socat || dnf install -y socat || yum install -y socat; } >/dev/null 2>&1
-      command -v socat >/dev/null || { red "✖ Нужен socat: apt install socat"; restore_after_cert; return 1; }
+      pkg_install socat || { fail "socat не установился — без него выпуск через порт не работает" apt "$PKG_LOG"
+                             todo "или выбери DNS Cloudflare — socat для него не нужен"; restore_after_cert; return 1; }
     fi
     fw_open "$port"
     if [[ "$m" == alpn ]] && behind_proxy "$CERT_DOMAIN"; then
@@ -189,7 +191,7 @@ try_cert_method() { # $1 = http|alpn|dns|manual -> 0 при успехе
   restore_after_cert
 
   (( rc == 0 )) && { rm -f "$log"; return 0; }
-  red "✖ Не получилось ($(method_name "$m"))"
+  red "✖ Сертификат не выпущен ($(method_name "$m"))"
   explain_acme_error "$log" "$m"
   rm -f "$log"; return 1
 }
@@ -228,25 +230,31 @@ manual_dns_issue() { # $1 = лог; ручной DNS-01: показать TXT, �
     --reloadcmd "$HOOK_DIR/$CERT_DOMAIN-reload.sh" >>"$log" 2>&1
 }
 
-explain_acme_error() { # $1 лог acme.sh, $2 способ — человеческое объяснение причины
-  local l="$1" m="$2"
+explain_acme_error() { # $1 лог acme.sh, $2 способ — причина и что делать
+  local l="$1" m="$2" p; p=$( [[ $m == alpn ]] && echo 443 || echo 80 )
   if   grep -qiE 'rateLimited|too many (certificates|failed)' "$l"; then
-    yel "  Причина: лимит Let's Encrypt (слишком много попыток). Подожди час (или неделю при лимите сертификатов)."
+    cause "лимит Let's Encrypt — слишком много попыток для этого домена"
+    todo "подожди час (при лимите на число сертификатов — до недели)"
   elif grep -qiE 'NXDOMAIN|no valid A records|DNS problem' "$l"; then
-    yel "  Причина: домен не найден в DNS или не указывает на сервер. Проверь A-запись."
+    cause "домена нет в DNS или он указывает не на этот сервер"
+    todo "добавь у регистратора A-запись на IP сервера: $(curl -4 -s --max-time 5 https://ifconfig.me 2>/dev/null)" "и подожди 5–10 минут"
   elif grep -qiE 'already used|Address already in use|Cannot listen|is not free' "$l"; then
-    yel "  Причина: порт занят другой программой."
+    cause "порт $p занят: $(port_owner "$p")"
+    if [[ $m == alpn ]]; then todo "выбери другой способ: порт 80 или DNS Cloudflare"
+    else todo "выбери другой способ: порт 443 или DNS Cloudflare"; fi
   elif grep -qiE 'Timeout|Connection refused|connection reset|Fetching .* Timeout' "$l"; then
-    yel "  Причина: Let's Encrypt не достучался до сервера — порт $( [[ $m == alpn ]] && echo 443 || echo 80 ) закрыт снаружи."
-    yel "  Открой его в панели хостера (firewall / security group) или выбери DNS — порты не нужны."
+    cause "Let's Encrypt не достучался до сервера — порт $p закрыт снаружи"
+    todo "открой этот порт у хостера (firewall / security group)" "или выбери DNS Cloudflare — порты не нужны"
   elif grep -qiE 'Invalid response|unauthorized|403|404' "$l"; then
-    yel "  Причина: проверку получил не этот сервер — домен смотрит на другой IP или включён прокси Cloudflare."
-    [[ "$m" == alpn ]] && yel "  Через прокси Cloudflare работает только порт 80 или DNS."
+    cause "проверку получил не этот сервер — домен смотрит на другой IP или включён прокси Cloudflare"
+    if [[ "$m" == alpn ]]; then todo "через прокси Cloudflare работают только порт 80 и DNS"
+    else todo "проверь A-запись домена" "или выбери DNS Cloudflare"; fi
   elif grep -qiE 'CF_Token|Invalid (api|request headers)|Authentication error|9109|10000' "$l"; then
-    yel "  Причина: неверный токен Cloudflare или у него нет прав Zone → DNS → Edit."
+    cause "неверный токен Cloudflare или у него нет прав Zone → DNS → Edit"
+    todo "создай токен: dash.cloudflare.com → My Profile → API Tokens → «Edit zone DNS»" "при следующей попытке спрошу его заново"
     sed -i '/^SAVED_CF_/d' "$HOME/.acme.sh/account.conf" 2>/dev/null; unset CF_Token
   else
-    echo "  Последние строки лога:"; grep -v '^\s*$' "$l" | tail -6 | sed 's/^/    /'
+    log_tail "$(cat "$l")" 6
   fi
 }
 

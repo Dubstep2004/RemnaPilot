@@ -4,7 +4,7 @@ ch_api() { curl -fsS --max-time 15 -H 'Accept: application/json' "https://check-
 ip_check() {
   local ip port info rid res nodes=() n json
   ip=$(curl -4 -s --max-time 6 https://ifconfig.me)
-  [[ -n "$ip" ]] || { red "✖ Не удалось узнать внешний IP"; return 1; }
+  [[ -n "$ip" ]] || { fail "Не узнал внешний IP сервера" net "$(curl -4 -sS --max-time 6 -o /dev/null https://ifconfig.me 2>&1 || true)"; return 1; }
   ask "Порт для проверки [443]"; read -r port; port="${port:-443}"
 
   section "СЕРВЕР"

@@ -77,14 +77,19 @@ node_install_remote() {
   read -rp "SSH-порт [22]: " port; port="${port:-22}"
   ask_node_params || return 1
   echo "Подключаюсь к $host..."
-  if node_script "$NP_PORT" "$NP_SECRET" "$NP_PANEL" | \
-       ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 -p "$port" "$host" "$(ssh_target "$host")"; then
+  local log rc; log=$(mktemp)
+  node_script "$NP_PORT" "$NP_SECRET" "$NP_PANEL" | \
+    ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 -p "$port" "$host" "$(ssh_target "$host")" 2>&1 | tee "$log"
+  rc=${PIPESTATUS[1]}
+  if (( rc == 0 )); then
     green "✓ Нода установлена на $host"
     read -rp "Добавить в список для массового обновления? Имя [${host#*@}]: " name
     node_list_add "${name:-${host#*@}}" "$host" "$port"
   else
-    red "Установка не удалась (если пользователь не root — нужен sudo без пароля)."
+    fail "Нода не установилась на $host"; why_first "$(tail -c 8000 "$log")" ssh docker apt
+    [[ "${host%%@*}" != root ]] && todo "пользователь не root — ему нужен sudo без пароля"
   fi
+  rm -f "$log"
 }
 
 node_oneliner() {
@@ -135,7 +140,7 @@ node_ssh_key() {
 }
 
 nodes_update() {
-  local lines=() i n sel ok=() fail=() out
+  local lines=() i n sel ok=() failed=() out
   node_list_show || return
   if [[ -n "${NODES_ALL:-}" ]]; then sel=""; else ask "Какие обновить? (Enter — все, или номера через запятую)"; read -r sel; fi
   mapfile -t lines < "$NODES_FILE"
@@ -160,10 +165,12 @@ EOS
     if echo "$out" | grep -q '^RESULT'; then
       ok+=("$nm: $(echo "$out" | grep '^RESULT' | cut -d' ' -f2-)"); green "  ✓ $(echo "$out" | grep '^RESULT' | cut -d' ' -f2-)"
     else
-      fail+=("$nm"); red "  ✗ ошибка"; echo "$out" | tail -5 | sed 's/^/    /'
+      failed+=("$nm"); red "  ✗ не обновилась"
+      if grep -q NO_NODE_DIR <<< "$out"; then cause "на сервере нет ноды в /opt/remnanode"; todo "установи её: Ноды → Установка → 2"
+      else why_first "$out" ssh docker; fi
     fi
   done
-  section "ИТОГ"; printf '  ✓ %s\n' "${ok[@]:-}" | grep -v '✓ $'; printf '  ✗ %s\n' "${fail[@]:-}" | grep -v '✗ $'
+  section "ИТОГ"; printf '  ✓ %s\n' "${ok[@]:-}" | grep -v '✓ $'; printf '  ✗ %s\n' "${failed[@]:-}" | grep -v '✗ $'
   return 0
 }
 

@@ -42,7 +42,27 @@ rw
 ---
 
 <!-- whats-new:start -->
-## 🆕 What's new in v2.4
+## 🆕 What's new in v2.5
+
+#### ✨ New
+
+- rw --help: every command by section with examples, in Russian and English
+- Tests on a real Remnawave in GitHub Actions: install per docs.rw, domain change and rollback, backup and restore, update and real Docker errors. No release without them
+
+#### 🚀 Improved
+
+- Clear errors: instead of "failed" — the cause and what to do. Docker Hub unreachable or rate-limited, disk full, no such version, port taken, database password mismatch, apt busy, SSH refused, no connection to GitHub or Telegram
+- Log by day: "Today", "Yesterday", icons and action duration; filters "errors only", "today" and word search
+- Progress for long operations: update, auto-backup and panel migration show step 2/4 and the total time
+- Full English translation, including error explanations and Telegram messages; tests check that no Russian is left in EN mode
+
+#### 🔄 Changed
+
+- Fewer yes/no questions: confirmation only before irreversible or risky actions — deletion, database restore, firewall, SSH, migration. Domain change asks only if the domain doesn't point to the server; the old subscription domain keeps working automatically
+- A database backup is always made before a panel update; if it fails, auto-update does not update and the menu asks
+
+<details>
+<summary><b>Previous version — v2.4</b></summary>
 
 #### ✨ New
 
@@ -58,30 +78,6 @@ rw
 - After updating RemnaPilot from the menu the lock stayed held, so auto-backup and auto-update waited in vain — it is released now
 - Auto-backup: if the archive could not be built (disk full), it is an error with a notification, not a "success"
 - A scheduled task that waited 30 minutes for its turn now reports it to the log and Telegram instead of being skipped silently
-
-<details>
-<summary><b>Previous version — v2.3</b></summary>
-
-#### ✨ New
-
-- Server self-test rw --selftest: Docker, Compose, cron, network, ports, DNS, clock, acme.sh — read-only
-
-#### 🚀 Improved
-
-- The menu opens twice as fast: one Docker call per screen instead of seven
-- Sources split into modules in src/, remnapilot.sh is built from them; CI won't release a changed script without a new version
-
-#### 🐛 Fixed
-
-- Concurrency lock: auto-backup, auto-update and menu actions no longer change the server at the same time — the second waits for the first
-- A clear error when Docker Compose v2 is missing (instead of "unknown command")
-- The authenticity check no longer raises false alarms: for old releases the file itself is compared, calmer message
-- Menu search is case-insensitive for Russian words even on servers without a UTF-8 locale
-
-#### 🛡️ Security
-
-- Telegram backups are encrypted with a password (AES-256); until a password is set, the archive with secrets is not sent. Decrypt — rw --decrypt
-- The Telegram bot token is no longer visible in the process list (ps)
 
 </details>
 

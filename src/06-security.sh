@@ -78,8 +78,7 @@ security_check() {
 
   echo
   if (( changed )); then
-    read -rp "Пересоздать контейнеры, чтобы применить изменения? [Y/n] " ans
-    [[ "$ans" =~ ^[Nn]$ ]] || { stack_down; stack_up; green "✓ Применено"; }
+    info "Пересоздаю контейнеры, чтобы применить изменения..."; stack_down; stack_up; green "✓ Применено"
   elif (( ! issues )); then green "Всё в порядке."; fi
   echo "Бэкап старого .env лежит рядом: .env.bak-*"
 }

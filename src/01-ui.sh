@@ -130,6 +130,26 @@ pause() { echo; read -rp "  ${C_MUT}↵ Enter — назад${C0} " _; }
 ask()   { printf '\n  %s❯%s %s' "$C_ACC" "$C0" "${1:-Выбор}: "; }   # usage: ask "Текст"; read -r var
 
 repeat() { local s="" i; for ((i=0; i<$2; i++)); do s+="$1"; done; printf '%s' "$s"; }
+
+# ---------- прогресс долгих операций ----------
+#   steps 4; step "Бэкап базы"; …; step "Проверка"; steps_done
+# Вложенная операция (обновить всё → панель) показывает свои шаги подпунктами.
+STEP_N=0; STEP_T=0; STEP_T0=0; STEP_DEPTH=0
+dur() { local s=$1; (( s >= 60 )) && printf '%d мин %d сек' $((s / 60)) $((s % 60)) || printf '%d сек' "$s"; }
+steps() { STEP_DEPTH=$((STEP_DEPTH + 1)); (( STEP_DEPTH == 1 )) && { STEP_T=$1; STEP_N=0; STEP_T0=$SECONDS; }; return 0; }
+step() {
+  if (( STEP_DEPTH != 1 )); then info "$1"; return 0; fi
+  STEP_N=$((STEP_N + 1)); (( STEP_N > STEP_T )) && STEP_T=$STEP_N
+  local w=12 f; f=$(( STEP_N * w / STEP_T ))
+  printf '\n  %s%s%s%s%s  %s%d/%d%s  %s%s%s\n' "$C_ACC" "$(repeat ━ "$f")" "$C_LINE" "$(repeat ─ $((w - f)))" "$C0" \
+    "$C_MUT" "$STEP_N" "$STEP_T" "$C0" "$CB" "$1" "$C0"
+}
+steps_done() { # [итог] — показать время; без аргумента — молча
+  (( STEP_DEPTH > 0 )) || return 0
+  STEP_DEPTH=$((STEP_DEPTH - 1)); (( STEP_DEPTH == 0 )) || return 0
+  [[ -n "${1:-}" ]] && green "✔ $1 за $(dur $((SECONDS - STEP_T0)))"
+  STEP_T=0; return 0
+}
 vislen() { local s; s=$(printf '%s' "$1" | sed -E 's/\x1b\[[0-9;]*m//g'); echo "${#s}"; }
 
 hr() { printf '  %s%s%s\n' "$C_LINE" "$(repeat ─ $((W-2)))" "$C0"; }

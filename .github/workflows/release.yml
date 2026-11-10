@@ -7,14 +7,19 @@ name: release
 on:
   push:
     branches: [main]
-    paths: ['remnapilot.sh', 'src/**', 'CHANGELOG.md', 'tests/**', 'tools/**', '.github/workflows/release.yml']
+    paths: ['remnapilot.sh', 'src/**', 'CHANGELOG.md', 'tests/**', 'tools/**', '.github/workflows/release.yml', '.github/workflows/live.yml']
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
+  live:
+    # проверка на настоящей Remnawave — без неё релиз не выходит
+    uses: ./.github/workflows/live.yml
+
   release:
+    needs: live
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

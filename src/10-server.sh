@@ -1,10 +1,12 @@
 # ---------- общие для сервера ----------
-pkg_install() { # пакеты… — тихая установка через apt/dnf/yum
-  if command -v apt-get >/dev/null; then DEBIAN_FRONTEND=noninteractive apt-get install -y "$@" >/dev/null 2>&1 \
-       || { apt-get update >/dev/null 2>&1; DEBIAN_FRONTEND=noninteractive apt-get install -y "$@" >/dev/null 2>&1; }
-  elif command -v dnf >/dev/null; then dnf install -y "$@" >/dev/null 2>&1
-  elif command -v yum >/dev/null; then yum install -y "$@" >/dev/null 2>&1
-  else return 1; fi
+pkg_install() { # пакеты… — тихая установка через apt/dnf/yum; вывод при ошибке — в PKG_LOG
+  local log rc; log=$(mktemp); PKG_LOG=""
+  if command -v apt-get >/dev/null; then DEBIAN_FRONTEND=noninteractive apt-get install -y "$@" >"$log" 2>&1 \
+       || { apt-get update >>"$log" 2>&1; DEBIAN_FRONTEND=noninteractive apt-get install -y "$@" >>"$log" 2>&1; }
+  elif command -v dnf >/dev/null; then dnf install -y "$@" >"$log" 2>&1
+  elif command -v yum >/dev/null; then yum install -y "$@" >"$log" 2>&1
+  else echo "нет apt, dnf или yum" > "$log"; false; fi
+  rc=$?; (( rc )) && PKG_LOG=$(tail -c 8000 "$log"); rm -f "$log"; return "$rc"
 }
 
 ssh_ports() { # порты, на которых сейчас слушает sshd
@@ -83,7 +85,7 @@ fw_setup() {
   echo; yel "SSH-порт(ы) $sshp останутся открытыми — доступ к серверу не потеряешь."
   ask "Включить firewall? [y/N]"; read -r ans; [[ "$ans" =~ ^[Yy]$ ]] || { echo "  Отменено."; return 0; }
 
-  command -v ufw >/dev/null || { info "Устанавливаю ufw..."; pkg_install ufw || { red "✖ Не удалось установить ufw"; return 1; }; }
+  command -v ufw >/dev/null || { info "Устанавливаю ufw..."; pkg_install ufw || { fail "ufw не установился" apt "$PKG_LOG"; return 1; }; }
   sed -i 's/^IPV6=.*/IPV6=yes/' /etc/default/ufw 2>/dev/null
 
   # сначала SSH — на случай, если что-то пойдёт не так
@@ -141,8 +143,7 @@ firewall_menu() {
       1) run_action "Firewall: настройка" fw_setup; pause ;;
       2) command -v ufw >/dev/null && run_action "Firewall: открыть порт" fw_port allow; pause ;;
       3) command -v ufw >/dev/null && run_action "Firewall: закрыть порт" fw_port deny; pause ;;
-      4) ask "Выключить firewall? [y/N]"; read -r a
-         [[ "$a" =~ ^[Yy]$ ]] && ufw disable >/dev/null && { yel "Firewall выключен"; jlog INFO "Firewall выключен"; }; pause ;;
+      4) ufw disable >/dev/null && { yel "Firewall выключен. Включить снова: пункт 1"; jlog INFO "Firewall выключен"; }; pause ;;
       0|q|"") return ;;
     esac
   done
@@ -243,7 +244,7 @@ ssh_revert_port() {
 
 ssh_fail2ban() {
   local ports; ports=$(ssh_ports | tr ' ' ',' | sed 's/,$//')
-  command -v fail2ban-client >/dev/null || { info "Устанавливаю fail2ban..."; pkg_install fail2ban || { red "✖ Не удалось установить fail2ban"; return 1; }; }
+  command -v fail2ban-client >/dev/null || { info "Устанавливаю fail2ban..."; pkg_install fail2ban || { fail "fail2ban не установился" apt "$PKG_LOG"; return 1; }; }
   local backend=auto; command -v journalctl >/dev/null && [[ ! -f /var/log/auth.log ]] && backend=systemd
   cat > /etc/fail2ban/jail.d/remnapilot.local <<EOF
 # RemnaPilot
@@ -339,7 +340,6 @@ net_enable() {
    • TCP Fast Open, MTU probing, без «медленного старта» после простоя
    • больше соединений и открытых файлов — для множества клиентов
 EOF
-  ask "Применить? [y/N]"; read -r ans; [[ "$ans" =~ ^[Yy]$ ]] || return 0
   cat > "$SYSCTL_FILE" <<'EOF'
 # RemnaPilot — тюнинг сети для VPN
 net.core.default_qdisc = fq
