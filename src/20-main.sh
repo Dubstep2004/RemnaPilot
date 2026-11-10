@@ -96,13 +96,13 @@ elif [[ -n "${DO_GEO:-}" ]]; then
 elif (( ${DO_CERT_STATUS:-0} )); then
   cert_status
 elif [[ -n "${SUB_NEW:-}" ]]; then
-  run_action "Смена домена подписки" change_sub_domain "$SUB_NEW" "$DRY"
+  run_action "$( (( ${DRY:-0} )) && echo "Предпросмотр смены домена подписки" || echo "Смена домена подписки")" change_sub_domain "$SUB_NEW" "$DRY"
 elif (( ${DO_UPDATE_ALL:-0} )); then
   run_action "Обновление: всё" update_all
 elif (( ${DO_UPDATE:-0} )); then
   run_action "Обновление панели" update_panel
 elif [[ -n "$NEW" ]]; then
-  run_action "Смена домена" change_domain "$NEW" "$OLD" "$DRY"
+  run_action "$( (( ${DRY:-0} )) && echo "Предпросмотр смены домена" || echo "Смена домена")" change_domain "$NEW" "$OLD" "$DRY"
 else
   offer_cmd
   check_whats_new

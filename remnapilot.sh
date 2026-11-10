@@ -4839,13 +4839,13 @@ elif [[ -n "${DO_GEO:-}" ]]; then
 elif (( ${DO_CERT_STATUS:-0} )); then
   cert_status
 elif [[ -n "${SUB_NEW:-}" ]]; then
-  run_action "Смена домена подписки" change_sub_domain "$SUB_NEW" "$DRY"
+  run_action "$( (( ${DRY:-0} )) && echo "Предпросмотр смены домена подписки" || echo "Смена домена подписки")" change_sub_domain "$SUB_NEW" "$DRY"
 elif (( ${DO_UPDATE_ALL:-0} )); then
   run_action "Обновление: всё" update_all
 elif (( ${DO_UPDATE:-0} )); then
   run_action "Обновление панели" update_panel
 elif [[ -n "$NEW" ]]; then
-  run_action "Смена домена" change_domain "$NEW" "$OLD" "$DRY"
+  run_action "$( (( ${DRY:-0} )) && echo "Предпросмотр смены домена" || echo "Смена домена")" change_domain "$NEW" "$OLD" "$DRY"
 else
   offer_cmd
   check_whats_new
@@ -6496,4 +6496,6 @@ docker-compose не найден в	docker-compose not found in
 Команды без меню (rw --update, rw домен и другие) всегда завершались с кодом 0 — теперь cron и скрипты видят, что действие не удалось	Commands without the menu (rw --update, rw domain and others) always exited with code 0 — now cron and scripts see when an action failed
 Неверный пароль базы распознаётся по сообщению самой панели (Prisma), а не принимается за сбой миграции	A wrong database password is recognized from the panel's own (Prisma) message instead of being taken for a migration failure
 Часовой пояс мог ошибочно считаться несуществующим, а UTF-8 — не включаться на системах с большим числом локалей	A valid time zone could be reported as nonexistent, and UTF-8 not enabled on systems with many locales
+Предпросмотр смены домена подписки	Subscription domain change preview
+Предпросмотр смены домена	Domain change preview
 __RP_EN_END__

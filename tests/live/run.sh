@@ -56,7 +56,7 @@ mkdir -p /etc/rw; touch "$HOME/.rw-nocmd"
 
 # ─────────────────────────────────────────────────────────────
 sec "Самопроверка и статус"
-out=$(rw --selftest); noerr "selftest" "$out"; has "selftest видит Docker Compose" "Compose" "$out"
+out=$(rw --selftest); noerr "selftest" "$out"; has "selftest видит Docker Compose" "docker compose" "$out"
 printf '%s\n' "$out" | sed -n '1,40p' | sed 's/^/      │ /'
 out=$(rw --check-updates); noerr "check-updates" "$out"
 out=$(rw --cert-status); noerr "cert-status" "$out"
@@ -74,7 +74,8 @@ has "предупредил, что домена нет в DNS" "не найде
 check "FRONT_END_DOMAIN сменился" '[[ "$(envv FRONT_END_DOMAIN)" == new.rp-live.test ]]'
 check "SUB_PUBLIC_DOMAIN сменился вместе с панелью" '[[ "$(envv SUB_PUBLIC_DOMAIN)" == new.rp-live.test/api/sub ]]'
 check "панель работает после смены домена" panel_up
-check "в журнале — успех" 'grep -q "| OK    | Смена домена" /var/log/remnapilot.log'
+check "в журнале — успех" 'grep -q "| OK    | Смена домена$" /var/log/remnapilot.log'
+check "предпросмотр записан в журнал как предпросмотр" 'grep -q "Предпросмотр смены домена" /var/log/remnapilot.log'
 out=$(printf '1\n' | fn 'rollback'); noerr "откат домена" "$out"
 check "откат вернул старый домен" '[[ "$(envv FRONT_END_DOMAIN)" == panel.rp-live.test ]]'
 check "панель работает после отката" panel_up
@@ -85,7 +86,8 @@ psql_q "CREATE TABLE rp_live_marker(v text); INSERT INTO rp_live_marker VALUES (
 out=$(fn 'backup_db live'); noerr "бэкап" "$out"
 dump=$(ls -1t "$RW"/backups/db-*-live.sql.gz 2>/dev/null | head -1)
 check "дамп создан и не пустой" '[[ -s "$dump" ]] && (( $(zcat "$dump" | wc -l) > 100 ))'
-check "в дампе есть данные панели" 'zgrep -q "rp_live_marker" "$dump"'
+zcat "$dump" > /tmp/dump.sql
+check "в дампе есть данные панели" 'grep -q "rp_live_marker" /tmp/dump.sql'
 psql_q "DROP TABLE rp_live_marker;" >/dev/null
 check "маркер удалён перед восстановлением" '! psql_q "SELECT v FROM rp_live_marker" | grep -q "до бэкапа"'
 out=$(printf 'YES\n' | fn "RESTORE_FILE='$dump' restore_db"); noerr "восстановление" "$out"
