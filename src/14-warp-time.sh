@@ -144,7 +144,7 @@ time_set_tz() {
   ask; read -r c
   case "$c" in 1) tz=UTC ;; 2) tz=Europe/Moscow ;; 3) tz=Asia/Yekaterinburg ;; 4) tz=Europe/Berlin ;;
     5) ask "Часовой пояс"; read -r tz ;; *) return 0 ;; esac
-  timedatectl list-timezones 2>/dev/null | grep -qx "$tz" || [[ "$tz" == UTC ]] || { err "нет такого пояса: $tz"; return 1; }
+  grep -qx "$tz" < <(timedatectl list-timezones 2>/dev/null) || [[ "$tz" == UTC ]] || { err "нет такого пояса: $tz"; return 1; }
   timedatectl set-timezone "$tz" && green "✔ Часовой пояс: $tz" && jlog INFO "Часовой пояс: $tz"
 }
 

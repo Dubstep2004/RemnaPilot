@@ -42,7 +42,34 @@ rw
 ---
 
 <!-- whats-new:start -->
-## 🆕 What's new in v2.4
+## 🆕 What's new in v2.5
+
+#### ✨ New
+
+- rw --help: every command by section with examples, in Russian and English
+- Tests on a real Remnawave in GitHub Actions: install per docs.rw, domain change and rollback, backup and restore, update and real Docker errors. No release without them
+
+#### 🚀 Improved
+
+- Clear errors: instead of "failed" — the cause and what to do. Docker Hub unreachable or rate-limited, disk full, no such version, port taken, database password mismatch, apt busy, SSH refused, no connection to GitHub or Telegram
+- Log by day: "Today", "Yesterday", icons and action duration; filters "errors only", "today" and word search
+- Progress for long operations: update, auto-backup and panel migration show step 2/4 and the total time
+- Full English translation, including error explanations and Telegram messages; tests check that no Russian is left in EN mode
+
+#### 🐛 Fixed
+
+- Restoring the database from a real compressed dump wrongly said "file is damaged" — the archive is now checked in full, and a truncated dump is reported as truncated
+- Commands without the menu (rw --update, rw domain and others) always exited with code 0 — now cron and scripts see when an action failed
+- A wrong database password is recognized from the panel's own (Prisma) message instead of being taken for a migration failure
+- A valid time zone could be reported as nonexistent, and UTF-8 not enabled on systems with many locales
+
+#### 🔄 Changed
+
+- Fewer yes/no questions: confirmation only before irreversible or risky actions — deletion, database restore, firewall, SSH, migration. Domain change asks only if the domain doesn't point to the server; the old subscription domain keeps working automatically
+- A database backup is always made before a panel update; if it fails, auto-update does not update and the menu asks
+
+<details>
+<summary><b>Previous version — v2.4</b></summary>
 
 #### ✨ New
 
@@ -58,30 +85,6 @@ rw
 - After updating RemnaPilot from the menu the lock stayed held, so auto-backup and auto-update waited in vain — it is released now
 - Auto-backup: if the archive could not be built (disk full), it is an error with a notification, not a "success"
 - A scheduled task that waited 30 minutes for its turn now reports it to the log and Telegram instead of being skipped silently
-
-<details>
-<summary><b>Previous version — v2.3</b></summary>
-
-#### ✨ New
-
-- Server self-test rw --selftest: Docker, Compose, cron, network, ports, DNS, clock, acme.sh — read-only
-
-#### 🚀 Improved
-
-- The menu opens twice as fast: one Docker call per screen instead of seven
-- Sources split into modules in src/, remnapilot.sh is built from them; CI won't release a changed script without a new version
-
-#### 🐛 Fixed
-
-- Concurrency lock: auto-backup, auto-update and menu actions no longer change the server at the same time — the second waits for the first
-- A clear error when Docker Compose v2 is missing (instead of "unknown command")
-- The authenticity check no longer raises false alarms: for old releases the file itself is compared, calmer message
-- Menu search is case-insensitive for Russian words even on servers without a UTF-8 locale
-
-#### 🛡️ Security
-
-- Telegram backups are encrypted with a password (AES-256); until a password is set, the archive with secrets is not sent. Decrypt — rw --decrypt
-- The Telegram bot token is no longer visible in the process list (ps)
 
 </details>
 
@@ -166,7 +169,9 @@ rw
 ### 🎨 Comfort
 - 6 themes, number style, logo
 - Word **search** and compact mode
-- English and Russian, action log
+- **Clear errors**: the cause and what to do
+- Log by day with filters and search
+- English and Russian
 
 </td>
 </tr>
@@ -191,6 +196,7 @@ Everything is in **Other → Appearance**: theme, number style (`1` `1)` `[1]` `
 | Command | What it does |
 |---|---|
 | `rw` | open the menu |
+| `rw --help` | every command with examples |
 | `rw new.domain.com` | change the panel domain |
 | `rw --sub sub.domain.com` | change the subscription domain |
 | `rw --dry-run new.domain.com` | preview without changes |
@@ -249,7 +255,10 @@ It checks for a new version every night and shows a hint in the menu. Update via
 
 ## 🧪 Tests
 
-Every change runs in GitHub Actions on stubs: domains, certificates, updates and rollback, nodes, backups, firewall, appearance and the whole menu in both languages. **No release is published if a test fails.**
+Two stages, both in GitHub Actions. **No release is published if any check fails.**
+
+- **On stubs** — every change: domains, certificates, updates and rollback, nodes, backups, firewall, the whole menu in both languages and English translation completeness.
+- **On a real Remnawave** — the panel is installed per [docs.rw](https://docs.rw) on a clean machine, and RemnaPilot really changes the domain and rolls it back, backs up and restores the database, updates the panel, and explains real Docker errors on a deliberately broken panel. Also weekly, to catch a new Remnawave version breaking something.
 
 ## 📄 License
 

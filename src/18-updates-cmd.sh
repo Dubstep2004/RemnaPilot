@@ -14,27 +14,29 @@ offer_cmd() {
   local src; src=$(readlink -f "$0")
   [[ "$src" == /usr/local/bin/rw || -f "$HOME/.rw-nocmd" ]] && return
   if [[ ! -f /usr/local/bin/rw ]]; then
-    read -rp "Установить короткую команду  rw  для запуска скрипта? [Y/n] " a
-    [[ "$a" =~ ^[Nn]$ ]] && touch "$HOME/.rw-nocmd" || install_cmd
+    install_cmd >/dev/null 2>&1 && info "Установил короткую команду ${CB}rw${C0} — дальше запускай просто  rw"
   elif ! cmp -s "$src" /usr/local/bin/rw; then
-    read -rp "Команда rw установлена из другой версии скрипта. Обновить её этой? [Y/n] " a
+    local other; other=$(grep -m1 '^RP_VERSION=' /usr/local/bin/rw 2>/dev/null | cut -d'"' -f2)
+    read -rp "Команда rw — другая версия (${other:-?}, а эта $RP_VERSION). Заменить её этой? [Y/n] " a
     [[ "$a" =~ ^[Nn]$ ]] || install_cmd
   fi
 }
 
 need_compose() { # все действия используют «docker compose» (v2)
   docker compose version >/dev/null 2>&1 && return 0
-  red "✖ Нужен Docker Compose v2 — команда «docker compose»."
-  command -v docker-compose >/dev/null && echo "  Сейчас стоит старый docker-compose v1, RemnaPilot с ним не работает."
-  echo "  Установить:  apt install docker-compose-plugin   (или: curl -fsSL https://get.docker.com | sh)"
+  fail "Нет Docker Compose v2 (команда «docker compose»)"
+  command -v docker-compose >/dev/null && cause "стоит старый docker-compose v1 — RemnaPilot с ним не работает" \
+                                       || cause "плагин compose не установлен"
+  todo "apt install docker-compose-plugin" "или: curl -fsSL https://get.docker.com | sh"
   return 1
 }
 
 need_panel() {
-  [[ -f "$RW_DIR/.env" ]] || { red "✖ Панель не найдена ($RW_DIR/.env). Прочее → Сменить каталог панели."; return 1; }
-  command -v docker >/dev/null || { red "✖ Не установлен docker"; return 1; }
+  [[ -f "$RW_DIR/.env" ]] || { fail "Панель не найдена в $RW_DIR"; cause "нет файла $RW_DIR/.env"
+                               todo "если панель в другом месте: Прочее → Сменить каталог панели" "если её нет — установи по docs.rw"; return 1; }
+  command -v docker >/dev/null || { fail "Не установлен Docker"; todo "установи: curl -fsSL https://get.docker.com | sh"; return 1; }
   need_compose || return 1
-  command -v perl   >/dev/null || { red "✖ Не установлен perl (apt install perl)"; return 1; }
+  command -v perl   >/dev/null || { fail "Не установлен perl"; todo "apt install perl"; return 1; }
 }
 
 UPD_LOG="" # файл с записью последнего обновления (для отката)
@@ -92,10 +94,12 @@ snapshot_images() { # каталог: запомнить текущие обра
   done
 }
 
-pull_up() { # каталог: скачать образы и пересоздать
-  local c; c=$(compose_of "$1") || return 1
-  info "Обновляю $1"
-  (cd "$1" && docker compose -f "$c" pull && docker compose -f "$c" up -d --remove-orphans)
+pull_up() { # каталог: скачать образы и пересоздать; вывод упавшей команды — в PULL_LOG
+  local c log rc; PULL_LOG=""
+  c=$(compose_of "$1") || { PULL_LOG="docker-compose не найден в $1"; return 1; }
+  info "Обновляю $1"; log=$(mktemp)
+  (cd "$1" && docker compose -f "$c" pull && docker compose -f "$c" up -d --remove-orphans) 2>&1 | tee "$log"; rc=${PIPESTATUS[0]}
+  PULL_LOG=$(tail -c 20000 "$log"); rm -f "$log"; return "$rc"
 }
 
 wait_healthy() { # контейнер, секунд -> 0 если запущен и не unhealthy
@@ -113,71 +117,79 @@ new_upd_log() {
   mkdir -p "$d"; UPD_LOG="$d/update-$(date +%Y%m%d-%H%M%S).log"; : > "$UPD_LOG"
 }
 
-update_panel() { # $1=1 — не задавать вопросов (для «обновить всё»)
-  local quiet="${1:-0}" ans c d dirs=() app before after
+update_panel() { # без вопросов; спросит, только если бэкап базы не удался (и есть терминал)
+  local ans c d dirs=() app before after
   need_panel || return 1
   local img_before img_after
   app=$(app_containers | head -1); before=$(local_ver "$app"); img_before=$(docker inspect -f '{{.Image}}' "$app" 2>/dev/null)
   [[ -n "$UPD_LOG" ]] || new_upd_log
+  steps 4
 
-  if (( quiet )); then backup_db pre-update && echo "DUMP $(ls -1t "$RW_DIR"/backups/db-*-pre-update.sql.gz | head -1)" >> "$UPD_LOG"
-  else
-    ask "Сделать бэкап базы перед обновлением? [Y/n]"; read -r ans
-    if [[ ! "$ans" =~ ^[Nn]$ ]]; then
-      if backup_db pre-update; then echo "DUMP $(ls -1t "$RW_DIR"/backups/db-*-pre-update.sql.gz | head -1)" >> "$UPD_LOG"
-      else ask "Бэкап не удался. Продолжить без него? [y/N]"; read -r ans; [[ "$ans" =~ ^[Yy]$ ]] || return 0; fi
-    fi
-  fi
+  step "Бэкап базы"
+  if backup_db pre-update; then echo "DUMP $(ls -1t "$RW_DIR"/backups/db-*-pre-update.sql.gz | head -1)" >> "$UPD_LOG"
+  elif [[ -t 0 ]]; then
+    yel "  Без бэкапа откатить базу после неудачного обновления не получится."
+    ask "Продолжить без бэкапа? [y/N]"; read -r ans; [[ "$ans" =~ ^[Yy]$ ]] || { steps_done; return 0; }
+  else red "✖ Бэкап базы не сделан — без него не обновляю"; steps_done; return 1; fi
 
+  step "Скачиваю образы и пересоздаю контейнеры"
   dirs+=("$RW_DIR")
   while read -r c; do d=$(dirname "$c"); [[ "$d" != "$RW_DIR" ]] && dirs+=("$d"); done < <(find_composes)
   for d in "${dirs[@]}"; do snapshot_images "$d"; done
-  for d in "${dirs[@]}"; do pull_up "$d" || { red "✖ Ошибка при обновлении $d"; yel "Откат: раздел «Обновления» → «Откатить последнее обновление»"; return 1; }; done
+  for d in "${dirs[@]}"; do
+    pull_up "$d" || { fail "Не обновилось: $d" docker "$PULL_LOG"
+                      todo "старые образы сохранены: Панель → Обновления → Откатить последнее обновление"; steps_done; return 1; }
+  done
   docker image prune -f >/dev/null
 
-  info "Жду запуска панели..."
-  if wait_healthy "$app" 90; then
-    after=$(local_ver "$app"); img_after=$(docker inspect -f '{{.Image}}' "$app" 2>/dev/null)
-    if [[ "$img_before" == "$img_after" ]]; then green "✔ Панель уже на последней версии${after:+ v$after}"
-    else green "✔ Панель обновлена${before:+: v$before}${after:+ → v$after}"; fi
-  else
-    red "✖ Панель не поднялась после обновления. Последние логи:"
-    docker logs --tail 25 "$app" 2>&1 | sed 's/^/    /'
-    yel "Откатить: «Обновления» → «Откатить последнее обновление» (вернёт образы и при желании базу)."
-    return 1
+  step "Жду запуска панели"
+  if ! wait_healthy "$app" 90; then
+    fail "Панель не запустилась после обновления" container "$(docker logs --tail 60 "$app" 2>&1)"
+    todo "вернуть прошлую версию: Панель → Обновления → Откатить последнее обновление"
+    steps_done; return 1
   fi
+
+  step "Проверяю версию"
+  after=$(local_ver "$app"); img_after=$(docker inspect -f '{{.Image}}' "$app" 2>/dev/null)
+  if [[ "$img_before" == "$img_after" ]]; then green "✔ Панель уже на последней версии${after:+ v$after}"
+  else green "✔ Панель обновлена${before:+: v$before}${after:+ → v$after}"; fi
+  steps_done "Обновление панели"
 }
 
 update_local_node() {
   local d before after
   d=$(node_dir) || { echo "  Ноды на этом сервере нет."; return 0; }
-  command -v docker >/dev/null || { red "✖ docker не установлен"; return 1; }
+  command -v docker >/dev/null || { fail "Не установлен Docker"; todo "установи: curl -fsSL https://get.docker.com | sh"; return 1; }
   need_compose || return 1
   [[ -n "$UPD_LOG" ]] || new_upd_log
   before=$(local_ver remnanode)
+  steps 2
+  step "Скачиваю образ ноды"
   snapshot_images "$d"
-  pull_up "$d" || { red "✖ Ошибка обновления ноды"; return 1; }
+  pull_up "$d" || { fail "Нода не обновилась" docker "$PULL_LOG"; steps_done; return 1; }
   docker image prune -f >/dev/null
+  step "Жду запуска ноды"
   if wait_healthy remnanode 45; then
     after=$(local_ver remnanode)
     [[ "$before" == "$after" ]] && green "✔ Нода уже на последней версии v${after:-?}" || green "✔ Нода обновлена: v${before:-?} → v${after:-?}"
+    steps_done "Обновление ноды"
   else
-    red "✖ Нода не запустилась:"; docker logs --tail 20 remnanode 2>&1 | sed 's/^/    /'; return 1
+    fail "Нода не запустилась" container "$(docker logs --tail 60 remnanode 2>&1)"; steps_done; return 1
   fi
 }
 
 update_all() {
-  local ans
-  section "ПЛАН"
-  [[ -f "$RW_DIR/.env" ]] && echo "   • панель (+ бэкап базы перед обновлением)"
-  node_dir >/dev/null && echo "   • нода на этом сервере"
-  [[ -s "$NODES_FILE" ]] && echo "   • ноды по SSH: $(wc -l < "$NODES_FILE")"
-  ask "Начать? [y/N]"; read -r ans; [[ "$ans" =~ ^[Yy]$ ]] || return 0
+  local n=0 has_panel="" has_node="" has_ssh=""
+  [[ -f "$RW_DIR/.env" ]] && { has_panel=1; n=$((n + 1)); }
+  node_dir >/dev/null && { has_node=1; n=$((n + 1)); }
+  [[ -s "$NODES_FILE" ]] && { has_ssh=1; n=$((n + 1)); }
+  (( n )) || { yel "Нечего обновлять: панели и нод на этом сервере нет, список нод пуст."; return 0; }
   new_upd_log
-  [[ -f "$RW_DIR/.env" ]] && { section "ПАНЕЛЬ"; update_panel 1 || { yel "Панель не обновилась — ноды не трогаю."; return 1; }; }
-  node_dir >/dev/null && { section "НОДА ЗДЕСЬ"; update_local_node; }
-  [[ -s "$NODES_FILE" ]] && { section "НОДЫ ПО SSH"; NODES_ALL=1 nodes_update; }
-  echo; green "✔ Готово"
+  steps "$n"
+  [[ -n "$has_panel" ]] && { step "Панель (с бэкапом базы)"; update_panel 1 || { yel "Панель не обновилась — ноды не трогаю."; steps_done; return 1; }; }
+  [[ -n "$has_node" ]] && { step "Нода на этом сервере"; update_local_node; }
+  [[ -n "$has_ssh" ]] && { step "Ноды по SSH: $(wc -l < "$NODES_FILE")"; NODES_ALL=1 nodes_update; }
+  steps_done "Всё обновлено"
 }
 
 rollback_update() {
@@ -220,8 +232,7 @@ pin_panel_version() {
   cp -a "$c" "$c.bak-$(date +%Y%m%d-%H%M%S)"
   V="$v" perl -pi -e 's/(image:\s*["\x27]?remnawave\/backend:)[^"\x27\s]+/${1}$ENV{V}/' "$c"
   green "✔ В compose: remnawave/backend:$v"
-  ask "Скачать и перезапустить панель сейчас? [Y/n]"; read -r ans
-  [[ "$ans" =~ ^[Nn]$ ]] || update_panel
+  update_panel
 }
 
 # ----- обновление с GitHub (репозиторий задаётся в меню, в файл не вшит) -----
@@ -306,7 +317,7 @@ self_update_online() {
       red "✖ Контрольная сумма не совпала с релизом — файл подменён или повреждён. Обновление отменено."
       jlog FAIL "Обновление RemnaPilot отменено: контрольная сумма не совпала"
       tg_text "⚠️ $(hostname): RemnaPilot — контрольная сумма обновления не совпала, обновление отменено"
-    else red "✖ Не удалось скачать remnapilot.sh ($(rp_source))"; fi
+    else fail "remnapilot.sh не скачался ($(rp_source))" net "$(curl -fsS --max-time 10 -o /dev/null https://github.com 2>&1 || true)"; fi
     return 1
   fi
   nv=$(grep -m1 '^RP_VERSION=' "$t" | cut -d'"' -f2)
@@ -415,3 +426,55 @@ change_dir() {
   [[ -f "$in/.env" ]] && { RW_DIR="$in"; green "✓ Каталог: $RW_DIR"; } || red "Там нет .env"
 }
 
+
+# ---------- справка rw --help ----------
+show_help() {
+  local A="" B="" M="" Z=""
+  [[ -t 1 ]] && { A="$C_ACC"; B="$CB"; M="$C_MUT"; Z="$C0"; }
+  h_sec() { printf '\n%s%s%s\n' "$B" "$(T "$1")" "$Z"; }
+  h_cmd() { printf '  %s%s%s\n      %s\n' "$A" "$1" "$Z" "$(T "$2")"; }
+  h_ex()  { printf '  %s%s%s\n' "$M" "$(T "$1")" "$Z"; }
+  printf '%s%s v%s%s — %s\n' "$B" "$RP_NAME" "$RP_VERSION" "$Z" "$(T "пульт управления Remnawave")"
+  h_ex "Все команды работают на сервере под root. Без аргументов открывается меню."
+
+  h_sec "ЗАПУСК"
+  h_cmd "rw" "открыть меню"
+  h_cmd "rw --lang en" "интерфейс на английском (rw --lang ru — обратно)"
+  h_cmd "rw --dir /opt/remnawave" "каталог панели, если он не стандартный"
+
+  h_sec "ДОМЕНЫ"
+  h_cmd "rw panel.example.com" "сменить домен панели"
+  h_cmd "rw --dry-run panel.example.com" "показать, что изменится, ничего не меняя"
+  h_cmd "rw --sub sub.example.com" "сменить домен подписки"
+  h_cmd "rw --old old.example.com panel.example.com" "если старый домен не нашёлся сам"
+  h_cmd "rw --skip-cert panel.example.com" "сменить домен без выпуска сертификата"
+  h_cmd "rw --cert-method http|alpn|dns|manual …" "способ выпуска: порт 80, порт 443, DNS Cloudflare, TXT вручную"
+  h_ex  "Пример:  CF_Token=токен rw --cert-method dns panel.example.com"
+
+  h_sec "СЕРТИФИКАТЫ"
+  h_cmd "rw --cert-status" "сколько дней осталось у каждого сертификата"
+
+  h_sec "ОБНОВЛЕНИЯ"
+  h_cmd "rw --check-updates" "что можно обновить: RemnaPilot, панель, ноду"
+  h_cmd "rw --update" "обновить панель — с бэкапом базы перед обновлением"
+  h_cmd "rw --update-all" "панель, ноду на этом сервере и ноды по SSH"
+  h_cmd "rw --self-update" "обновить RemnaPilot с GitHub (с проверкой подлинности)"
+  h_cmd "rw --self-update ./remnapilot.sh" "обновить RemnaPilot из скачанного файла"
+
+  h_sec "БЭКАПЫ"
+  h_cmd "rw --backup" "бэкап сейчас: база + .env + список нод, отправка в Telegram"
+  h_cmd "rw --decrypt backup.tar.gz.enc" "расшифровать архив из Telegram паролем"
+  h_ex  "Пример:  rw --decrypt backup.tar.gz.enc && tar -xzf backup.tar.gz"
+
+  h_sec "ПРОВЕРКИ"
+  h_cmd "rw --selftest" "готов ли сервер: Docker, порты, DNS, время, связь (ничего не меняет)"
+  h_cmd "rw --verify" "совпадает ли этот файл с официальным релизом"
+
+  h_sec "ПРОЧЕЕ"
+  h_cmd "rw --whats-new" "что нового в этой версии"
+  h_cmd "rw --changelog" "вся история изменений"
+  h_cmd "rw --uninstall" "удалить RemnaPilot (панель и ноды не трогаются)"
+  h_cmd "rw --version" "версия"
+  echo
+  h_ex "Журнал действий: /var/log/remnapilot.log · Документация: github.com/Dubstep2004/RemnaPilot"
+}

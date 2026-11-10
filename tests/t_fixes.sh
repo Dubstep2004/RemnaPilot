@@ -50,7 +50,8 @@ echo ENC=off > "$T/bk.conf"; out=$(bk 'bk_run'); out_has "шифрование �
 # --- Docker Compose v2 ---
 printf '#!/bin/sh\n[ "$1" = compose ] && { echo "unknown command: docker compose" >&2; exit 1; }\nexit 0\n' > "$T/bin/docker"; chmod +x "$T/bin/docker"
 out=$(PATH="$T/bin:$PATH" bash -c 'source "'"$F"'"; RW_DIR="'"$T"'/rw"; need_panel; echo "rc=$?"' 2>&1 | nocolor)
-out_has "нет Compose v2 — понятная ошибка" "Нужен Docker Compose v2" "$out"
+out_has "нет Compose v2 — понятная ошибка" "Нет Docker Compose v2" "$out"
+out_has "…с причиной и что делать" "apt install docker-compose-plugin" "$out"
 out_has "...и действие не выполняется" "rc=1" "$out"
 
 # --- поиск без UTF-8-локали ---

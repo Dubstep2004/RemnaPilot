@@ -42,7 +42,7 @@ rp_selftest() {
       else st warn "$dom → $ip, а сервер $sip (норм, если за Cloudflare)"; fi; }
   fi
   section "ВРЕМЯ И СЕРТИФИКАТЫ"
-  v=$(time_offset 2>/dev/null); [[ -n "$v" ]] && { (( ${v#-} <= 2 )) && st ok "часы точные (${v} с)" || st bad "часы спешат/отстают на ${v} с — Reality может не работать"; }
+  v=$(time_offset 2>/dev/null); [[ -n "$v" ]] && { (( ${v#-} <= 2 )) && st ok "часы точные (${v} сек)" || st bad "часы спешат/отстают на ${v} сек — Reality может не работать"; }
   acme_bin >/dev/null && st ok "acme.sh установлен" || st warn "acme.sh не установлен — поставится при первом выпуске"
   command -v socat >/dev/null && st ok "socat" || st warn "нет socat — поставится при выпуске через порт 80/443"
   section "ИТОГ"

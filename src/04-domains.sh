@@ -1,3 +1,10 @@
+dns_confirm() { # подтверждение нужно, только если новый домен не указывает на этот сервер
+  [[ -n "${DNS_WARN:-}" ]] || return 0
+  echo; yel "  Если домен не указывает на этот сервер, панель по новому адресу не откроется,"
+  yel "  пока не поправишь DNS (откатить: Домены → Откатить смену домена)."
+  local ans; ask "Всё равно применить? [y/N]"; read -r ans; [[ "$ans" =~ ^[Yy]$ ]]
+}
+
 # ---------- действия ----------
 show_current() {
   section "НАСТРОЙКИ  $RW_DIR/.env"
@@ -22,10 +29,12 @@ change_domain() { # $1 new, $2 old (может быть пустым), $3 dry
   local new old dry="$3" files f bk rel sub ans
   new=$(clean_domain "$1"); old="${2:-$(detect_old)}"
   valid_domain "$new" || { err "некорректный домен: $new"; return 1; }
-  [[ -n "$old" ]] || { err "не удалось определить старый домен, укажи его"; return 1; }
+  [[ -n "$old" ]] || { fail "Не нашёл текущий домен панели"; cause "FRONT_END_DOMAIN и PANEL_DOMAIN в .env панели пустые (или там *)"
+                       todo "укажи старый домен сам: rw --old старый.домен $new"; return 1; }
   [[ "$old" != "$new" ]] || { err "старый и новый домены совпадают"; return 1; }
 
   echo "Старый домен: $old"; echo "Новый домен:  $new"
+  [[ -z "${DOM_BATCH:-}" ]] && (( ! ${dry:-0} )) && DNS_WARN=""
   check_dns "$new"
 
   mapfile -t files < <(find_files "$old")
@@ -39,7 +48,7 @@ change_domain() { # $1 new, $2 old (может быть пустым), $3 dry
   fi
 
   if [[ -z "${DOM_BATCH:-}" ]]; then
-    ask "Применить? [y/N]"; read -r ans; [[ "$ans" =~ ^[Yy]$ ]] || { echo "  Отменено."; return 0; }
+    dns_confirm || { echo "  Отменено."; return 0; }
     BK_DIR=""
   fi
   backup_files "" "${files[@]}"
@@ -139,6 +148,7 @@ change_sub_domain() { # $1 new, $2 dry
 
   info "Текущая подписка: ${CB}https://$cur${C0}"
   info "Новая подписка:   ${CB}https://$new$path${C0}"
+  [[ -z "${DOM_BATCH:-}" ]] && (( ! ${dry:-0} )) && DNS_WARN=""
   check_dns "$new"
 
   mapfile -t files < <(find_files "$old_host")
@@ -163,11 +173,10 @@ change_sub_domain() { # $1 new, $2 dry
   else
     if (( ${#proxy[@]} )); then
       echo
-      echo "  У клиентов в приложениях сохранены ссылки со старым доменом."
-      ask "Оставить старый домен рабочим, чтобы подписки не отвалились? [Y/n]"; read -r ans
-      [[ "$ans" =~ ^[Nn]$ ]] || keep=1
+      keep=1; info "Старый домен $old_host останется рабочим — ссылки в приложениях клиентов не сломаются."
+      echo "    Убрать его потом: Домены → Удалить старые домены."
     fi
-    ask "Применить? [y/N]"; read -r ans; [[ "$ans" =~ ^[Yy]$ ]] || { echo "  Отменено."; return 0; }
+    dns_confirm || { echo "  Отменено."; return 0; }
     BK_DIR=""
   fi
   backup_files "-sub" "${files[@]}"
@@ -239,6 +248,7 @@ change_domains() { # $1 = 1 — только предпросмотр
     err "домен подписки совпадает с доменом панели"; return 1
   fi
 
+  DNS_WARN=""
   # предпросмотр обеих частей
   [[ -n "$np" ]] && { section "ПАНЕЛЬ  $op → $np"; change_domain "$np" "$op" 1; }
   [[ -n "$ns" ]] && { section "ПОДПИСКА  $os → $ns"; change_sub_domain "$ns" 1; }
@@ -247,16 +257,15 @@ change_domains() { # $1 = 1 — только предпросмотр
   if [[ -n "$ns" ]]; then
     for f in $(find_files "$os"); do [[ "$f" != *.env ]] && any_proxy=1; done
     if [[ -n "$any_proxy" ]]; then
-      echo; echo "  У клиентов в приложениях сохранены ссылки на $os."
-      ask "Оставить старый домен подписки рабочим? [Y/n]"; read -r ans
-      [[ "$ans" =~ ^[Nn]$ ]] || keep=1
+      keep=1
     fi
   fi
 
   section "ИТОГ"
   [[ -n "$np" ]] && echo "   Панель:   $op → $np"
   [[ -n "$ns" ]] && echo "   Подписка: $os → $ns$( (( keep )) && echo "  (+ старый как алиас)")"
-  ask "Применить? [y/N]"; read -r ans; [[ "$ans" =~ ^[Yy]$ ]] || { echo "  Отменено."; return 0; }
+  (( keep )) && echo "   Старый домен подписки останется рабочим — ссылки клиентов не сломаются. Убрать: Домены → Удалить старые домены."
+  dns_confirm || { echo "  Отменено."; return 0; }
 
   BK_DIR=""; export DOM_BATCH=1 SUB_KEEP="$keep"
   [[ -n "$np" ]] && { change_domain "$np" "$op" 0 >/dev/null || { unset DOM_BATCH; return 1; }; green "✔ Панель: $op → $np"; }

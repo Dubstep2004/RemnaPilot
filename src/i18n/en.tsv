@@ -1330,3 +1330,307 @@ acme.sh не установлен — поставится при первом �
 Автобэкап: если архив не собрался (нет места на диске), это ошибка с уведомлением, а не «успех»	Auto-backup: if the archive could not be built (disk full), it is an error with a notification, not a "success"
 Задача по расписанию, не дождавшаяся очереди за 30 минут, пишет об этом в журнал и в Telegram, а не пропускается молча	A scheduled task that waited 30 minutes for its turn now reports it to the log and Telegram instead of being skipped silently
 Удаление RemnaPilot предупреждает о пароле шифрования бэкапов и убирает за собой файлы блокировки	Removing RemnaPilot warns about the backup encryption password and cleans up its lock files
+мин	min
+сек	s
+Готово за	Done in
+Обновление панели за	Panel update in
+Обновление ноды за	Node update in
+Всё обновлено за	Everything updated in
+Перенос за	Migration in
+за	in
+сейчас v	now v
+Автопродление настроено (acme.sh cron, способ:	Auto-renewal is set up (acme.sh cron, method:
+socat не установился — без него выпуск через порт не работает	socat did not install — issuing via a port does not work without it
+или выбери DNS Cloudflare — socat для него не нужен	or choose Cloudflare DNS — it does not need socat
+Сертификат не выпущен	Certificate not issued
+лимит Let's Encrypt — слишком много попыток для этого домена	Let's Encrypt limit — too many attempts for this domain
+подожди час (при лимите на число сертификатов — до недели)	wait an hour (up to a week if it is the certificates-per-domain limit)
+домена нет в DNS или он указывает не на этот сервер	the domain is not in DNS or points to another server
+добавь у регистратора A-запись на IP сервера:	add an A record pointing to the server IP at your registrar:
+и подожди 5–10 минут	and wait 5–10 minutes
+выбери другой способ: порт 80 или DNS Cloudflare	choose another method: port 80 or Cloudflare DNS
+выбери другой способ: порт 443 или DNS Cloudflare	choose another method: port 443 or Cloudflare DNS
+закрыт снаружи	is closed from the outside
+Let's Encrypt не достучался до сервера — порт	Let's Encrypt could not reach the server — port
+открой этот порт у хостера (firewall / security group)	open this port at your hosting provider (firewall / security group)
+или выбери DNS Cloudflare — порты не нужны	or choose Cloudflare DNS — no ports needed
+проверку получил не этот сервер — домен смотрит на другой IP или включён прокси Cloudflare	the check reached another server — the domain points to another IP or the Cloudflare proxy is on
+через прокси Cloudflare работают только порт 80 и DNS	only port 80 and DNS work through the Cloudflare proxy
+проверь A-запись домена	check the domain's A record
+или выбери DNS Cloudflare	or choose Cloudflare DNS
+неверный токен Cloudflare или у него нет прав Zone → DNS → Edit	wrong Cloudflare token or it lacks Zone → DNS → Edit permission
+создай токен: dash.cloudflare.com → My Profile → API Tokens → «Edit zone DNS»	create a token: dash.cloudflare.com → My Profile → API Tokens → "Edit zone DNS"
+при следующей попытке спрошу его заново	I'll ask for it again on the next attempt
+не найден в DNS — сертификат не выпустится, панель по этому адресу не откроется.	is not in DNS — the certificate won't be issued and the panel won't open at this address.
+Устанавливаю acme.sh — он выпускает и продлевает сертификаты Let's Encrypt...	Installing acme.sh — it issues and renews Let's Encrypt certificates...
+acme.sh не установился	acme.sh did not install
+на этом порту не работает SSH	SSH is not running on this port
+проверь порт SSH (по умолчанию 22)	check the SSH port (22 by default)
+сервер не отвечает — выключен или порт SSH закрыт firewall	the server does not respond — it is off or the SSH port is blocked by a firewall
+проверь, что сервер включён и порт SSH открыт у хостера	make sure the server is on and the SSH port is open at your hosting provider
+сервер не принял ключ или пароль	the server rejected the key or password
+добавь ключ: ssh-copy-id -p <порт> root@<адрес>	add your key: ssh-copy-id -p <port> root@<address>
+проверь, что вход под root разрешён	make sure root login is allowed
+сервер не может найти адрес — не работает DNS	the server can't resolve the address — DNS is not working
+проверь /etc/resolv.conf или поставь DNS 1.1.1.1	check /etc/resolv.conf or set DNS to 1.1.1.1
+нет связи с GitHub (блокировка или сбой сети)	no connection to GitHub (blocked or a network failure)
+скачай remnapilot.sh из релиза на компьютер:	download remnapilot.sh from the release on your computer:
+скопируй на сервер и запусти: sudo bash remnapilot.sh	copy it to the server and run: sudo bash remnapilot.sh
+файла нет по этому адресу	there is no file at this address
+проверь адрес или попробуй позже	check the address or try later
+неверный токен бота	wrong bot token
+возьми токен у @BotFather → /mybots → API Token	get the token from @BotFather → /mybots → API Token
+бот не знает этот чат	the bot doesn't know this chat
+открой бота в Telegram и нажми Start (/start)	open the bot in Telegram and press Start (/start)
+бот заблокирован в Telegram	the bot is blocked in Telegram
+открой бота и разблокируй его	open the bot and unblock it
+Telegram ограничил частоту сообщений	Telegram rate-limited the messages
+подожди минуту	wait a minute
+нет связи с api.telegram.org — в РФ он часто заблокирован	no connection to api.telegram.org — it is often blocked in Russia
+отправка работает с серверов за границей	sending works from servers outside Russia
+или пропиши прокси: export https_proxy=… в /etc/environment	or set a proxy: export https_proxy=… in /etc/environment
+Последние строки:	Last lines:
+Причина:	Cause:
+Что делать:	What to do:
+на диске кончилось место	the disk is full
+освободи место: Сервер → Очистка диска, потом повтори	free up space: Server → Disk cleanup, then retry
+Docker Hub ограничил скачивание (лимит на число загрузок с одного IP)	Docker Hub limited downloads (pull limit per IP)
+подожди 1–6 часов и повтори	wait 1–6 hours and retry
+или войди в Docker Hub: docker login	or log in to Docker Hub: docker login
+такой версии образа нет	this image version does not exist
+проверь тег image: в docker-compose.yml	check the image: tag in docker-compose.yml
+или выбери версию: Панель → Обновления → Закрепить версию панели	or pick a version: Panel → Updates → Pin panel version
+Docker Hub не отвечает с этого сервера (блокировка или сбой сети)	Docker Hub does not respond from this server (blocked or a network failure)
+добавь зеркало в /etc/docker/daemon.json:	add a mirror to /etc/docker/daemon.json:
+затем: systemctl restart docker — и повтори	then: systemctl restart docker — and retry
+освободи порт или смени его в docker-compose.yml	free the port or change it in docker-compose.yml
+кто занял:	who holds it:
+уже занят:	is already taken:
+Docker не запущен	Docker is not running
+нет прав на Docker	no permission to use Docker
+запусти RemnaPilot под root: sudo rw	run RemnaPilot as root: sudo rw
+ошибка в docker-compose.yml	an error in docker-compose.yml
+покажет строку с ошибкой: docker compose config	shows the line with the error: docker compose config
+бэкап конфига — файлы *.bak-* рядом	config backup — the *.bak-* files next to it
+пароль базы в .env не совпадает с паролем в Postgres	the database password in .env does not match the one in Postgres
+Панель → Безопасность → 1 — сверит и предложит исправить	Panel → Security → 1 — compares them and offers a fix
+панель не достучалась до базы данных	the panel could not reach the database
+проверь контейнер базы: docker ps -a	check the database container: docker ps -a
+его логи: docker logs --tail 30 remnawave-db	its logs: docker logs --tail 30 remnawave-db
+нужный порт занят другой программой	the required port is taken by another program
+освободи порт или смени его в .env (APP_PORT, METRICS_PORT)	free the port or change it in .env (APP_PORT, METRICS_PORT)
+не хватило памяти	out of memory
+добавь swap: Сервер → Swap	add swap: Server → Swap
+или возьми сервер с 2 ГБ памяти и больше	or use a server with 2 GB of RAM or more
+не прошла миграция базы на новую версию	the database migration to the new version failed
+верни прошлую версию: Панель → Обновления → Откатить последнее обновление	go back to the previous version: Panel → Updates → Roll back the last update
+(бэкап базы сделан перед обновлением)	(the database was backed up before the update)
+в .env не хватает настройки или она неверная — новая версия могла добавить переменные	.env is missing a setting or has a wrong one — the new version may have added variables
+сравни .env с .env.sample из документации новой версии: docs.rw	compare .env with .env.sample from the new version's docs: docs.rw
+логин или пароль базы в .env не подходят	the database login or password in .env is wrong
+в .env указана база, которой нет	.env points to a database that does not exist
+проверь DATABASE_URL в	check DATABASE_URL in
+контейнер базы не запущен	the database container is not running
+запусти панель: cd	start the panel: cd
+установщик пакетов занят — обычно это автообновление системы	the package manager is busy — usually it's automatic system updates
+подожди 2–5 минут и повтори	wait 2–5 minutes and retry
+прошлая установка пакетов прервалась	a previous package installation was interrupted
+dpkg --configure -a — и повтори	dpkg --configure -a — then retry
+нет связи с репозиторием пакетов	no connection to the package repository
+проверь интернет и DNS: ping -c1 deb.debian.org	check the internet and DNS: ping -c1 deb.debian.org
+пакета нет в списках системы	the package is not in the system lists
+apt update — и повтори	apt update — then retry
+сменился ключ сервера — его переустановили или это другой сервер с тем же адресом	the server key changed — it was reinstalled or it is another server at the same address
+если сервер переустанавливал ты: ssh-keygen -R <адрес> — и повтори	if you reinstalled it: ssh-keygen -R <address> — then retry
+адрес сервера не найден	server address not found
+проверь IP или домен	check the IP or domain
+— останавливаю на время выпуска, потом запущу обратно	— stopping it while issuing, then I'll start it again
+это не контейнер и не сервис — остановить его сам я не могу	it is not a container or a service — I can't stop it myself
+выбери порт 443 или DNS Cloudflare — порт 80 для них не нужен	choose port 443 or Cloudflare DNS — they don't need port 80
+выбери порт 80 или DNS Cloudflare — порт 443 для них не нужен	choose port 80 or Cloudflare DNS — they don't need port 443
+или останови программу сам: kill	or stop the program yourself: kill
+останется рабочим — ссылки в приложениях клиентов не сломаются.	will keep working — links in client apps won't break.
+Убрать его потом: Домены → Удалить старые домены.	Remove it later: Domains → Remove old domains.
+Старый домен подписки останется рабочим — ссылки клиентов не сломаются. Убрать: Домены → Удалить старые домены.	The old subscription domain will keep working — client links won't break. Remove it: Domains → Remove old domains.
+Если домен не указывает на этот сервер, панель по новому адресу не откроется,	If the domain does not point to this server, the panel won't open at the new address
+пока не поправишь DNS (откатить: Домены → Откатить смену домена).	until you fix DNS (roll back: Domains → Roll back domain change).
+Всё равно применить? [y/N]	Apply anyway? [y/N]
+Не нашёл текущий домен панели	Could not find the current panel domain
+FRONT_END_DOMAIN и PANEL_DOMAIN в .env панели пустые (или там *)	FRONT_END_DOMAIN and PANEL_DOMAIN in the panel .env are empty (or *)
+укажи старый домен сам: rw --old старый.домен	specify the old domain yourself: rw --old old.domain
+База не восстановлена — ничего не изменилось (всё в одной транзакции), панель работает со старыми данными	Database not restored — nothing changed (single transaction), the panel runs with the old data
+дамп повреждён или сделан не для PostgreSQL	the dump is damaged or not a PostgreSQL dump
+возьми другой дамп из	take another dump from
+дамп сделан более новой версией PostgreSQL	the dump was made by a newer PostgreSQL version
+обнови панель до той версии, с которой делался бэкап, и повтори	update the panel to the version the backup was made with, then retry
+Бэкап базы не сделан	Database backup not made
+Пересоздаю контейнеры, чтобы применить изменения...	Recreating containers to apply the changes...
+не обновилась	not updated
+Нода не установилась на	Node was not installed on
+пользователь не root — ему нужен sudo без пароля	the user is not root — it needs passwordless sudo
+на сервере нет ноды в /opt/remnanode	no node in /opt/remnanode on the server
+установи её: Ноды → Установка → 2	install it: Nodes → Install → 2
+Всего записей:	Total entries:
+ошибок:	errors:
+все записи	all entries
+только ошибки	errors only
+за сегодня	today
+Показано:	Showing:
+последние 20	last 20
+поиск	search
+Журнал пуст — сюда пишется каждое действие RemnaPilot.	The log is empty — every RemnaPilot action is recorded here.
+Листать весь журнал	Browse the whole log
+с текущим фильтром	with the current filter
+За сегодня	Today
+Сбросить фильтр	Reset filter
+Удалить все записи? Это нельзя отменить [y/N]	Delete all entries? This cannot be undone [y/N]
+Слово (например: сертификат, бэкап, ошибка)	Word (e.g. certificate, backup, error)
+запущено	started
+не дождался очереди	did not get its turn
+Записей нет.	No entries.
+Сегодня,	Today,
+Вчера,	Yesterday,
+— прервано	— interrupted
+Firewall выключен. Включить снова: пункт 1	Firewall is off. To turn it back on: item 1
+(Enter — для всех)	(Enter — for everyone)
+нет apt, dnf или yum	no apt, dnf or yum
+ufw не установился	ufw did not install
+fail2ban не установился	fail2ban did not install
+: там уже есть настройки, а python3 нет — добавь вручную:	: it already has settings and there is no python3 — add manually:
+Панель здесь запущена обратно — всё работает как до переноса.	The panel here is running again — everything works as before the migration.
+укажи адрес как root@IP	enter the address as root@IP
+Ключа на новом сервере ещё нет. Сейчас попрошу пароль root один раз и добавлю ключ.	The new server doesn't have the key yet. I'll ask for the root password once and add the key.
+Нет связи с	No connection to
+Готовлю новый сервер (Docker)	Preparing the new server (Docker)
+Docker не установился на новом сервере	Docker did not install on the new server
+поставь вручную: curl -fsSL https://get.docker.com	install it manually: curl -fsSL https://get.docker.com
+Останавливаю панель здесь и делаю бэкап	Stopping the panel here and making a backup
+Перенос отменён — без свежего бэкапа переносить нельзя, панель запущена обратно	Migration cancelled — can't migrate without a fresh backup, the panel is running again
+Копирую файлы (	Copying files (
+) и дамп	) and the dump
+Файлы не скопировались	Files were not copied
+Дамп не скопировался	The dump was not copied
+Запускаю базу и восстанавливаю данные на новом сервере	Starting the database and restoring data on the new server
+Панель не запустилась на новом сервере	The panel did not start on the new server
+Разрешаю новый IP панели на нодах	Allowing the new panel IP on the nodes
+Перенос	Migration
+файловая система или виртуализация не разрешают swap-файл (так бывает на btrfs и у части хостеров)	the filesystem or virtualization does not allow a swap file (happens on btrfs and with some providers)
+попроси swap у хостера или возьми тариф с большим объёмом памяти	ask your provider for swap or choose a plan with more RAM
+Swap не включился	Swap was not enabled
+нод...	nodes...
+Диск	Disk
+аптайм	uptime
+нет docker-compose ноды	no node docker-compose
+не установился cloudflare-warp (нет пакета для	cloudflare-warp did not install (no package for
+и в "routing" → "rules" (выше остальных):	and in "routing" → "rules" (above the others):
+RemnaPilot: ошибка обновления.	RemnaPilot: update error.
+Собираю архив: база, .env, список нод	Building the archive: database, .env, node list
+Отправляю в Telegram	Sending to Telegram
+Храню последние	Keeping the last
+архивов	archives
+Автобэкап: не удалось собрать архив	Auto-backup: could not build the archive
+Расшифровать архив:  rw --decrypt файл.tar.gz.enc	Decrypt the archive:  rw --decrypt file.tar.gz.enc
+Не нашёл сообщений боту. Напиши ему и нажми Enter (или введи chat_id)	No messages to the bot found. Write to it and press Enter (or enter the chat_id)
+Сообщение не отправилось	The message was not sent
+Бот не подключился	The bot did not connect
+Не нашёл чат с ботом	Could not find the chat with the bot
+боту ещё никто не написал	nobody has written to the bot yet
+открой бота в Telegram, нажми Start и повтори	open the bot in Telegram, press Start and retry
+Без бэкапа откатить базу после неудачного обновления не получится.	Without a backup the database can't be rolled back after a failed update.
+Продолжить без бэкапа? [y/N]	Continue without a backup? [y/N]
+Бэкап базы не сделан — без него не обновляю	Database backup not made — not updating without it
+Скачиваю образы и пересоздаю контейнеры	Downloading images and recreating containers
+Не обновилось:	Not updated:
+старые образы сохранены: Панель → Обновления → Откатить последнее обновление	the old images are kept: Panel → Updates → Roll back the last update
+Жду запуска панели	Waiting for the panel to start
+Панель не запустилась после обновления	The panel did not start after the update
+вернуть прошлую версию: Панель → Обновления → Откатить последнее обновление	go back to the previous version: Panel → Updates → Roll back the last update
+Проверяю версию	Checking the version
+Панель уже на последней версии	The panel is already on the latest version
+Панель обновлена	Panel updated
+Скачиваю образ ноды	Downloading the node image
+Нода не обновилась	Node not updated
+Установил короткую команду	Installed the short command
+— дальше запускай просто  rw	— from now on just run  rw
+Жду запуска ноды	Waiting for the node to start
+Нечего обновлять: панели и нод на этом сервере нет, список нод пуст.	Nothing to update: no panel or node on this server and the node list is empty.
+Панель (с бэкапом базы)	Panel (with a database backup)
+Нода на этом сервере	Node on this server
+Ноды по SSH:	Nodes via SSH:
+Всё обновлено	Everything updated
+Команда rw — другая версия (	The rw command is a different version (
+, а эта	, this one is
+). Заменить её этой? [Y/n]	). Replace it with this one? [Y/n]
+вернуть	restore
+Введи версию (например	Enter a version (e.g.
+«latest» — всегда последняя, «2» — последняя 2.x	"latest" — always the newest, "2" — newest 2.x
+Нет Docker Compose v2 (команда «docker compose»)	No Docker Compose v2 ("docker compose" command)
+стоит старый docker-compose v1 — RemnaPilot с ним не работает	the old docker-compose v1 is installed — RemnaPilot does not work with it
+плагин compose не установлен	the compose plugin is not installed
+или: curl -fsSL https://get.docker.com	or: curl -fsSL https://get.docker.com
+Сейчас v	Now v
+Панель не найдена в	Panel not found in
+нет файла	no file
+если панель в другом месте: Прочее → Сменить каталог панели	if the panel is elsewhere: Other → Change panel directory
+если её нет — установи по docs.rw	if there is none — install it per docs.rw
+Не установлен Docker	Docker is not installed
+установи: curl -fsSL https://get.docker.com	install it: curl -fsSL https://get.docker.com
+Не установлен perl	perl is not installed
+remnapilot.sh не скачался	remnapilot.sh was not downloaded
+Не узнал внешний IP сервера	Could not get the server's public IP
+Все команды работают на сервере под root. Без аргументов открывается меню.	All commands run on the server as root. Without arguments the menu opens.
+ЗАПУСК	START
+открыть меню	open the menu
+интерфейс на английском (rw --lang ru — обратно)	English interface (rw --lang ru — back to Russian)
+каталог панели, если он не стандартный	panel directory, if it is not the default
+сменить домен панели	change the panel domain
+показать, что изменится, ничего не меняя	show what would change without changing anything
+сменить домен подписки	change the subscription domain
+если старый домен не нашёлся сам	if the old domain was not detected
+сменить домен без выпуска сертификата	change the domain without issuing a certificate
+способ выпуска: порт 80, порт 443, DNS Cloudflare, TXT вручную	issue method: port 80, port 443, Cloudflare DNS, manual TXT
+Пример:	Example:
+токен	token
+сколько дней осталось у каждого сертификата	days left for each certificate
+что можно обновить: RemnaPilot, панель, ноду	what can be updated: RemnaPilot, panel, node
+обновить панель — с бэкапом базы перед обновлением	update the panel — with a database backup first
+панель, ноду на этом сервере и ноды по SSH	the panel, the node on this server and nodes via SSH
+обновить RemnaPilot с GitHub (с проверкой подлинности)	update RemnaPilot from GitHub (authenticity-checked)
+обновить RemnaPilot из скачанного файла	update RemnaPilot from a downloaded file
+бэкап сейчас: база + .env + список нод, отправка в Telegram	backup now: database + .env + node list, sent to Telegram
+расшифровать архив из Telegram паролем	decrypt an archive from Telegram with the password
+готов ли сервер: Docker, порты, DNS, время, связь (ничего не меняет)	is the server ready: Docker, ports, DNS, time, network (changes nothing)
+совпадает ли этот файл с официальным релизом	does this file match the official release
+что нового в этой версии	what's new in this version
+вся история изменений	full changelog
+удалить RemnaPilot (панель и ноды не трогаются)	remove RemnaPilot (panel and nodes are not touched)
+версия	version
+Журнал действий: /var/log/remnapilot.log · Документация: github.com/Dubstep2004/RemnaPilot	Action log: /var/log/remnapilot.log · Docs: github.com/Dubstep2004/RemnaPilot
+docker-compose не найден в	docker-compose not found in
+Смена домена подписки	Subscription domain change
+Смена домена	Domain change
+Флаг	Flag
+требует значение (см. --help)	requires a value (see --help)
+Обновление geo	Geo update
+Установил короткую команду rw	Installed the short command rw
+часы точные (	clock is accurate (
+сек — Reality может не работать	s — Reality may not work
+Пересоздаю контейнеры	Recreating containers
+ОБНОВЛЕНИЯ	UPDATES
+Справка rw --help: все команды по разделам с примерами, на русском и английском	rw --help: every command by section with examples, in Russian and English
+Тесты на настоящей Remnawave в GitHub Actions: установка по docs.rw, смена домена и откат, бэкап и восстановление, обновление и настоящие ошибки Docker. Без них релиз не выходит	Tests on a real Remnawave in GitHub Actions: install per docs.rw, domain change and rollback, backup and restore, update and real Docker errors. No release without them
+Понятные ошибки: вместо «не удалось» — причина и что делать. Docker Hub недоступен или упёрся в лимит, нет места, нет такой версии, порт занят, пароль базы не совпадает, apt занят, SSH не пускает, нет связи с GitHub или Telegram	Clear errors: instead of "failed" — the cause and what to do. Docker Hub unreachable or rate-limited, disk full, no such version, port taken, database password mismatch, apt busy, SSH refused, no connection to GitHub or Telegram
+Журнал по дням: «Сегодня», «Вчера», значки и длительность действий; фильтры «только ошибки», «за сегодня» и поиск по слову	Log by day: "Today", "Yesterday", icons and action duration; filters "errors only", "today" and word search
+Прогресс у долгих операций: обновление, автобэкап и перенос панели показывают шаг 2/4 и сколько всё заняло	Progress for long operations: update, auto-backup and panel migration show step 2/4 and the total time
+Полный английский перевод, включая объяснения ошибок и сообщения в Telegram; тесты проверяют, что в EN-режиме не осталось русского	Full English translation, including error explanations and Telegram messages; tests check that no Russian is left in EN mode
+Меньше вопросов «да/нет»: подтверждение только перед необратимым или опасным — удаление, восстановление базы, firewall, SSH, перенос. Смена домена спрашивает, только если домен не указывает на сервер; старый домен подписки остаётся рабочим сам	Fewer yes/no questions: confirmation only before irreversible or risky actions — deletion, database restore, firewall, SSH, migration. Domain change asks only if the domain doesn't point to the server; the old subscription domain keeps working automatically
+Перед обновлением панели бэкап базы делается всегда; если он не удался, автообновление не обновляет, а в меню спросит	A database backup is always made before a panel update; if it fails, auto-update does not update and the menu asks
+Дамп повреждён:	Dump is damaged:
+архив обрезан или испорчен — например, скачался не до конца	the archive is truncated or corrupted — for example, it was not downloaded completely
+Дамп пустой:	Dump is empty:
+Восстановление базы из настоящего сжатого дампа ошибочно отвечало «файл повреждён» — теперь архив проверяется целиком, а обрезанный дамп честно называется обрезанным	Restoring the database from a real compressed dump wrongly said "file is damaged" — the archive is now checked in full, and a truncated dump is reported as truncated
+Команды без меню (rw --update, rw домен и другие) всегда завершались с кодом 0 — теперь cron и скрипты видят, что действие не удалось	Commands without the menu (rw --update, rw domain and others) always exited with code 0 — now cron and scripts see when an action failed
+Неверный пароль базы распознаётся по сообщению самой панели (Prisma), а не принимается за сбой миграции	A wrong database password is recognized from the panel's own (Prisma) message instead of being taken for a migration failure
+Часовой пояс мог ошибочно считаться несуществующим, а UTF-8 — не включаться на системах с большим числом локалей	A valid time zone could be reported as nonexistent, and UTF-8 not enabled on systems with many locales
+Предпросмотр смены домена подписки	Subscription domain change preview
+Предпросмотр смены домена	Domain change preview

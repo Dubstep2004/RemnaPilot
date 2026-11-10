@@ -53,7 +53,7 @@ fi
 set -o pipefail
 export PATH="$PATH:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"   # cron даёт урезанный PATH
 RP_NAME="RemnaPilot"
-RP_VERSION="2.4"
+RP_VERSION="2.5"
 CERT_METHOD="${CERT_METHOD:-}"
 STOPPED_CT=(); STOPPED_SVC=(); FW_OPENED=()
 
@@ -63,7 +63,7 @@ NEW=""; OLD=""; DRY=0; SKIP_CERT=0
 # ---------- оформление ----------
 # UTF-8 нужен для рамок и правильного выравнивания
 if [[ "${LANG:-}${LC_ALL:-}" != *[Uu][Tt][Ff]* ]]; then
-  for l in C.UTF-8 C.utf8 en_US.UTF-8; do locale -a 2>/dev/null | grep -qix "${l/UTF-8/utf8}\|$l" && { export LC_ALL="$l"; break; }; done
+  for l in C.UTF-8 C.utf8 en_US.UTF-8; do grep -qix "${l/UTF-8/utf8}\|$l" < <(locale -a 2>/dev/null) && { export LC_ALL="$l"; break; }; done
 fi
 
 if [[ -t 1 && -z "${NO_COLOR:-}" ]] && (( $(tput colors 2>/dev/null || echo 0) >= 256 )); then
@@ -192,6 +192,26 @@ pause() { echo; read -rp "  ${C_MUT}↵ Enter — назад${C0} " _; }
 ask()   { printf '\n  %s❯%s %s' "$C_ACC" "$C0" "${1:-Выбор}: "; }   # usage: ask "Текст"; read -r var
 
 repeat() { local s="" i; for ((i=0; i<$2; i++)); do s+="$1"; done; printf '%s' "$s"; }
+
+# ---------- прогресс долгих операций ----------
+#   steps 4; step "Бэкап базы"; …; step "Проверка"; steps_done
+# Вложенная операция (обновить всё → панель) показывает свои шаги подпунктами.
+STEP_N=0; STEP_T=0; STEP_T0=0; STEP_DEPTH=0
+dur() { local s=$1; (( s >= 60 )) && printf '%d мин %d сек' $((s / 60)) $((s % 60)) || printf '%d сек' "$s"; }
+steps() { STEP_DEPTH=$((STEP_DEPTH + 1)); (( STEP_DEPTH == 1 )) && { STEP_T=$1; STEP_N=0; STEP_T0=$SECONDS; }; return 0; }
+step() {
+  if (( STEP_DEPTH != 1 )); then info "$1"; return 0; fi
+  STEP_N=$((STEP_N + 1)); (( STEP_N > STEP_T )) && STEP_T=$STEP_N
+  local w=12 f; f=$(( STEP_N * w / STEP_T ))
+  printf '\n  %s%s%s%s%s  %s%d/%d%s  %s%s%s\n' "$C_ACC" "$(repeat ━ "$f")" "$C_LINE" "$(repeat ─ $((w - f)))" "$C0" \
+    "$C_MUT" "$STEP_N" "$STEP_T" "$C0" "$CB" "$1" "$C0"
+}
+steps_done() { # [итог] — показать время; без аргумента — молча
+  (( STEP_DEPTH > 0 )) || return 0
+  STEP_DEPTH=$((STEP_DEPTH - 1)); (( STEP_DEPTH == 0 )) || return 0
+  [[ -n "${1:-}" ]] && green "✔ $1 за $(dur $((SECONDS - STEP_T0)))"
+  STEP_T=0; return 0
+}
 vislen() { local s; s=$(printf '%s' "$1" | sed -E 's/\x1b\[[0-9;]*m//g'); echo "${#s}"; }
 
 hr() { printf '  %s%s%s\n' "$C_LINE" "$(repeat ─ $((W-2)))" "$C0"; }
@@ -240,7 +260,7 @@ banner() {
 }
 
 screen() { # экран подменю: заголовок-плашка
-  clear
+  clear 2>/dev/null
   local t; t=$(T "$1"); local n; n=$(( W - 6 - $(vislen "$t") ))
   echo
   printf '  %s◆%s %s%s%s %s%s%s\n' "$C_ACC" "$C0" "$CB" "$t" "$C0" "$C_LINE" "$(repeat ─ $n)" "$C0"
@@ -399,9 +419,11 @@ check_dns() { # $1 = domain
   sip=$(curl -4 -s --max-time 5 https://ifconfig.me || true)
   dip=$(getent ahostsv4 "$1" | awk 'NR==1{print $1}' || true)
   if [[ -z "$dip" ]]; then
-    yel "⚠ $1 не резолвится — сертификат может не выпуститься."
+    yel "⚠ $1 не найден в DNS — сертификат не выпустится, панель по этому адресу не откроется."
+    DNS_WARN=1; return 1
   elif [[ -n "$sip" && "$dip" != "$sip" ]]; then
     yel "⚠ $1 -> $dip, IP сервера $sip (ок, если домен за Cloudflare)."
+    DNS_WARN=1; return 1
   else
     green "✓ DNS: $1 -> $dip"
   fi
@@ -435,9 +457,9 @@ issue_cert() { # $1 = домен; доп. домены в CERT_EXTRA, пути �
   fi
   acme=$(acme_bin) || acme=""
   if [[ -z "$acme" ]]; then
-    ask "acme.sh не установлен. Установить? [Y/n]"; read -r x
-    [[ "$x" =~ ^[Nn]$ ]] && { yel "⚠ Сертификат для $1 не выпущен."; return 1; }
-    curl -fsSL https://get.acme.sh | sh >/dev/null 2>&1; acme=$(acme_bin) || { red "✖ acme.sh не установился"; return 1; }
+    info "Устанавливаю acme.sh — он выпускает и продлевает сертификаты Let's Encrypt..."
+    local alog; alog=$( { curl -fsSL https://get.acme.sh | sh; } 2>&1)
+    acme=$(acme_bin) || { fail "acme.sh не установился" net "$alog"; yel "⚠ Сертификат для $1 не выпущен."; return 1; }
     green "✔ acme.sh установлен"
   fi
   "$acme" --set-default-ca --server letsencrypt >/dev/null 2>&1
@@ -505,8 +527,8 @@ try_cert_method() { # $1 = http|alpn|dns|manual -> 0 при успехе
     if port_busy "$port"; then free_port "$port" || { restore_after_cert; return 1; }; fi
     if ! command -v socat >/dev/null; then       # acme.sh standalone/alpn без socat не работает
       info "Устанавливаю socat..."
-      { apt-get install -y socat || dnf install -y socat || yum install -y socat; } >/dev/null 2>&1
-      command -v socat >/dev/null || { red "✖ Нужен socat: apt install socat"; restore_after_cert; return 1; }
+      pkg_install socat || { fail "socat не установился — без него выпуск через порт не работает" apt "$PKG_LOG"
+                             todo "или выбери DNS Cloudflare — socat для него не нужен"; restore_after_cert; return 1; }
     fi
     fw_open "$port"
     if [[ "$m" == alpn ]] && behind_proxy "$CERT_DOMAIN"; then
@@ -537,7 +559,7 @@ try_cert_method() { # $1 = http|alpn|dns|manual -> 0 при успехе
   restore_after_cert
 
   (( rc == 0 )) && { rm -f "$log"; return 0; }
-  red "✖ Не получилось ($(method_name "$m"))"
+  red "✖ Сертификат не выпущен ($(method_name "$m"))"
   explain_acme_error "$log" "$m"
   rm -f "$log"; return 1
 }
@@ -563,9 +585,9 @@ manual_dns_issue() { # $1 = лог; ручной DNS-01: показать TXT, �
     ok=1
     for ((i=0; i<${#rec[@]}; i+=2)); do
       if command -v dig >/dev/null; then
-        dig +short TXT "${rec[i]}" @1.1.1.1 | tr -d '"' | grep -qxF "${rec[i+1]}" || ok=0
+        grep -qxF "${rec[i+1]}" < <(dig +short TXT "${rec[i]}" @1.1.1.1 | tr -d '"') || ok=0
       else
-        curl -fsS "https://dns.google/resolve?name=${rec[i]}&type=TXT" | grep -qF "${rec[i+1]}" || ok=0
+        grep -qF "${rec[i+1]}" < <(curl -fsS "https://dns.google/resolve?name=${rec[i]}&type=TXT") || ok=0
       fi
     done
     (( ok )) && { green "✔ TXT-записи видны"; break; }
@@ -576,28 +598,177 @@ manual_dns_issue() { # $1 = лог; ручной DNS-01: показать TXT, �
     --reloadcmd "$HOOK_DIR/$CERT_DOMAIN-reload.sh" >>"$log" 2>&1
 }
 
-explain_acme_error() { # $1 лог acme.sh, $2 способ — человеческое объяснение причины
-  local l="$1" m="$2"
+explain_acme_error() { # $1 лог acme.sh, $2 способ — причина и что делать
+  local l="$1" m="$2" p; p=$( [[ $m == alpn ]] && echo 443 || echo 80 )
   if   grep -qiE 'rateLimited|too many (certificates|failed)' "$l"; then
-    yel "  Причина: лимит Let's Encrypt (слишком много попыток). Подожди час (или неделю при лимите сертификатов)."
+    cause "лимит Let's Encrypt — слишком много попыток для этого домена"
+    todo "подожди час (при лимите на число сертификатов — до недели)"
   elif grep -qiE 'NXDOMAIN|no valid A records|DNS problem' "$l"; then
-    yel "  Причина: домен не найден в DNS или не указывает на сервер. Проверь A-запись."
+    cause "домена нет в DNS или он указывает не на этот сервер"
+    todo "добавь у регистратора A-запись на IP сервера: $(curl -4 -s --max-time 5 https://ifconfig.me 2>/dev/null)" "и подожди 5–10 минут"
   elif grep -qiE 'already used|Address already in use|Cannot listen|is not free' "$l"; then
-    yel "  Причина: порт занят другой программой."
+    cause "порт $p занят: $(port_owner "$p")"
+    if [[ $m == alpn ]]; then todo "выбери другой способ: порт 80 или DNS Cloudflare"
+    else todo "выбери другой способ: порт 443 или DNS Cloudflare"; fi
   elif grep -qiE 'Timeout|Connection refused|connection reset|Fetching .* Timeout' "$l"; then
-    yel "  Причина: Let's Encrypt не достучался до сервера — порт $( [[ $m == alpn ]] && echo 443 || echo 80 ) закрыт снаружи."
-    yel "  Открой его в панели хостера (firewall / security group) или выбери DNS — порты не нужны."
+    cause "Let's Encrypt не достучался до сервера — порт $p закрыт снаружи"
+    todo "открой этот порт у хостера (firewall / security group)" "или выбери DNS Cloudflare — порты не нужны"
   elif grep -qiE 'Invalid response|unauthorized|403|404' "$l"; then
-    yel "  Причина: проверку получил не этот сервер — домен смотрит на другой IP или включён прокси Cloudflare."
-    [[ "$m" == alpn ]] && yel "  Через прокси Cloudflare работает только порт 80 или DNS."
+    cause "проверку получил не этот сервер — домен смотрит на другой IP или включён прокси Cloudflare"
+    if [[ "$m" == alpn ]]; then todo "через прокси Cloudflare работают только порт 80 и DNS"
+    else todo "проверь A-запись домена" "или выбери DNS Cloudflare"; fi
   elif grep -qiE 'CF_Token|Invalid (api|request headers)|Authentication error|9109|10000' "$l"; then
-    yel "  Причина: неверный токен Cloudflare или у него нет прав Zone → DNS → Edit."
+    cause "неверный токен Cloudflare или у него нет прав Zone → DNS → Edit"
+    todo "создай токен: dash.cloudflare.com → My Profile → API Tokens → «Edit zone DNS»" "при следующей попытке спрошу его заново"
     sed -i '/^SAVED_CF_/d' "$HOME/.acme.sh/account.conf" 2>/dev/null; unset CF_Token
   else
-    echo "  Последние строки лога:"; grep -v '^\s*$' "$l" | tail -6 | sed 's/^/    /'
+    log_tail "$(cat "$l")" 6
   fi
 }
 
+# ---------- понятные ошибки ----------
+# Вместо «не удалось» — причина и что делать. why ВИД ЛОГ разбирает вывод упавшей команды.
+#   fail "Панель не обновилась" docker "$log"
+#     ✖ Панель не обновилась
+#        Причина:    Docker Hub не отвечает с этого сервера
+#        Что делать: …
+cause() { TODO_SHOWN=""; printf '   %s%s%s %s\n' "$C_WARN" "$(padr "Причина:" 12)" "$C0" "$1"; }
+todo()  { local l; for l in "$@"; do        # метка «Что делать:» — один раз на блок ошибки
+            if [[ -z "${TODO_SHOWN:-}" ]]; then printf '   %s%s%s %s\n' "$C_ACC" "$(padr "Что делать:" 12)" "$C0" "$l"; TODO_SHOWN=1
+            else printf '   %12s %s\n' "" "$l"; fi; done; }
+fail()  { TODO_SHOWN=""; red "✖ $1"; [[ -n "${2:-}" ]] && why "$2" "${3:-}"; return 1; }
+
+log_tail() { # последние значимые строки, если причину не узнали
+  [[ -n "$1" ]] || return 0
+  printf '   %s%s%s\n' "$C_MUT" "Последние строки:" "$C0"
+  grep -v '^[[:space:]]*$' <<< "$1" | tail -"${2:-5}" | cut -c1-160 | sed 's/^/     /'
+}
+
+why() { # вид (docker|container|apt|ssh|net|telegram|db), текст лога → 0 если причина узнана
+  local k="$1" t="$2" p
+  case "$k" in
+    docker|container|db)
+      if grep -qiE 'no space left on device' <<< "$t"; then
+        cause "на диске кончилось место"; todo "освободи место: Сервер → Очистка диска, потом повтори"; return 0
+      fi ;;
+  esac
+  case "$k" in
+    docker)
+      if grep -qiE 'toomanyrequests|rate limit' <<< "$t"; then
+        cause "Docker Hub ограничил скачивание (лимит на число загрузок с одного IP)"
+        todo "подожди 1–6 часов и повтори" "или войди в Docker Hub: docker login"
+      elif grep -qiE 'manifest (for .* )?(unknown|not found)|not found: manifest|repository does not exist' <<< "$t"; then
+        cause "такой версии образа нет"
+        todo "проверь тег image: в docker-compose.yml" "или выбери версию: Панель → Обновления → Закрепить версию панели"
+      elif grep -qiE 'registry-1\.docker\.io|docker\.io|production\.cloudflare\.docker\.com|auth\.docker\.io' <<< "$t" \
+           && grep -qiE 'timeout|i/o timeout|connection (refused|reset)|no such host|EOF|handshake' <<< "$t"; then
+        cause "Docker Hub не отвечает с этого сервера (блокировка или сбой сети)"
+        todo "добавь зеркало в /etc/docker/daemon.json:" \
+             '  { "registry-mirrors": ["https://mirror.gcr.io"] }' \
+             "затем: systemctl restart docker — и повтори"
+      elif p=$(grep -oiE '(0\.0\.0\.0|127\.0\.0\.1|\[::\]):[0-9]+' <<< "$t" | head -1) \
+           && grep -qiE 'address already in use|port is already allocated' <<< "$t"; then
+        p="${p##*:}"
+        cause "порт $p уже занят: $(port_owner "$p")"
+        todo "освободи порт или смени его в docker-compose.yml" "кто занял: ss -ltnp 'sport = :$p'"
+      elif grep -qiE 'Cannot connect to the Docker daemon|docker\.sock.*(no such file|connection refused)' <<< "$t"; then
+        cause "Docker не запущен"; todo "systemctl start docker"
+      elif grep -qiE 'permission denied.*docker\.sock' <<< "$t"; then
+        cause "нет прав на Docker"; todo "запусти RemnaPilot под root: sudo rw"
+      elif grep -qiE 'yaml:|services\.[^ ]+ (must|additional)|Additional property|invalid compose' <<< "$t"; then
+        cause "ошибка в docker-compose.yml"; todo "покажет строку с ошибкой: docker compose config" "бэкап конфига — файлы *.bak-* рядом"
+      else log_tail "$t"; return 1; fi ;;
+    container)
+      if grep -qiE 'password authentication failed|Authentication failed against database server|credentials for .* are not valid|P1000' <<< "$t"; then
+        cause "пароль базы в .env не совпадает с паролем в Postgres"
+        todo "Панель → Безопасность → 1 — сверит и предложит исправить"
+      elif grep -qiE "ECONNREFUSED[^ ]*:5432|Can't reach database|connect ECONNREFUSED|getaddrinfo .*(db|postgres)" <<< "$t"; then
+        cause "панель не достучалась до базы данных"
+        todo "проверь контейнер базы: docker ps -a | grep db" "его логи: docker logs --tail 30 remnawave-db"
+      elif grep -qiE 'EADDRINUSE|address already in use' <<< "$t"; then
+        p=$(grep -oiE 'EADDRINUSE[^0-9]*[0-9.:]*:([0-9]+)' <<< "$t" | grep -oE '[0-9]+$' | head -1)
+        if [[ -n "$p" ]]; then cause "порт $p занят: $(port_owner "$p")"; else cause "нужный порт занят другой программой"; fi
+        todo "освободи порт или смени его в .env (APP_PORT, METRICS_PORT)"
+      elif grep -qiE 'out of memory|OOMKilled|JavaScript heap|Killed' <<< "$t"; then
+        cause "не хватило памяти"; todo "добавь swap: Сервер → Swap" "или возьми сервер с 2 ГБ памяти и больше"
+      elif grep -qiE 'migrat' <<< "$t" && grep -qiE 'fail|error' <<< "$t"; then
+        cause "не прошла миграция базы на новую версию"
+        todo "верни прошлую версию: Панель → Обновления → Откатить последнее обновление" "(бэкап базы сделан перед обновлением)"
+      elif grep -qiE 'invalid environment|environment variable|must be (a|an|defined)|is required|ZodError|validation' <<< "$t"; then
+        cause "в .env не хватает настройки или она неверная — новая версия могла добавить переменные"
+        todo "сравни .env с .env.sample из документации новой версии: docs.rw"
+      else log_tail "$t" 8; return 1; fi ;;
+    db)
+      if grep -qiE 'password authentication failed|Authentication failed against database server|role .* does not exist' <<< "$t"; then
+        cause "логин или пароль базы в .env не подходят"; todo "Панель → Безопасность → 1"
+      elif grep -qiE 'database .* does not exist' <<< "$t"; then
+        cause "в .env указана база, которой нет"; todo "проверь DATABASE_URL в $RW_DIR/.env"
+      elif grep -qiE 'is not running|No such container|cannot exec' <<< "$t"; then
+        cause "контейнер базы не запущен"; todo "запусти панель: cd $RW_DIR && docker compose up -d"
+      else log_tail "$t"; return 1; fi ;;
+    apt)
+      if grep -qiE 'Could not get lock|Unable to acquire the dpkg|is held by process' <<< "$t"; then
+        cause "установщик пакетов занят — обычно это автообновление системы"
+        todo "подожди 2–5 минут и повтори"
+      elif grep -qiE 'dpkg was interrupted' <<< "$t"; then
+        cause "прошлая установка пакетов прервалась"; todo "dpkg --configure -a — и повтори"
+      elif grep -qiE 'Temporary failure resolving|Could not resolve|Failed to fetch|Network is unreachable' <<< "$t"; then
+        cause "нет связи с репозиторием пакетов"; todo "проверь интернет и DNS: ping -c1 deb.debian.org"
+      elif grep -qiE 'Unable to locate package|has no installation candidate' <<< "$t"; then
+        cause "пакета нет в списках системы"; todo "apt update — и повтори"
+      elif grep -qiE 'no space left' <<< "$t"; then
+        cause "на диске кончилось место"; todo "Сервер → Очистка диска"
+      else log_tail "$t"; return 1; fi ;;
+    ssh)
+      if grep -qiE 'Host key verification failed|REMOTE HOST IDENTIFICATION HAS CHANGED' <<< "$t"; then
+        cause "сменился ключ сервера — его переустановили или это другой сервер с тем же адресом"
+        todo "если сервер переустанавливал ты: ssh-keygen -R <адрес> — и повтори"
+      elif grep -qiE 'ssh: Could not resolve hostname' <<< "$t"; then
+        cause "адрес сервера не найден"; todo "проверь IP или домен"
+      elif grep -qiE 'ssh: connect to host .*Connection refused' <<< "$t"; then
+        cause "на этом порту не работает SSH"; todo "проверь порт SSH (по умолчанию 22)"
+      elif grep -qiE 'ssh: connect to host .*(timed out|No route to host|Network is unreachable)|Connection timed out during banner' <<< "$t"; then
+        cause "сервер не отвечает — выключен или порт SSH закрыт firewall"
+        todo "проверь, что сервер включён и порт SSH открыт у хостера"
+      elif grep -qiE 'Permission denied \((publickey|password|keyboard)|Too many authentication failures' <<< "$t"; then
+        cause "сервер не принял ключ или пароль"
+        todo "добавь ключ: ssh-copy-id -p <порт> root@<адрес>" "проверь, что вход под root разрешён"
+      else log_tail "$t"; return 1; fi ;;
+    net)
+      if grep -qE 'curl: \(6\)|Could not resolve host' <<< "$t"; then
+        cause "сервер не может найти адрес — не работает DNS"; todo "проверь /etc/resolv.conf или поставь DNS 1.1.1.1"
+      elif grep -qE 'curl: \((7|28|35|56)\)' <<< "$t"; then
+        cause "нет связи с GitHub (блокировка или сбой сети)"
+        todo "скачай remnapilot.sh из релиза на компьютер:" "  github.com/Dubstep2004/RemnaPilot/releases/latest" "скопируй на сервер и запусти: sudo bash remnapilot.sh"
+      elif grep -qE 'curl: \(22\)|404' <<< "$t"; then
+        cause "файла нет по этому адресу"; todo "проверь адрес или попробуй позже"
+      else log_tail "$t"; return 1; fi ;;
+    telegram)
+      if grep -qiE '"error_code":401|Unauthorized' <<< "$t"; then
+        cause "неверный токен бота"; todo "возьми токен у @BotFather → /mybots → API Token"
+      elif grep -qiE 'chat not found' <<< "$t"; then
+        cause "бот не знает этот чат"; todo "открой бота в Telegram и нажми Start (/start)"
+      elif grep -qiE 'bot was blocked|user is deactivated' <<< "$t"; then
+        cause "бот заблокирован в Telegram"; todo "открой бота и разблокируй его"
+      elif grep -qiE 'Too Many Requests|"error_code":429' <<< "$t"; then
+        cause "Telegram ограничил частоту сообщений"; todo "подожди минуту"
+      elif [[ -z "$t" ]] || grep -qE 'curl: \(' <<< "$t"; then
+        cause "нет связи с api.telegram.org — в РФ он часто заблокирован"
+        todo "отправка работает с серверов за границей" "или пропиши прокси: export https_proxy=… в /etc/environment"
+      else log_tail "$t" 3; return 1; fi ;;
+  esac
+  return 0
+}
+
+why_short() { # вид, лог → одна строка причины без цвета (для журнала и Telegram); пусто, если не узнали
+  ( RP_LANG=ru C_WARN="" C_ACC="" C0="" C_MUT=""; why "$1" "$2" 2>/dev/null ) | sed -n 's/^ *Причина: *//p' | head -1
+}
+
+why_first() { # лог, виды… — первая узнанная причина; иначе последние строки лога
+  local t="$1" k o; shift
+  for k; do o=$(why "$k" "$t") && { printf '%s\n' "$o"; return 0; }; done
+  log_tail "$t"; return 1
+}
 # ---------- автообновление сертификата ----------
 HOOK_DIR="/usr/local/lib/rw-cert"
 
@@ -783,17 +954,19 @@ free_port() { # временно освобождает порт
   fi
 
   if [[ -n "$ct" ]]; then
-    read -rp "Порт $p занят контейнером $ct. Остановить на время выпуска? [y/N] " ans
-    [[ "$ans" =~ ^[Yy]$ ]] || return 1
+    info "Порт $p занят контейнером $ct — останавливаю на время выпуска, потом запущу обратно"
     docker stop "$ct" >/dev/null && STOPPED_CT+=("$ct")
   elif [[ -n "$pid" ]]; then
     unit=$(ps -o unit= -p "$pid" 2>/dev/null | tr -d ' ')
     if [[ "$unit" == *.service ]]; then
-      read -rp "Порт $p занят сервисом $unit. Остановить на время выпуска? [y/N] " ans
-      [[ "$ans" =~ ^[Yy]$ ]] || return 1
+      info "Порт $p занят сервисом $unit — останавливаю на время выпуска, потом запущу обратно"
       systemctl stop "$unit" && STOPPED_SVC+=("$unit")
     else
-      red "Порт $p занят процессом $(ps -o comm= -p "$pid") (pid $pid), автоматически не остановить."
+      fail "Порт $p занят: $(ps -o comm= -p "$pid") (pid $pid)"
+      cause "это не контейнер и не сервис — остановить его сам я не могу"
+      if [[ $p == 80 ]]; then todo "выбери порт 443 или DNS Cloudflare — порт 80 для них не нужен"
+      else todo "выбери порт 80 или DNS Cloudflare — порт 443 для них не нужен"; fi
+      todo "или останови программу сам: kill $pid"
       return 1
     fi
   fi
@@ -805,14 +978,14 @@ free_port() { # временно освобождает порт
 fw_open() { # открывает порт в ufw/firewalld, если закрыт
   local p="$1"
   if command -v ufw >/dev/null && ufw status 2>/dev/null | grep -q '^Status: active'; then
-    if ! ufw status | grep -qE "^($p|$p/tcp)[[:space:]]+ALLOW"; then
+    if ! grep -qE "^($p|$p/tcp)[[:space:]]+ALLOW" < <(ufw status); then
       ufw allow "$p/tcp" >/dev/null && FW_OPENED+=("ufw:$p") && yel "Временно открыл $p/tcp в ufw"
     fi
   elif command -v firewall-cmd >/dev/null && firewall-cmd --state >/dev/null 2>&1; then
     if ! firewall-cmd --query-port="$p/tcp" >/dev/null 2>&1; then
       firewall-cmd --add-port="$p/tcp" >/dev/null && FW_OPENED+=("fwd:$p") && yel "Временно открыл $p/tcp в firewalld"
     fi
-  elif command -v iptables >/dev/null && iptables -S INPUT 2>/dev/null | grep -qE '^-P INPUT (DROP|REJECT)'; then
+  elif command -v iptables >/dev/null && grep -qE '^-P INPUT (DROP|REJECT)' < <(iptables -S INPUT 2>/dev/null); then
     iptables -I INPUT -p tcp --dport "$p" -j ACCEPT && FW_OPENED+=("ipt:$p") && yel "Временно открыл $p/tcp в iptables"
   fi
 }
@@ -829,6 +1002,13 @@ restore_after_cert() {
   for x in "${STOPPED_CT[@]:-}";  do [[ -n "$x" ]] && docker start "$x" >/dev/null && echo "Запустил обратно контейнер $x"; done
   for x in "${STOPPED_SVC[@]:-}"; do [[ -n "$x" ]] && systemctl start "$x" && echo "Запустил обратно сервис $x"; done
   FW_OPENED=(); STOPPED_CT=(); STOPPED_SVC=()
+}
+
+dns_confirm() { # подтверждение нужно, только если новый домен не указывает на этот сервер
+  [[ -n "${DNS_WARN:-}" ]] || return 0
+  echo; yel "  Если домен не указывает на этот сервер, панель по новому адресу не откроется,"
+  yel "  пока не поправишь DNS (откатить: Домены → Откатить смену домена)."
+  local ans; ask "Всё равно применить? [y/N]"; read -r ans; [[ "$ans" =~ ^[Yy]$ ]]
 }
 
 # ---------- действия ----------
@@ -855,10 +1035,12 @@ change_domain() { # $1 new, $2 old (может быть пустым), $3 dry
   local new old dry="$3" files f bk rel sub ans
   new=$(clean_domain "$1"); old="${2:-$(detect_old)}"
   valid_domain "$new" || { err "некорректный домен: $new"; return 1; }
-  [[ -n "$old" ]] || { err "не удалось определить старый домен, укажи его"; return 1; }
+  [[ -n "$old" ]] || { fail "Не нашёл текущий домен панели"; cause "FRONT_END_DOMAIN и PANEL_DOMAIN в .env панели пустые (или там *)"
+                       todo "укажи старый домен сам: rw --old старый.домен $new"; return 1; }
   [[ "$old" != "$new" ]] || { err "старый и новый домены совпадают"; return 1; }
 
   echo "Старый домен: $old"; echo "Новый домен:  $new"
+  [[ -z "${DOM_BATCH:-}" ]] && (( ! ${dry:-0} )) && DNS_WARN=""
   check_dns "$new"
 
   mapfile -t files < <(find_files "$old")
@@ -872,7 +1054,7 @@ change_domain() { # $1 new, $2 old (может быть пустым), $3 dry
   fi
 
   if [[ -z "${DOM_BATCH:-}" ]]; then
-    ask "Применить? [y/N]"; read -r ans; [[ "$ans" =~ ^[Yy]$ ]] || { echo "  Отменено."; return 0; }
+    dns_confirm || { echo "  Отменено."; return 0; }
     BK_DIR=""
   fi
   backup_files "" "${files[@]}"
@@ -972,6 +1154,7 @@ change_sub_domain() { # $1 new, $2 dry
 
   info "Текущая подписка: ${CB}https://$cur${C0}"
   info "Новая подписка:   ${CB}https://$new$path${C0}"
+  [[ -z "${DOM_BATCH:-}" ]] && (( ! ${dry:-0} )) && DNS_WARN=""
   check_dns "$new"
 
   mapfile -t files < <(find_files "$old_host")
@@ -996,11 +1179,10 @@ change_sub_domain() { # $1 new, $2 dry
   else
     if (( ${#proxy[@]} )); then
       echo
-      echo "  У клиентов в приложениях сохранены ссылки со старым доменом."
-      ask "Оставить старый домен рабочим, чтобы подписки не отвалились? [Y/n]"; read -r ans
-      [[ "$ans" =~ ^[Nn]$ ]] || keep=1
+      keep=1; info "Старый домен $old_host останется рабочим — ссылки в приложениях клиентов не сломаются."
+      echo "    Убрать его потом: Домены → Удалить старые домены."
     fi
-    ask "Применить? [y/N]"; read -r ans; [[ "$ans" =~ ^[Yy]$ ]] || { echo "  Отменено."; return 0; }
+    dns_confirm || { echo "  Отменено."; return 0; }
     BK_DIR=""
   fi
   backup_files "-sub" "${files[@]}"
@@ -1072,6 +1254,7 @@ change_domains() { # $1 = 1 — только предпросмотр
     err "домен подписки совпадает с доменом панели"; return 1
   fi
 
+  DNS_WARN=""
   # предпросмотр обеих частей
   [[ -n "$np" ]] && { section "ПАНЕЛЬ  $op → $np"; change_domain "$np" "$op" 1; }
   [[ -n "$ns" ]] && { section "ПОДПИСКА  $os → $ns"; change_sub_domain "$ns" 1; }
@@ -1080,16 +1263,15 @@ change_domains() { # $1 = 1 — только предпросмотр
   if [[ -n "$ns" ]]; then
     for f in $(find_files "$os"); do [[ "$f" != *.env ]] && any_proxy=1; done
     if [[ -n "$any_proxy" ]]; then
-      echo; echo "  У клиентов в приложениях сохранены ссылки на $os."
-      ask "Оставить старый домен подписки рабочим? [Y/n]"; read -r ans
-      [[ "$ans" =~ ^[Nn]$ ]] || keep=1
+      keep=1
     fi
   fi
 
   section "ИТОГ"
   [[ -n "$np" ]] && echo "   Панель:   $op → $np"
   [[ -n "$ns" ]] && echo "   Подписка: $os → $ns$( (( keep )) && echo "  (+ старый как алиас)")"
-  ask "Применить? [y/N]"; read -r ans; [[ "$ans" =~ ^[Yy]$ ]] || { echo "  Отменено."; return 0; }
+  (( keep )) && echo "   Старый домен подписки останется рабочим — ссылки клиентов не сломаются. Убрать: Домены → Удалить старые домены."
+  dns_confirm || { echo "  Отменено."; return 0; }
 
   BK_DIR=""; export DOM_BATCH=1 SUB_KEEP="$keep"
   [[ -n "$np" ]] && { change_domain "$np" "$op" 0 >/dev/null || { unset DOM_BATCH; return 1; }; green "✔ Панель: $op → $np"; }
@@ -1300,13 +1482,16 @@ backup_db() { # $1 — необязательная метка
   db_info || { yel "⚠ Контейнер БД не найден, дамп пропущен."; return 1; }
   mkdir -p "$RW_DIR/backups"
   local f="$RW_DIR/backups/db-$(date +%Y%m%d-%H%M%S)${1:+-$1}.sql.gz"
+  local e; e=$(mktemp); BK_ERR=""
   echo "Дамп базы $DB_NAME ($DB_CT)..."
-  if docker exec "$DB_CT" pg_dump -U "$DB_USER" -d "$DB_NAME" --clean --if-exists | gzip > "$f" \
+  if docker exec "$DB_CT" pg_dump -U "$DB_USER" -d "$DB_NAME" --clean --if-exists 2>"$e" | gzip > "$f" \
      && [[ $(gzip -cd "$f" | head -c 100000 | wc -l) -gt 10 ]]; then
-    cp -a "$RW_DIR/.env" "${f%.sql.gz}.env"
+    rm -f "$e"; cp -a "$RW_DIR/.env" "${f%.sql.gz}.env"
     green "✓ Бэкап БД: $f ($(du -h "$f" | cut -f1))"
   else
-    rm -f "$f"; red "Дамп не удался."; return 1
+    BK_ERR=$(cat "$e"); rm -f "$e" "$f"
+    (( $(disk_free_mb 2>/dev/null || echo 999) < 50 )) && BK_ERR+=$'\nno space left on device'
+    fail "Бэкап базы не сделан" db "${BK_ERR:-пустой дамп}"; return 1
   fi
 }
 
@@ -1331,8 +1516,13 @@ restore_db() {
   [[ -f "$f" ]] || { err "файл не найден: $f"; return 1; }
 
   local cat=(cat); [[ "$f" == *.gz ]] && cat=(gzip -cd)
-  "${cat[@]}" "$f" | head -c 300 >/dev/null 2>&1 || { err "файл повреждён"; return 1; }
-  if "${cat[@]}" "$f" | head -c 4000 | grep -q 'database cluster dump'; then kind=cluster; else kind=db; fi
+  # целостность: у .gz — полная проверка архива; начало файла читаем без pipefail (head обрывает канал, это не ошибка)
+  if [[ "$f" == *.gz ]] && ! gzip -t "$f" 2>/dev/null; then
+    fail "Дамп повреждён: $(basename "$f")"; cause "архив обрезан или испорчен — например, скачался не до конца"; todo "возьми другой дамп из $RW_DIR/backups"; return 1
+  fi
+  local top; top=$( set +o pipefail; "${cat[@]}" "$f" 2>/dev/null | head -c 4000 )
+  [[ -n "$top" ]] || { fail "Дамп пустой: $(basename "$f")"; todo "возьми другой дамп из $RW_DIR/backups"; return 1; }
+  if grep -q 'database cluster dump' <<< "$top"; then kind=cluster; else kind=db; fi
 
   db_info || { err "контейнер БД не запущен"; return 1; }
   red "ВНИМАНИЕ: текущие данные базы $DB_NAME будут заменены содержимым $(basename "$f")."
@@ -1349,8 +1539,8 @@ restore_db() {
   echo "Восстанавливаю ($kind)..."
   local rc=0
   if [[ "$kind" == db ]]; then
-    "${cat[@]}" "$f" | docker exec -i "$DB_CT" psql -q -U "$DB_USER" -d "$DB_NAME" \
-      -v ON_ERROR_STOP=1 --single-transaction >/dev/null || rc=$?
+    local perr; perr=$( { "${cat[@]}" "$f" | docker exec -i "$DB_CT" psql -q -U "$DB_USER" -d "$DB_NAME" \
+      -v ON_ERROR_STOP=1 --single-transaction >/dev/null; } 2>&1 ) || rc=$?
   else
     # старый формат (pg_dumpall): очищаем схему и заливаем, ошибки «уже существует» не критичны
     docker exec "$DB_CT" psql -q -U "$DB_USER" -d "$DB_NAME" \
@@ -1371,7 +1561,14 @@ restore_db() {
 
   for c in "${cts[@]}"; do docker start "$c" >/dev/null 2>&1; done
   if (( rc )); then
-    red "Восстановление не удалось — изменения откачены (одна транзакция). Панель запущена со старыми данными."
+    fail "База не восстановлена — ничего не изменилось (всё в одной транзакции), панель работает со старыми данными"
+    if ! why db "${perr:-}" >/dev/null 2>&1; then
+      if grep -qiE 'syntax error|invalid input|unexpected' <<< "${perr:-}"; then
+        cause "дамп повреждён или сделан не для PostgreSQL"; todo "возьми другой дамп из $RW_DIR/backups"
+      elif grep -qiE 'version|unrecognized configuration parameter' <<< "${perr:-}"; then
+        cause "дамп сделан более новой версией PostgreSQL"; todo "обнови панель до той версии, с которой делался бэкап, и повтори"
+      else log_tail "${perr:-}" 6; fi
+    else why db "$perr"; fi
     return 1
   fi
   sleep 5
@@ -1459,8 +1656,7 @@ security_check() {
 
   echo
   if (( changed )); then
-    read -rp "Пересоздать контейнеры, чтобы применить изменения? [Y/n] " ans
-    [[ "$ans" =~ ^[Nn]$ ]] || { stack_down; stack_up; green "✓ Применено"; }
+    info "Пересоздаю контейнеры, чтобы применить изменения..."; stack_down; stack_up; green "✓ Применено"
   elif (( ! issues )); then green "Всё в порядке."; fi
   echo "Бэкап старого .env лежит рядом: .env.bak-*"
 }
@@ -1633,14 +1829,19 @@ node_install_remote() {
   read -rp "SSH-порт [22]: " port; port="${port:-22}"
   ask_node_params || return 1
   echo "Подключаюсь к $host..."
-  if node_script "$NP_PORT" "$NP_SECRET" "$NP_PANEL" | \
-       ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 -p "$port" "$host" "$(ssh_target "$host")"; then
+  local log rc; log=$(mktemp)
+  node_script "$NP_PORT" "$NP_SECRET" "$NP_PANEL" | \
+    ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 -p "$port" "$host" "$(ssh_target "$host")" 2>&1 | tee "$log"
+  rc=${PIPESTATUS[1]}
+  if (( rc == 0 )); then
     green "✓ Нода установлена на $host"
     read -rp "Добавить в список для массового обновления? Имя [${host#*@}]: " name
     node_list_add "${name:-${host#*@}}" "$host" "$port"
   else
-    red "Установка не удалась (если пользователь не root — нужен sudo без пароля)."
+    fail "Нода не установилась на $host"; why_first "$(tail -c 8000 "$log")" ssh docker apt
+    [[ "${host%%@*}" != root ]] && todo "пользователь не root — ему нужен sudo без пароля"
   fi
+  rm -f "$log"
 }
 
 node_oneliner() {
@@ -1691,7 +1892,7 @@ node_ssh_key() {
 }
 
 nodes_update() {
-  local lines=() i n sel ok=() fail=() out
+  local lines=() i n sel ok=() failed=() out
   node_list_show || return
   if [[ -n "${NODES_ALL:-}" ]]; then sel=""; else ask "Какие обновить? (Enter — все, или номера через запятую)"; read -r sel; fi
   mapfile -t lines < "$NODES_FILE"
@@ -1716,10 +1917,12 @@ EOS
     if echo "$out" | grep -q '^RESULT'; then
       ok+=("$nm: $(echo "$out" | grep '^RESULT' | cut -d' ' -f2-)"); green "  ✓ $(echo "$out" | grep '^RESULT' | cut -d' ' -f2-)"
     else
-      fail+=("$nm"); red "  ✗ ошибка"; echo "$out" | tail -5 | sed 's/^/    /'
+      failed+=("$nm"); red "  ✗ не обновилась"
+      if grep -q NO_NODE_DIR <<< "$out"; then cause "на сервере нет ноды в /opt/remnanode"; todo "установи её: Ноды → Установка → 2"
+      else why_first "$out" ssh docker; fi
     fi
   done
-  section "ИТОГ"; printf '  ✓ %s\n' "${ok[@]:-}" | grep -v '✓ $'; printf '  ✗ %s\n' "${fail[@]:-}" | grep -v '✗ $'
+  section "ИТОГ"; printf '  ✓ %s\n' "${ok[@]:-}" | grep -v '✓ $'; printf '  ✗ %s\n' "${failed[@]:-}" | grep -v '✗ $'
   return 0
 }
 
@@ -1770,7 +1973,7 @@ with_lock() { # название, команда… — выполнить, по
       flock -w 900 8 || { exec 8>&-; red "✖ Не дождался — попробуй позже"; return 75; }
     fi
   fi
-  printf '%s · pid %s · с %s\n' "$name" "$$" "$(date +%H:%M)" > "$RP_LOCK.who" 2>/dev/null
+  printf '%s · pid %s · запущено %s\n' "$name" "$$" "$(date +%H:%M)" > "$RP_LOCK.who" 2>/dev/null
   RP_LOCKED=1; "$@"; rc=$?; RP_LOCKED=""
   rm -f "$RP_LOCK.who"; flock -u 8; exec 8>&-
   return $rc
@@ -1793,43 +1996,99 @@ run_action() { # название, команда… — журнал + блок
   return $rc
 }
 
+journal_fmt() { # режим (all|fail|today), слово для поиска, сколько последних записей (0 — все) → по дням
+  local mode="$1" word="$2" lim="${3:-0}" today yest
+  today=$(date +%F); yest=$(date -d yesterday +%F 2>/dev/null || echo -)
+  [[ -s "$JOURNAL" ]] || return 0
+  perl -CSDA -ne 'BEGIN { $w = lc(shift // "") } chomp; print((($w eq "" || index(lc $_, $w) >= 0) ? 1 : 0), "\t", $_, "\n")' -- "$word" < "$JOURNAL" \
+  | awk -F'\t' -v mode="$mode" -v lim="$lim" -v today="$today" -v yest="$yest" \
+        -v cok="$C_OK" -v cerr="$C_ERR" -v cmut="$C_MUT" -v cacc="$C_ACC2$CB" -v cline="$C_LINE" -v c0="$C0" '
+    function secs(t,  a) { split(t, a, ":"); return a[1] * 3600 + a[2] * 60 + a[3] }
+    function trim(x) { sub(/^ +/, "", x); sub(/ +$/, "", x); return x }
+    {
+      m = $1; line = $2; n = split(line, f, "|"); if (n < 3) next
+      ts = trim(f[1]); lvl = trim(f[2]); txt = f[3]; for (k = 4; k <= n; k++) txt = txt "|" f[k]; txt = trim(txt)
+      d = substr(ts, 1, 10); t = substr(ts, 12, 8)
+      if (lvl == "START") { open[txt] = NR; sd[NR] = d; st[NR] = t; R[NR] = 0; D[NR] = d; T[NR] = t; L[NR] = "START"; X[NR] = txt; Mt[NR] = m; next }
+      # результат действия закрывает его START: «Имя» или «Имя (код N)»
+      base = txt; sub(/ \(код [0-9]+\)$/, "", base)
+      dur = ""
+      if (base in open) { s0 = open[base]; delete open[base]; done[s0] = 1
+        if (sd[s0] == d) { x = secs(t) - secs(st[s0]); if (x >= 60) dur = int(x / 60) " мин"; else if (x >= 10) dur = x " сек" } }
+      D[NR] = d; T[NR] = t; L[NR] = lvl; X[NR] = txt; U[NR] = dur; Mt[NR] = m
+    }
+    END {
+      cnt = 0
+      for (i = 1; i <= NR; i++) {
+        if (!(i in L)) continue
+        if (L[i] == "START" && (i in done)) continue          # начато и закончено — показываем только итог
+        if (!Mt[i]) continue
+        if (mode == "fail" && L[i] != "FAIL" && L[i] != "START") continue
+        if (mode == "today" && D[i] != today) continue
+        keep[++cnt] = i
+      }
+      from = (lim > 0 && cnt > lim) ? cnt - lim + 1 : 1
+      if (cnt == 0) { print "  " cmut "Записей нет." c0; exit }
+      last = ""
+      for (k = from; k <= cnt; k++) {
+        i = keep[k]
+        if (D[i] != last) {
+          last = D[i]; split(D[i], q, "-")
+          lab = (D[i] == today) ? "Сегодня, " q[3] "." q[2] : (D[i] == yest) ? "Вчера, " q[3] "." q[2] : q[3] "." q[2] "." q[1]
+          printf "\n  %s%s%s\n", cacc, lab, c0
+        }
+        ic = "•"; col = ""; tail = ""
+        if (L[i] == "OK")    { ic = "✔"; col = cok }
+        if (L[i] == "FAIL")  { ic = "✖"; col = cerr }
+        if (L[i] == "START") { ic = "⏸"; col = cmut; tail = " — прервано" }
+        if (U[i] != "") tail = tail cmut " · " U[i] c0
+        printf "   %s%s%s  %s%s %s%s%s\n", cmut, substr(T[i], 1, 5), c0, col, ic, X[i], c0, tail
+      }
+    }'
+}
+
 journal_menu() {
-  local c n
+  local c n mode=all word="" all fails
   while true; do
-    screen "Журнал действий"; echo
+    screen "Журнал действий"
     if [[ -s "$JOURNAL" ]]; then
-      tail -n 25 "$JOURNAL" | while IFS= read -r l; do
-        case "$l" in
-          *"| FAIL "*)  printf '  %s%s%s\n' "$C_ERR"  "$l" "$C0" ;;
-          *"| OK "*)    printf '  %s%s%s\n' "$C_OK"   "$l" "$C0" ;;
-          *"| START "*) printf '  %s%s%s\n' "$C_MUT"  "$l" "$C0" ;;
-          *)            printf '  %s\n' "$l" ;;
-        esac
-      done
-    else echo "  Журнал пуст."; fi
-    echo; echo "  Файл: $JOURNAL"
+      all=$(grep -cvE '\| START ' "$JOURNAL"); fails=$(grep -c '| FAIL' "$JOURNAL")
+      printf '  %sВсего записей: %s · ошибок: %s%s\n' "$C_MUT" "$all" "$fails" "$C0"
+      local f="все записи"; [[ $mode == fail ]] && f="только ошибки"; [[ $mode == today ]] && f="за сегодня"
+      printf '  %sПоказано: %s%s · последние 20%s\n' "$C_MUT" "$f" "${word:+ · поиск «$word»}" "$C0"
+      journal_fmt "$mode" "$word" 20
+    else echo; echo "  Журнал пуст — сюда пишется каждое действие RemnaPilot."; fi
+    echo; printf '  %sФайл: %s%s\n' "$C_MUT" "$JOURNAL" "$C0"
     section "ДЕЙСТВИЯ"
-    item 1 "Весь журнал"
+    item 1 "Листать весь журнал" "с текущим фильтром"
     item 2 "Только ошибки"
-    item 3 "Очистить журнал"
+    item 3 "За сегодня"
+    item 4 "Поиск по слову"
+    [[ $mode != all || -n "$word" ]] && item 5 "Сбросить фильтр"
+    item 6 "Очистить журнал"
     hr; item 0 "Назад"
     ask; read -r c
     case "$c" in
-      1) [[ -f "$JOURNAL" ]] && show_paged < "$JOURNAL" ;;
-      2) grep -F '| FAIL' "$JOURNAL" 2>/dev/null | show_paged ;;
-      3) ask "Удалить все записи? [y/N]"; read -r n; [[ "$n" =~ ^[Yy]$ ]] && : > "$JOURNAL" && green "✔ Журнал очищен"; pause ;;
+      1) journal_fmt "$mode" "$word" 0 | RP_PAGER_TOP= show_paged ;;
+      2) mode=fail ;;
+      3) mode=today ;;
+      4) ask "Слово (например: сертификат, бэкап, ошибка)"; read -r word ;;
+      5) mode=all; word="" ;;
+      6) ask "Удалить все записи? Это нельзя отменить [y/N]"; read -r n; [[ "$n" =~ ^[Yy]$ ]] && : > "$JOURNAL" && green "✔ Журнал очищен"; pause ;;
       0|q|"") return ;;
     esac
   done
 }
 
 # ---------- общие для сервера ----------
-pkg_install() { # пакеты… — тихая установка через apt/dnf/yum
-  if command -v apt-get >/dev/null; then DEBIAN_FRONTEND=noninteractive apt-get install -y "$@" >/dev/null 2>&1 \
-       || { apt-get update >/dev/null 2>&1; DEBIAN_FRONTEND=noninteractive apt-get install -y "$@" >/dev/null 2>&1; }
-  elif command -v dnf >/dev/null; then dnf install -y "$@" >/dev/null 2>&1
-  elif command -v yum >/dev/null; then yum install -y "$@" >/dev/null 2>&1
-  else return 1; fi
+pkg_install() { # пакеты… — тихая установка через apt/dnf/yum; вывод при ошибке — в PKG_LOG
+  local log rc; log=$(mktemp); PKG_LOG=""
+  if command -v apt-get >/dev/null; then DEBIAN_FRONTEND=noninteractive apt-get install -y "$@" >"$log" 2>&1 \
+       || { apt-get update >>"$log" 2>&1; DEBIAN_FRONTEND=noninteractive apt-get install -y "$@" >>"$log" 2>&1; }
+  elif command -v dnf >/dev/null; then dnf install -y "$@" >"$log" 2>&1
+  elif command -v yum >/dev/null; then yum install -y "$@" >"$log" 2>&1
+  else echo "нет apt, dnf или yum" > "$log"; false; fi
+  rc=$?; (( rc )) && PKG_LOG=$(tail -c 8000 "$log"); rm -f "$log"; return "$rc"
 }
 
 ssh_ports() { # порты, на которых сейчас слушает sshd
@@ -1908,7 +2167,7 @@ fw_setup() {
   echo; yel "SSH-порт(ы) $sshp останутся открытыми — доступ к серверу не потеряешь."
   ask "Включить firewall? [y/N]"; read -r ans; [[ "$ans" =~ ^[Yy]$ ]] || { echo "  Отменено."; return 0; }
 
-  command -v ufw >/dev/null || { info "Устанавливаю ufw..."; pkg_install ufw || { red "✖ Не удалось установить ufw"; return 1; }; }
+  command -v ufw >/dev/null || { info "Устанавливаю ufw..."; pkg_install ufw || { fail "ufw не установился" apt "$PKG_LOG"; return 1; }; }
   sed -i 's/^IPV6=.*/IPV6=yes/' /etc/default/ufw 2>/dev/null
 
   # сначала SSH — на случай, если что-то пойдёт не так
@@ -1966,8 +2225,7 @@ firewall_menu() {
       1) run_action "Firewall: настройка" fw_setup; pause ;;
       2) command -v ufw >/dev/null && run_action "Firewall: открыть порт" fw_port allow; pause ;;
       3) command -v ufw >/dev/null && run_action "Firewall: закрыть порт" fw_port deny; pause ;;
-      4) ask "Выключить firewall? [y/N]"; read -r a
-         [[ "$a" =~ ^[Yy]$ ]] && ufw disable >/dev/null && { yel "Firewall выключен"; jlog INFO "Firewall выключен"; }; pause ;;
+      4) ufw disable >/dev/null && { yel "Firewall выключен. Включить снова: пункт 1"; jlog INFO "Firewall выключен"; }; pause ;;
       0|q|"") return ;;
     esac
   done
@@ -2068,7 +2326,7 @@ ssh_revert_port() {
 
 ssh_fail2ban() {
   local ports; ports=$(ssh_ports | tr ' ' ',' | sed 's/,$//')
-  command -v fail2ban-client >/dev/null || { info "Устанавливаю fail2ban..."; pkg_install fail2ban || { red "✖ Не удалось установить fail2ban"; return 1; }; }
+  command -v fail2ban-client >/dev/null || { info "Устанавливаю fail2ban..."; pkg_install fail2ban || { fail "fail2ban не установился" apt "$PKG_LOG"; return 1; }; }
   local backend=auto; command -v journalctl >/dev/null && [[ ! -f /var/log/auth.log ]] && backend=systemd
   cat > /etc/fail2ban/jail.d/remnapilot.local <<EOF
 # RemnaPilot
@@ -2164,7 +2422,6 @@ net_enable() {
    • TCP Fast Open, MTU probing, без «медленного старта» после простоя
    • больше соединений и открытых файлов — для множества клиентов
 EOF
-  ask "Применить? [y/N]"; read -r ans; [[ "$ans" =~ ^[Yy]$ ]] || return 0
   cat > "$SYSCTL_FILE" <<'EOF'
 # RemnaPilot — тюнинг сети для VPN
 net.core.default_qdisc = fq
@@ -2331,7 +2588,7 @@ PY
     elif [[ "$(tr -d ' \n\t' < "$dj")" == "{}" ]]; then
       printf '{\n  "log-driver": "json-file",\n  "log-opts": { "max-size": "50m", "max-file": "3" }\n}\n' > "$dj"
     elif ! grep -q '"log-opts"' "$dj"; then
-      yel "⚠ В $dj уже есть настройки, а python3 нет — добавь вручную: \"log-opts\": {\"max-size\": \"50m\", \"max-file\": \"3\"}"
+      yel "⚠ $dj: там уже есть настройки, а python3 нет — добавь вручную: \"log-opts\": {\"max-size\": \"50m\", \"max-file\": \"3\"}"
     fi
     systemctl restart docker && green "✔ Лимит логов Docker применён (для контейнеров, созданных заново — «Пересоздать контейнеры»)"
   fi
@@ -2358,6 +2615,11 @@ cleanup_menu() {
 }
 
 # ---------- перенос панели ----------
+mig_back() { # перенос не удался — снова запустить панель здесь
+  local c; for c in "$@"; do docker start "$c" >/dev/null 2>&1; done
+  yel "  Панель здесь запущена обратно — всё работает как до переноса."
+}
+
 migrate_panel() {
   local host port ans dump newip oldip stop_old=1 sshc
   need_panel || return 1
@@ -2376,13 +2638,17 @@ EOF
   ask "SSH-порт [22]"; read -r port; port="${port:-22}"
   sshc=(ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 -p "$port" "$host")
 
+  [[ "${host%%@*}" == root ]] || { fail "Нужен вход под root на новом сервере"; todo "укажи адрес как root@IP"; return 1; }
   info "Проверяю подключение..."
-  "${sshc[@]}" 'echo ok' >/dev/null 2>&1 || {
-    yel "Не удалось войти без пароля. Сейчас попрошу пароль один раз и добавлю ключ."
-    [[ -f "$HOME/.ssh/id_ed25519" ]] || ssh-keygen -t ed25519 -N "" -f "$HOME/.ssh/id_ed25519" -q
-    ssh-copy-id -i "$HOME/.ssh/id_ed25519.pub" -p "$port" -o StrictHostKeyChecking=accept-new "$host" || { red "✖ Нет доступа к $host"; return 1; }
-  }
-  [[ "${host%%@*}" == root ]] || { red "✖ Нужен вход под root на новом сервере"; return 1; }
+  local out; out=$("${sshc[@]}" -o BatchMode=yes 'echo ok' 2>&1 </dev/null)
+  if [[ "$out" != *ok* ]]; then
+    if grep -qiE 'Permission denied \(' <<< "$out"; then
+      yel "Ключа на новом сервере ещё нет. Сейчас попрошу пароль root один раз и добавлю ключ."
+      [[ -f "$HOME/.ssh/id_ed25519" ]] || ssh-keygen -t ed25519 -N "" -f "$HOME/.ssh/id_ed25519" -q
+      out=$(ssh-copy-id -i "$HOME/.ssh/id_ed25519.pub" -p "$port" -o StrictHostKeyChecking=accept-new "$host" 2>&1 | tee /dev/stderr) \
+        || { fail "Нет доступа к $host" ssh "$out"; return 1; }
+    else fail "Нет связи с $host" ssh "$out"; return 1; fi
+  fi
   if "${sshc[@]}" "test -f /opt/remnawave/.env"; then
     yel "⚠ На новом сервере уже есть /opt/remnawave — он будет перезаписан."
   fi
@@ -2396,27 +2662,32 @@ EOF
   ask "Начать перенос? [y/N]"; read -r ans; [[ "$ans" =~ ^[Yy]$ ]] || return 0
   jlog INFO "Перенос панели: $oldip → $newip"
 
-  info "1/5 Готовлю новый сервер (Docker)..."
-  "${sshc[@]}" 'command -v docker >/dev/null || curl -fsSL https://get.docker.com | sh >/dev/null 2>&1; docker compose version >/dev/null' \
-    || { red "✖ Не удалось поставить Docker на новом сервере"; return 1; }
+  steps 5
+  step "Готовлю новый сервер (Docker)"
+  out=$("${sshc[@]}" 'command -v docker >/dev/null || curl -fsSL https://get.docker.com | sh 2>&1 | tail -20; docker compose version' 2>&1) \
+    || { fail "Docker не установился на новом сервере" docker "$out"; todo "поставь вручную: curl -fsSL https://get.docker.com | sh"; steps_done; return 1; }
 
-  info "2/5 Останавливаю панель и делаю бэкап..."
+  step "Останавливаю панель здесь и делаю бэкап"
   local cts=(); mapfile -t cts < <(app_containers)
   for c in "${cts[@]}"; do docker stop "$c" >/dev/null 2>&1; done
-  backup_db migrate || { for c in "${cts[@]}"; do docker start "$c" >/dev/null; done; red "✖ Бэкап не удался — перенос отменён"; return 1; }
+  backup_db migrate || { for c in "${cts[@]}"; do docker start "$c" >/dev/null; done; red "✖ Перенос отменён — без свежего бэкапа переносить нельзя, панель запущена обратно"; steps_done; return 1; }
   dump=$(ls -1t "$RW_DIR"/backups/db-*-migrate.sql.gz | head -1)
 
-  info "3/5 Копирую файлы ($(du -sh --exclude='backup-domain-*' --exclude='backups' "$RW_DIR" 2>/dev/null | cut -f1))..."
+  step "Копирую файлы ($(du -sh --exclude='backup-domain-*' --exclude='backups' "$RW_DIR" 2>/dev/null | cut -f1)) и дамп"
   tar -C "$RW_DIR" --exclude='./backup-domain-*' --exclude='./backups' --exclude='./data' --exclude='./db' \
       --exclude='./db-data' --exclude='./pgdata' --exclude='./postgres*' -czf - . \
-    | "${sshc[@]}" "mkdir -p /opt/remnawave/backups && tar -xzf - -C /opt/remnawave" || { red "✖ Ошибка копирования"; return 1; }
-  scp -q -P "$port" -o StrictHostKeyChecking=accept-new "$dump" "$host:/opt/remnawave/backups/" || { red "✖ Не скопировался дамп"; return 1; }
+    | "${sshc[@]}" "mkdir -p /opt/remnawave/backups && tar -xzf - -C /opt/remnawave" 2>"$RW_DIR/.migrate.err" \
+    || { fail "Файлы не скопировались" ssh "$(cat "$RW_DIR/.migrate.err")"; mig_back "${cts[@]}"; steps_done; return 1; }
+  scp -q -P "$port" -o StrictHostKeyChecking=accept-new "$dump" "$host:/opt/remnawave/backups/" 2>"$RW_DIR/.migrate.err" \
+    || { fail "Дамп не скопировался" ssh "$(cat "$RW_DIR/.migrate.err")"; mig_back "${cts[@]}"; steps_done; return 1; }
+  rm -f "$RW_DIR/.migrate.err"
   [[ -s "$NODES_FILE" ]] && "${sshc[@]}" "mkdir -p /etc/rw" && scp -q -P "$port" "$NODES_FILE" "$host:$NODES_FILE"
   local me; me=$(readlink -f "$0"); [[ -f "$me" ]] && scp -q -P "$port" "$me" "$host:/usr/local/bin/rw"
 
-  info "4/5 Запускаю базу и восстанавливаю данные на новом сервере..."
+  step "Запускаю базу и восстанавливаю данные на новом сервере"
   db_info >/dev/null 2>&1
-  "${sshc[@]}" "DUMP='/opt/remnawave/backups/$(basename "$dump")' DBU='$DB_USER' DBN='$DB_NAME' DBH='$DB_HOST' bash -s" <<'EOS' || { red "✖ Ошибка на новом сервере"; return 1; }
+  out=$("${sshc[@]}" "DUMP='/opt/remnawave/backups/$(basename "$dump")' DBU='$DB_USER' DBN='$DB_NAME' DBH='$DB_HOST' bash -s" 2>&1 <<'EOS'
+
 set -e
 cd /opt/remnawave
 svc=$(docker compose config --services | grep -iE 'db|postgres' | head -1)
@@ -2429,11 +2700,14 @@ for f in $(find /opt/remnawave -mindepth 2 -maxdepth 2 \( -name docker-compose.y
 sleep 10
 docker ps --format '  {{.Names}}\t{{.Status}}' | grep -i remna
 EOS
+) || { fail "Панель не запустилась на новом сервере"; why_first "$out" docker db container
+       mig_back "${cts[@]}"; steps_done; return 1; }
+  printf '%s\n' "$out"
   green "✔ Панель запущена на $newip"
   # старая панель не должна сама подняться после перезагрузки и спорить с новой за ноды
   for c in "${cts[@]}"; do docker update --restart=no "$c" >/dev/null 2>&1; done
 
-  info "5/5 Ноды..."
+  step "Разрешаю новый IP панели на нодах"
   if [[ -s "$NODES_FILE" ]]; then
     local lines=() nm h p np
     mapfile -t lines < "$NODES_FILE"
@@ -2454,6 +2728,7 @@ EOS
   echo "   3. На новом сервере запусти  rw  → «Сертификаты» → перевыпусти, чтобы заработало автопродление."
   echo "   4. Если всё хорошо — старую панель можно удалить. Если нет — запусти её здесь: Панель → Пересоздать контейнеры."
   jlog OK "Перенос панели на $newip завершён"
+  steps_done "Перенос"
 }
 
 # ---------- выполнение на нодах: этот сервер / одна нода / все ----------
@@ -2595,7 +2870,8 @@ swap_create() {
   chmod 600 /swapfile && mkswap /swapfile >/dev/null
   if ! swapon /swapfile 2>/dev/null; then
     rm -f /swapfile; dd if=/dev/zero of=/swapfile bs=1M count="$sz" status=none
-    chmod 600 /swapfile && mkswap /swapfile >/dev/null && swapon /swapfile || { red "✖ Не удалось включить swap"; rm -f /swapfile; return 1; }
+    chmod 600 /swapfile && mkswap /swapfile >/dev/null && swapon /swapfile || { fail "Swap не включился"; cause "файловая система или виртуализация не разрешают swap-файл (так бывает на btrfs и у части хостеров)"
+                              todo "попроси swap у хостера или возьми тариф с большим объёмом памяти"; rm -f /swapfile; return 1; }
   fi
   grep -q '^/swapfile ' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
   printf 'vm.swappiness = 10\nvm.vfs_cache_pressure = 50\n' > /etc/sysctl.d/98-remnapilot-swap.conf
@@ -2691,7 +2967,7 @@ ch_api() { curl -fsS --max-time 15 -H 'Accept: application/json' "https://check-
 ip_check() {
   local ip port info rid res nodes=() n json
   ip=$(curl -4 -s --max-time 6 https://ifconfig.me)
-  [[ -n "$ip" ]] || { red "✖ Не удалось узнать внешний IP"; return 1; }
+  [[ -n "$ip" ]] || { fail "Не узнал внешний IP сервера" net "$(curl -4 -sS --max-time 6 -o /dev/null https://ifconfig.me 2>&1 || true)"; return 1; }
   ask "Порт для проверки [443]"; read -r port; port="${port:-443}"
 
   section "СЕРВЕР"
@@ -2771,7 +3047,7 @@ sni_check_one() { # домен -> печатает строку оценки; в
   tc=$(for _ in 1 2 3; do curl -s -o /dev/null --max-time 5 -w '%{time_connect}\n' "https://$d/"; done | sort -n | head -1)
   tc=$(awk -v t="${tc:-9}" 'BEGIN{printf "%.0f", t*1000}')
   if (( tc <= 20 )); then score=$((score+1)); elif (( tc > 80 )); then notes+=("далеко (${tc} мс)"); fi
-  if curl -sI --max-time 6 "https://$d/" | grep -qiE '^server: *cloudflare|^cf-ray'; then notes+=("за Cloudflare — нежелательно"); else score=$((score+1)); fi
+  if grep -qiE '^server: *cloudflare|^cf-ray' < <(curl -sI --max-time 6 "https://$d/"); then notes+=("за Cloudflare — нежелательно"); else score=$((score+1)); fi
   local col="$C_OK" mark="✔"; (( score < 7 )) && { col="$C_WARN"; mark="⚠"; }; (( !tls13 || !h2 || !x25519 )) && { col="$C_ERR"; mark="✖"; }
   local nt="всё отлично"; (( ${#notes[@]} )) && nt=$(printf '%s, ' "${notes[@]}") && nt="${nt%, }"
   printf '  %s%s %-30s%s %3s мс  %s%s%s\n' "$col" "$mark" "${d:0:30}" "$C0" "$tc" "$C_MUT" "$nt" "$C0"
@@ -2964,7 +3240,7 @@ time_set_tz() {
   ask; read -r c
   case "$c" in 1) tz=UTC ;; 2) tz=Europe/Moscow ;; 3) tz=Asia/Yekaterinburg ;; 4) tz=Europe/Berlin ;;
     5) ask "Часовой пояс"; read -r tz ;; *) return 0 ;; esac
-  timedatectl list-timezones 2>/dev/null | grep -qx "$tz" || [[ "$tz" == UTC ]] || { err "нет такого пояса: $tz"; return 1; }
+  grep -qx "$tz" < <(timedatectl list-timezones 2>/dev/null) || [[ "$tz" == UTC ]] || { err "нет такого пояса: $tz"; return 1; }
   timedatectl set-timezone "$tz" && green "✔ Часовой пояс: $tz" && jlog INFO "Часовой пояс: $tz"
 }
 
@@ -3011,14 +3287,19 @@ tg_get() { grep -m1 "^$1=" "$TG_CONF" 2>/dev/null | cut -d= -f2-; }
 tg_on()  { [[ -n "$(tg_get TOKEN)" && -n "$(tg_get CHAT)" ]]; }
 tg_curl() { # токен, метод, аргументы curl… — адрес с токеном идёт через stdin, а не в командной строке (её видно в ps)
   local tok="$1" m="$2"; shift 2
-  printf 'url = "https://api.telegram.org/bot%s/%s"\n' "$tok" "$m" | curl -fsS --max-time 60 -K - "$@"
+  local out rc
+  out=$(printf 'url = "https://api.telegram.org/bot%s/%s"\n' "$tok" "$m" | curl -sS --max-time 60 -K - "$@" 2>&1); rc=$?
+  printf '%s' "$out"
+  if (( rc == 0 )) && [[ "$out" == *'"ok":true'* ]]; then TG_ERR=""; return 0; fi
+  TG_ERR="${out:-нет ответа}"; return 1    # ответ Telegram или ошибка curl — для why telegram
 }
 tg_api() { tg_curl "$(tg_get TOKEN)" "$@"; }
-tg_text() { tg_on || return 0; tg_api sendMessage -d chat_id="$(tg_get CHAT)" --data-urlencode text="$1" >/dev/null 2>&1; }
+tg_text() { tg_on || return 0; tg_api sendMessage -d chat_id="$(tg_get CHAT)" --data-urlencode text="$(T "$1")" >/dev/null; }
+tg_why() { local w; w=$(why_short telegram "$TG_ERR"); [[ -n "$w" ]] && printf ': %s' "$w"; }
 tg_file() { # файл, подпись
   tg_on || return 0
   (( $(stat -c %s "$1") < 49000000 )) || { tg_text "$2 (файл больше 49 МБ — не отправлен)"; return 1; }
-  tg_api sendDocument -F chat_id="$(tg_get CHAT)" -F document=@"$1" -F caption="$2" >/dev/null 2>&1
+  tg_api sendDocument -F chat_id="$(tg_get CHAT)" -F document=@"$1" -F caption="$(T "$2")" >/dev/null
 }
 
 tg_setup() {
@@ -3027,16 +3308,16 @@ tg_setup() {
   echo "  2. Напиши своему боту любое сообщение (например /start)."
   ask "Токен бота"; read -r tok; tok="${tok// /}"
   [[ "$tok" =~ ^[0-9]+:[A-Za-z0-9_-]{30,}$ ]] || { err "непохоже на токен бота"; return 1; }
-  name=$(tg_curl "$tok" getMe 2>/dev/null | grep -oP '"username":"\K[^"]+')
-  [[ -n "$name" ]] || { err "Telegram не принял токен (или нет связи с api.telegram.org)"; return 1; }
+  local r; r=$(tg_curl "$tok" getMe); name=$(grep -oP '"username":"\K[^"]+' <<< "$r")
+  [[ -n "$name" ]] || { fail "Бот не подключился" telegram "$r"; return 1; }
   info "Бот: @$name. Ищу твой чат..."
   chat=$(tg_curl "$tok" getUpdates 2>/dev/null | grep -oP '"chat":\{"id":\K-?[0-9]+' | tail -1)
   if [[ -z "$chat" ]]; then ask "Не нашёл сообщений боту. Напиши ему и нажми Enter (или введи chat_id)"; read -r ans
     chat="${ans:-$(tg_curl "$tok" getUpdates 2>/dev/null | grep -oP '"chat":\{"id":\K-?[0-9]+' | tail -1)}"; fi
-  [[ "$chat" =~ ^-?[0-9]+$ ]] || { err "chat_id не найден"; return 1; }
+  [[ "$chat" =~ ^-?[0-9]+$ ]] || { fail "Не нашёл чат с ботом"; cause "боту ещё никто не написал"; todo "открой бота в Telegram, нажми Start и повтори"; return 1; }
   mkdir -p /etc/rw; printf 'TOKEN=%s\nCHAT=%s\n' "$tok" "$chat" > "$TG_CONF"; chmod 600 "$TG_CONF"
   if tg_text "✅ RemnaPilot подключён к этому чату ($(hostname))"; then green "✔ Готово — проверь сообщение в Telegram"
-  else red "✖ Сообщение не отправилось — проверь токен и chat_id"; return 1; fi
+  else fail "Сообщение не отправилось" telegram "$TG_ERR"; return 1; fi
   jlog INFO "Telegram подключён"
 }
 
@@ -3056,7 +3337,9 @@ tg_menu() {
     ask; read -r c; echo
     case "$c" in
       1) run_action "Telegram: подключение" tg_setup; pause ;;
-      2) tg_on && { tg_text "🔔 Тест RemnaPilot ($(hostname))" && green "✔ Отправлено" || red "✖ Не отправилось"; } || yel "Сначала подключи бота."; pause ;;
+      2) if ! tg_on; then yel "Сначала подключи бота."
+         elif tg_text "🔔 Тест RemnaPilot ($(hostname))"; then green "✔ Отправлено"
+         else fail "Не отправилось" telegram "$TG_ERR"; fi; pause ;;
       3) rm -f "$TG_CONF"; yel "Telegram отключён."; pause ;;
       0|q|"") return ;;
     esac
@@ -3159,7 +3442,6 @@ au_menu() {
       1|2|3|4) local m; m=$(case $c in 1) echo off;; 2) echo check;; 3) echo self;; 4) echo all;; esac)
          if [[ "$m" == all ]]; then
            yel "Панель будет обновляться без тебя. Перед каждым обновлением — бэкап базы, при сбое — уведомление и откат вручную."
-           ask "Включить? [y/N]"; read -r a; [[ "$a" =~ ^[Yy]$ ]] || continue
          fi
          mkdir -p /etc/rw; echo "$m" > "$AU_CONF"; au_install_cron
          green "✔ Автообновление: $(au_mode_name "$m")"; jlog INFO "Автообновление: $m"; pause ;;
@@ -3191,10 +3473,14 @@ bk_run() { # бэкап по расписанию: дамп + .env + списо�
   keep=$(bk_get KEEP 7)
   cron_log_cap
   need_panel >/dev/null 2>&1 || { echo "$(date '+%d.%m %H:%M')|FAIL|Автобэкап: панель не найдена" > /etc/rw/.backup_last; return 1; }
+  steps 3
+  step "Дамп базы"
   if ! backup_db auto >/dev/null 2>&1; then
-    printf '%s|FAIL|Автобэкап базы не удался\n' "$(date '+%d.%m %H:%M')" > /etc/rw/.backup_last
-    jlog FAIL "Автобэкап базы не удался"; tg_text "⚠️ $(hostname): автобэкап базы не удался"; return 1
+    local why; why=$(why_short db "$BK_ERR"); why="${why:+: $why}"
+    printf '%s|FAIL|Автобэкап базы не удался%s\n' "$(date '+%d.%m %H:%M')" "$why" > /etc/rw/.backup_last
+    jlog FAIL "Автобэкап базы не удался$why"; tg_text "⚠️ $(hostname): автобэкап базы не удался$why"; steps_done; return 1
   fi
+  step "Собираю архив: база, .env, список нод"
   dump=$(ls -1t "$RW_DIR"/backups/db-*-auto.sql.gz | head -1)
   tmp=$(mktemp -d); cp "$dump" "$tmp/"; cp "$RW_DIR/.env" "$tmp/remnawave.env"
   [[ -s "$NODES_FILE" ]] && cp "$NODES_FILE" "$tmp/nodes.list"
@@ -3202,7 +3488,7 @@ bk_run() { # бэкап по расписанию: дамп + .env + списо�
   if ! tar -C "$tmp" -czf "$arc" . 2>/dev/null; then
     rm -rf "$tmp"; rm -f "$arc"
     printf '%s|FAIL|Автобэкап: не удалось собрать архив (нет места на диске?)\n' "$(date '+%d.%m %H:%M')" > /etc/rw/.backup_last
-    jlog FAIL "Автобэкап: не удалось собрать архив"; tg_text "⚠️ $(hostname): автобэкап не удался — не собрался архив (проверь место на диске)"; return 1
+    jlog FAIL "Автобэкап: не удалось собрать архив"; tg_text "⚠️ $(hostname): автобэкап не удался — не собрался архив (проверь место на диске)"; steps_done; return 1
   fi
   chmod 600 "$arc"; rm -rf "$tmp"
   # хранить последние N архивов и автодампов
@@ -3210,14 +3496,15 @@ bk_run() { # бэкап по расписанию: дамп + .env + списо�
   ls -1t "$RW_DIR"/backups/db-*-auto.sql.gz 2>/dev/null | tail -n +$((keep + 1)) | while read -r f; do rm -f "$f" "${f%.sql.gz}.env"; done
   sz=$(du -h "$arc" | cut -f1)
   local tgst=""
+  step "$(tg_on && echo "Отправляю в Telegram" || echo "Храню последние $keep архивов")"
   if tg_on; then
     case "$(bk_get ENC "")" in
       on)  local enc="$arc.enc"
            if bk_encrypt "$arc" "$enc"; then
-             tg_file "$enc" "💾🔒 $(hostname): бэкап Remnawave $(date '+%d.%m %H:%M'), $sz — зашифрован" && tgst=", 🔒 отправлен в Telegram" || { rc=1; tgst=", в Telegram не отправился"; }
+             tg_file "$enc" "💾🔒 $(hostname): бэкап Remnawave $(date '+%d.%m %H:%M'), $sz — зашифрован" && tgst=", 🔒 отправлен в Telegram" || { rc=1; tgst=", в Telegram не отправился$(tg_why)"; }
            else rc=1; tgst=", не удалось зашифровать"; fi
            rm -f "$enc" ;;
-      off) tg_file "$arc" "💾 $(hostname): бэкап Remnawave $(date '+%d.%m %H:%M'), $sz" && tgst=", отправлен в Telegram" || { rc=1; tgst=", в Telegram не отправился"; } ;;
+      off) tg_file "$arc" "💾 $(hostname): бэкап Remnawave $(date '+%d.%m %H:%M'), $sz" && tgst=", отправлен в Telegram" || { rc=1; tgst=", в Telegram не отправился$(tg_why)"; } ;;
       *)   # пароль не задан — архив с секретами в открытом виде не отправляем
            tg_text "💾 $(hostname): бэкап сделан ($sz), но в Telegram не отправлен — задай пароль шифрования: rw → База → Автобэкап → Шифрование"
            tgst=", в Telegram не отправлен — задай пароль шифрования" ;;
@@ -3225,6 +3512,7 @@ bk_run() { # бэкап по расписанию: дамп + .env + списо�
   fi
   printf '%s|%s|Бэкап %s%s\n' "$(date '+%d.%m %H:%M')" "$( ((rc)) && echo FAIL || echo OK)" "$sz" "$tgst" > /etc/rw/.backup_last
   jlog "$( ((rc)) && echo FAIL || echo OK)" "Автобэкап: $(basename "$arc") ($sz)"
+  steps_done "$( ((rc)) || echo "Бэкап $sz")"
   return $rc
 }
 
@@ -3359,7 +3647,7 @@ rp_selftest() {
       else st warn "$dom → $ip, а сервер $sip (норм, если за Cloudflare)"; fi; }
   fi
   section "ВРЕМЯ И СЕРТИФИКАТЫ"
-  v=$(time_offset 2>/dev/null); [[ -n "$v" ]] && { (( ${v#-} <= 2 )) && st ok "часы точные (${v} с)" || st bad "часы спешат/отстают на ${v} с — Reality может не работать"; }
+  v=$(time_offset 2>/dev/null); [[ -n "$v" ]] && { (( ${v#-} <= 2 )) && st ok "часы точные (${v} сек)" || st bad "часы спешат/отстают на ${v} сек — Reality может не работать"; }
   acme_bin >/dev/null && st ok "acme.sh установлен" || st warn "acme.sh не установлен — поставится при первом выпуске"
   command -v socat >/dev/null && st ok "socat" || st warn "нет socat — поставится при выпуске через порт 80/443"
   section "ИТОГ"
@@ -3473,6 +3761,18 @@ theme_swatch() { # цветные блоки темы
 
 # ---------- версия ----------
 RP_CHANGELOG=(
+  "2.5|new|Справка rw --help: все команды по разделам с примерами, на русском и английском"
+  "2.5|new|Тесты на настоящей Remnawave в GitHub Actions: установка по docs.rw, смена домена и откат, бэкап и восстановление, обновление и настоящие ошибки Docker. Без них релиз не выходит"
+  "2.5|improve|Понятные ошибки: вместо «не удалось» — причина и что делать. Docker Hub недоступен или упёрся в лимит, нет места, нет такой версии, порт занят, пароль базы не совпадает, apt занят, SSH не пускает, нет связи с GitHub или Telegram"
+  "2.5|improve|Журнал по дням: «Сегодня», «Вчера», значки и длительность действий; фильтры «только ошибки», «за сегодня» и поиск по слову"
+  "2.5|improve|Прогресс у долгих операций: обновление, автобэкап и перенос панели показывают шаг 2/4 и сколько всё заняло"
+  "2.5|improve|Полный английский перевод, включая объяснения ошибок и сообщения в Telegram; тесты проверяют, что в EN-режиме не осталось русского"
+  "2.5|fix|Восстановление базы из настоящего сжатого дампа ошибочно отвечало «файл повреждён» — теперь архив проверяется целиком, а обрезанный дамп честно называется обрезанным"
+  "2.5|fix|Команды без меню (rw --update, rw домен и другие) всегда завершались с кодом 0 — теперь cron и скрипты видят, что действие не удалось"
+  "2.5|fix|Неверный пароль базы распознаётся по сообщению самой панели (Prisma), а не принимается за сбой миграции"
+  "2.5|fix|Часовой пояс мог ошибочно считаться несуществующим, а UTF-8 — не включаться на системах с большим числом локалей"
+  "2.5|change|Меньше вопросов «да/нет»: подтверждение только перед необратимым или опасным — удаление, восстановление базы, firewall, SSH, перенос. Смена домена спрашивает, только если домен не указывает на сервер; старый домен подписки остаётся рабочим сам"
+  "2.5|change|Перед обновлением панели бэкап базы делается всегда; если он не удался, автообновление не обновляет, а в меню спросит"
   "2.4|new|Живой статус: рамка статуса сама обновляется, пока меню открыто — упала панель или вышло обновление, и это видно сразу. Интервал и выключение — Прочее → Оформление → Живой статус"
   "2.4|fix|После первого действия в меню пропадали сообщения об ошибках и часть подсказок (например «Пароль:» при настройке шифрования) — вывод ошибок больше не отключается"
   "2.4|fix|После обновления RemnaPilot из меню блокировка оставалась занятой, и автобэкап с автообновлением ждали впустую — теперь освобождается"
@@ -3709,27 +4009,29 @@ offer_cmd() {
   local src; src=$(readlink -f "$0")
   [[ "$src" == /usr/local/bin/rw || -f "$HOME/.rw-nocmd" ]] && return
   if [[ ! -f /usr/local/bin/rw ]]; then
-    read -rp "Установить короткую команду  rw  для запуска скрипта? [Y/n] " a
-    [[ "$a" =~ ^[Nn]$ ]] && touch "$HOME/.rw-nocmd" || install_cmd
+    install_cmd >/dev/null 2>&1 && info "Установил короткую команду ${CB}rw${C0} — дальше запускай просто  rw"
   elif ! cmp -s "$src" /usr/local/bin/rw; then
-    read -rp "Команда rw установлена из другой версии скрипта. Обновить её этой? [Y/n] " a
+    local other; other=$(grep -m1 '^RP_VERSION=' /usr/local/bin/rw 2>/dev/null | cut -d'"' -f2)
+    read -rp "Команда rw — другая версия (${other:-?}, а эта $RP_VERSION). Заменить её этой? [Y/n] " a
     [[ "$a" =~ ^[Nn]$ ]] || install_cmd
   fi
 }
 
 need_compose() { # все действия используют «docker compose» (v2)
   docker compose version >/dev/null 2>&1 && return 0
-  red "✖ Нужен Docker Compose v2 — команда «docker compose»."
-  command -v docker-compose >/dev/null && echo "  Сейчас стоит старый docker-compose v1, RemnaPilot с ним не работает."
-  echo "  Установить:  apt install docker-compose-plugin   (или: curl -fsSL https://get.docker.com | sh)"
+  fail "Нет Docker Compose v2 (команда «docker compose»)"
+  command -v docker-compose >/dev/null && cause "стоит старый docker-compose v1 — RemnaPilot с ним не работает" \
+                                       || cause "плагин compose не установлен"
+  todo "apt install docker-compose-plugin" "или: curl -fsSL https://get.docker.com | sh"
   return 1
 }
 
 need_panel() {
-  [[ -f "$RW_DIR/.env" ]] || { red "✖ Панель не найдена ($RW_DIR/.env). Прочее → Сменить каталог панели."; return 1; }
-  command -v docker >/dev/null || { red "✖ Не установлен docker"; return 1; }
+  [[ -f "$RW_DIR/.env" ]] || { fail "Панель не найдена в $RW_DIR"; cause "нет файла $RW_DIR/.env"
+                               todo "если панель в другом месте: Прочее → Сменить каталог панели" "если её нет — установи по docs.rw"; return 1; }
+  command -v docker >/dev/null || { fail "Не установлен Docker"; todo "установи: curl -fsSL https://get.docker.com | sh"; return 1; }
   need_compose || return 1
-  command -v perl   >/dev/null || { red "✖ Не установлен perl (apt install perl)"; return 1; }
+  command -v perl   >/dev/null || { fail "Не установлен perl"; todo "apt install perl"; return 1; }
 }
 
 UPD_LOG="" # файл с записью последнего обновления (для отката)
@@ -3787,10 +4089,12 @@ snapshot_images() { # каталог: запомнить текущие обра
   done
 }
 
-pull_up() { # каталог: скачать образы и пересоздать
-  local c; c=$(compose_of "$1") || return 1
-  info "Обновляю $1"
-  (cd "$1" && docker compose -f "$c" pull && docker compose -f "$c" up -d --remove-orphans)
+pull_up() { # каталог: скачать образы и пересоздать; вывод упавшей команды — в PULL_LOG
+  local c log rc; PULL_LOG=""
+  c=$(compose_of "$1") || { PULL_LOG="docker-compose не найден в $1"; return 1; }
+  info "Обновляю $1"; log=$(mktemp)
+  (cd "$1" && docker compose -f "$c" pull && docker compose -f "$c" up -d --remove-orphans) 2>&1 | tee "$log"; rc=${PIPESTATUS[0]}
+  PULL_LOG=$(tail -c 20000 "$log"); rm -f "$log"; return "$rc"
 }
 
 wait_healthy() { # контейнер, секунд -> 0 если запущен и не unhealthy
@@ -3808,71 +4112,79 @@ new_upd_log() {
   mkdir -p "$d"; UPD_LOG="$d/update-$(date +%Y%m%d-%H%M%S).log"; : > "$UPD_LOG"
 }
 
-update_panel() { # $1=1 — не задавать вопросов (для «обновить всё»)
-  local quiet="${1:-0}" ans c d dirs=() app before after
+update_panel() { # без вопросов; спросит, только если бэкап базы не удался (и есть терминал)
+  local ans c d dirs=() app before after
   need_panel || return 1
   local img_before img_after
   app=$(app_containers | head -1); before=$(local_ver "$app"); img_before=$(docker inspect -f '{{.Image}}' "$app" 2>/dev/null)
   [[ -n "$UPD_LOG" ]] || new_upd_log
+  steps 4
 
-  if (( quiet )); then backup_db pre-update && echo "DUMP $(ls -1t "$RW_DIR"/backups/db-*-pre-update.sql.gz | head -1)" >> "$UPD_LOG"
-  else
-    ask "Сделать бэкап базы перед обновлением? [Y/n]"; read -r ans
-    if [[ ! "$ans" =~ ^[Nn]$ ]]; then
-      if backup_db pre-update; then echo "DUMP $(ls -1t "$RW_DIR"/backups/db-*-pre-update.sql.gz | head -1)" >> "$UPD_LOG"
-      else ask "Бэкап не удался. Продолжить без него? [y/N]"; read -r ans; [[ "$ans" =~ ^[Yy]$ ]] || return 0; fi
-    fi
-  fi
+  step "Бэкап базы"
+  if backup_db pre-update; then echo "DUMP $(ls -1t "$RW_DIR"/backups/db-*-pre-update.sql.gz | head -1)" >> "$UPD_LOG"
+  elif [[ -t 0 ]]; then
+    yel "  Без бэкапа откатить базу после неудачного обновления не получится."
+    ask "Продолжить без бэкапа? [y/N]"; read -r ans; [[ "$ans" =~ ^[Yy]$ ]] || { steps_done; return 0; }
+  else red "✖ Бэкап базы не сделан — без него не обновляю"; steps_done; return 1; fi
 
+  step "Скачиваю образы и пересоздаю контейнеры"
   dirs+=("$RW_DIR")
   while read -r c; do d=$(dirname "$c"); [[ "$d" != "$RW_DIR" ]] && dirs+=("$d"); done < <(find_composes)
   for d in "${dirs[@]}"; do snapshot_images "$d"; done
-  for d in "${dirs[@]}"; do pull_up "$d" || { red "✖ Ошибка при обновлении $d"; yel "Откат: раздел «Обновления» → «Откатить последнее обновление»"; return 1; }; done
+  for d in "${dirs[@]}"; do
+    pull_up "$d" || { fail "Не обновилось: $d" docker "$PULL_LOG"
+                      todo "старые образы сохранены: Панель → Обновления → Откатить последнее обновление"; steps_done; return 1; }
+  done
   docker image prune -f >/dev/null
 
-  info "Жду запуска панели..."
-  if wait_healthy "$app" 90; then
-    after=$(local_ver "$app"); img_after=$(docker inspect -f '{{.Image}}' "$app" 2>/dev/null)
-    if [[ "$img_before" == "$img_after" ]]; then green "✔ Панель уже на последней версии${after:+ v$after}"
-    else green "✔ Панель обновлена${before:+: v$before}${after:+ → v$after}"; fi
-  else
-    red "✖ Панель не поднялась после обновления. Последние логи:"
-    docker logs --tail 25 "$app" 2>&1 | sed 's/^/    /'
-    yel "Откатить: «Обновления» → «Откатить последнее обновление» (вернёт образы и при желании базу)."
-    return 1
+  step "Жду запуска панели"
+  if ! wait_healthy "$app" 90; then
+    fail "Панель не запустилась после обновления" container "$(docker logs --tail 60 "$app" 2>&1)"
+    todo "вернуть прошлую версию: Панель → Обновления → Откатить последнее обновление"
+    steps_done; return 1
   fi
+
+  step "Проверяю версию"
+  after=$(local_ver "$app"); img_after=$(docker inspect -f '{{.Image}}' "$app" 2>/dev/null)
+  if [[ "$img_before" == "$img_after" ]]; then green "✔ Панель уже на последней версии${after:+ v$after}"
+  else green "✔ Панель обновлена${before:+: v$before}${after:+ → v$after}"; fi
+  steps_done "Обновление панели"
 }
 
 update_local_node() {
   local d before after
   d=$(node_dir) || { echo "  Ноды на этом сервере нет."; return 0; }
-  command -v docker >/dev/null || { red "✖ docker не установлен"; return 1; }
+  command -v docker >/dev/null || { fail "Не установлен Docker"; todo "установи: curl -fsSL https://get.docker.com | sh"; return 1; }
   need_compose || return 1
   [[ -n "$UPD_LOG" ]] || new_upd_log
   before=$(local_ver remnanode)
+  steps 2
+  step "Скачиваю образ ноды"
   snapshot_images "$d"
-  pull_up "$d" || { red "✖ Ошибка обновления ноды"; return 1; }
+  pull_up "$d" || { fail "Нода не обновилась" docker "$PULL_LOG"; steps_done; return 1; }
   docker image prune -f >/dev/null
+  step "Жду запуска ноды"
   if wait_healthy remnanode 45; then
     after=$(local_ver remnanode)
     [[ "$before" == "$after" ]] && green "✔ Нода уже на последней версии v${after:-?}" || green "✔ Нода обновлена: v${before:-?} → v${after:-?}"
+    steps_done "Обновление ноды"
   else
-    red "✖ Нода не запустилась:"; docker logs --tail 20 remnanode 2>&1 | sed 's/^/    /'; return 1
+    fail "Нода не запустилась" container "$(docker logs --tail 60 remnanode 2>&1)"; steps_done; return 1
   fi
 }
 
 update_all() {
-  local ans
-  section "ПЛАН"
-  [[ -f "$RW_DIR/.env" ]] && echo "   • панель (+ бэкап базы перед обновлением)"
-  node_dir >/dev/null && echo "   • нода на этом сервере"
-  [[ -s "$NODES_FILE" ]] && echo "   • ноды по SSH: $(wc -l < "$NODES_FILE")"
-  ask "Начать? [y/N]"; read -r ans; [[ "$ans" =~ ^[Yy]$ ]] || return 0
+  local n=0 has_panel="" has_node="" has_ssh=""
+  [[ -f "$RW_DIR/.env" ]] && { has_panel=1; n=$((n + 1)); }
+  node_dir >/dev/null && { has_node=1; n=$((n + 1)); }
+  [[ -s "$NODES_FILE" ]] && { has_ssh=1; n=$((n + 1)); }
+  (( n )) || { yel "Нечего обновлять: панели и нод на этом сервере нет, список нод пуст."; return 0; }
   new_upd_log
-  [[ -f "$RW_DIR/.env" ]] && { section "ПАНЕЛЬ"; update_panel 1 || { yel "Панель не обновилась — ноды не трогаю."; return 1; }; }
-  node_dir >/dev/null && { section "НОДА ЗДЕСЬ"; update_local_node; }
-  [[ -s "$NODES_FILE" ]] && { section "НОДЫ ПО SSH"; NODES_ALL=1 nodes_update; }
-  echo; green "✔ Готово"
+  steps "$n"
+  [[ -n "$has_panel" ]] && { step "Панель (с бэкапом базы)"; update_panel 1 || { yel "Панель не обновилась — ноды не трогаю."; steps_done; return 1; }; }
+  [[ -n "$has_node" ]] && { step "Нода на этом сервере"; update_local_node; }
+  [[ -n "$has_ssh" ]] && { step "Ноды по SSH: $(wc -l < "$NODES_FILE")"; NODES_ALL=1 nodes_update; }
+  steps_done "Всё обновлено"
 }
 
 rollback_update() {
@@ -3915,8 +4227,7 @@ pin_panel_version() {
   cp -a "$c" "$c.bak-$(date +%Y%m%d-%H%M%S)"
   V="$v" perl -pi -e 's/(image:\s*["\x27]?remnawave\/backend:)[^"\x27\s]+/${1}$ENV{V}/' "$c"
   green "✔ В compose: remnawave/backend:$v"
-  ask "Скачать и перезапустить панель сейчас? [Y/n]"; read -r ans
-  [[ "$ans" =~ ^[Nn]$ ]] || update_panel
+  update_panel
 }
 
 # ----- обновление с GitHub (репозиторий задаётся в меню, в файл не вшит) -----
@@ -4001,7 +4312,7 @@ self_update_online() {
       red "✖ Контрольная сумма не совпала с релизом — файл подменён или повреждён. Обновление отменено."
       jlog FAIL "Обновление RemnaPilot отменено: контрольная сумма не совпала"
       tg_text "⚠️ $(hostname): RemnaPilot — контрольная сумма обновления не совпала, обновление отменено"
-    else red "✖ Не удалось скачать remnapilot.sh ($(rp_source))"; fi
+    else fail "remnapilot.sh не скачался ($(rp_source))" net "$(curl -fsS --max-time 10 -o /dev/null https://github.com 2>&1 || true)"; fi
     return 1
   fi
   nv=$(grep -m1 '^RP_VERSION=' "$t" | cut -d'"' -f2)
@@ -4110,6 +4421,58 @@ change_dir() {
   [[ -f "$in/.env" ]] && { RW_DIR="$in"; green "✓ Каталог: $RW_DIR"; } || red "Там нет .env"
 }
 
+
+# ---------- справка rw --help ----------
+show_help() {
+  local A="" B="" M="" Z=""
+  [[ -t 1 ]] && { A="$C_ACC"; B="$CB"; M="$C_MUT"; Z="$C0"; }
+  h_sec() { printf '\n%s%s%s\n' "$B" "$(T "$1")" "$Z"; }
+  h_cmd() { printf '  %s%s%s\n      %s\n' "$A" "$1" "$Z" "$(T "$2")"; }
+  h_ex()  { printf '  %s%s%s\n' "$M" "$(T "$1")" "$Z"; }
+  printf '%s%s v%s%s — %s\n' "$B" "$RP_NAME" "$RP_VERSION" "$Z" "$(T "пульт управления Remnawave")"
+  h_ex "Все команды работают на сервере под root. Без аргументов открывается меню."
+
+  h_sec "ЗАПУСК"
+  h_cmd "rw" "открыть меню"
+  h_cmd "rw --lang en" "интерфейс на английском (rw --lang ru — обратно)"
+  h_cmd "rw --dir /opt/remnawave" "каталог панели, если он не стандартный"
+
+  h_sec "ДОМЕНЫ"
+  h_cmd "rw panel.example.com" "сменить домен панели"
+  h_cmd "rw --dry-run panel.example.com" "показать, что изменится, ничего не меняя"
+  h_cmd "rw --sub sub.example.com" "сменить домен подписки"
+  h_cmd "rw --old old.example.com panel.example.com" "если старый домен не нашёлся сам"
+  h_cmd "rw --skip-cert panel.example.com" "сменить домен без выпуска сертификата"
+  h_cmd "rw --cert-method http|alpn|dns|manual …" "способ выпуска: порт 80, порт 443, DNS Cloudflare, TXT вручную"
+  h_ex  "Пример:  CF_Token=токен rw --cert-method dns panel.example.com"
+
+  h_sec "СЕРТИФИКАТЫ"
+  h_cmd "rw --cert-status" "сколько дней осталось у каждого сертификата"
+
+  h_sec "ОБНОВЛЕНИЯ"
+  h_cmd "rw --check-updates" "что можно обновить: RemnaPilot, панель, ноду"
+  h_cmd "rw --update" "обновить панель — с бэкапом базы перед обновлением"
+  h_cmd "rw --update-all" "панель, ноду на этом сервере и ноды по SSH"
+  h_cmd "rw --self-update" "обновить RemnaPilot с GitHub (с проверкой подлинности)"
+  h_cmd "rw --self-update ./remnapilot.sh" "обновить RemnaPilot из скачанного файла"
+
+  h_sec "БЭКАПЫ"
+  h_cmd "rw --backup" "бэкап сейчас: база + .env + список нод, отправка в Telegram"
+  h_cmd "rw --decrypt backup.tar.gz.enc" "расшифровать архив из Telegram паролем"
+  h_ex  "Пример:  rw --decrypt backup.tar.gz.enc && tar -xzf backup.tar.gz"
+
+  h_sec "ПРОВЕРКИ"
+  h_cmd "rw --selftest" "готов ли сервер: Docker, порты, DNS, время, связь (ничего не меняет)"
+  h_cmd "rw --verify" "совпадает ли этот файл с официальным релизом"
+
+  h_sec "ПРОЧЕЕ"
+  h_cmd "rw --whats-new" "что нового в этой версии"
+  h_cmd "rw --changelog" "вся история изменений"
+  h_cmd "rw --uninstall" "удалить RemnaPilot (панель и ноды не трогаются)"
+  h_cmd "rw --version" "версия"
+  echo
+  h_ex "Журнал действий: /var/log/remnapilot.log · Документация: github.com/Dubstep2004/RemnaPilot"
+}
 # ---------- меню ----------
 # Пункты меню: номер|название|подсказка. Номера внутренние, на экране — номера внутри раздела.
 item_info() {
@@ -4407,13 +4770,20 @@ while [[ $# -gt 0 ]]; do
                    if [[ -n "${2:-}" && "$2" != -* ]]; then self_update "$2"; else self_update_online; fi; exit $? ;;
     --sub)       SUB_NEW="$2"; shift 2 ;;
     --cert-status) DO_CERT_STATUS=1; shift ;;
-    -h|--help)   awk 'NR==1{next} /^#/{sub(/^# ?/,""); print; next} {exit}' "$RP_SELF"; exit 0 ;;
+    -h|--help)   DO_HELP=1; shift ;;
     -v|--version) echo "$RP_NAME $RP_VERSION"; exit 0 ;;
     --lang)      RP_LANG="$2"; [[ "$RP_LANG" == en ]] || RP_LANG=ru; shift 2 ;;
     -*)          red "Неизвестный флаг $1"; exit 1 ;;
     *)           NEW="$1"; shift ;;
   esac
 done
+
+if [[ -n "${DO_HELP:-}" ]]; then        # справка не требует root и идёт до остальной инициализации
+  apply_ui
+  if [[ "$RP_LANG" == en && -f "$RP_SELF" ]] && command -v perl >/dev/null; then rp_load_dict; show_help | rp_translate
+  else show_help; fi
+  exit 0
+fi
 
 [[ $EUID -eq 0 ]] || { red "Запусти от root (sudo)"; exit 1; }
 
@@ -4469,13 +4839,13 @@ elif [[ -n "${DO_GEO:-}" ]]; then
 elif (( ${DO_CERT_STATUS:-0} )); then
   cert_status
 elif [[ -n "${SUB_NEW:-}" ]]; then
-  run_action "Смена домена подписки" change_sub_domain "$SUB_NEW" "$DRY"
+  run_action "$( (( ${DRY:-0} )) && echo "Предпросмотр смены домена подписки" || echo "Смена домена подписки")" change_sub_domain "$SUB_NEW" "$DRY"
 elif (( ${DO_UPDATE_ALL:-0} )); then
   run_action "Обновление: всё" update_all
 elif (( ${DO_UPDATE:-0} )); then
   run_action "Обновление панели" update_panel
 elif [[ -n "$NEW" ]]; then
-  run_action "Смена домена" change_domain "$NEW" "$OLD" "$DRY"
+  run_action "$( (( ${DRY:-0} )) && echo "Предпросмотр смены домена" || echo "Смена домена")" change_domain "$NEW" "$OLD" "$DRY"
 else
   offer_cmd
   check_whats_new
@@ -4487,7 +4857,7 @@ else
   fi
   menu
 fi
-exit 0
+exit $?          # код действия: cron и скрипты видят, если обновление или смена домена не удались
 
 # Словарь интерфейса RU → EN (используется при RP_LANG=en)
 : <<'__RP_EN_END__'
@@ -5824,4 +6194,308 @@ acme.sh не установлен — поставится при первом �
 Автобэкап: если архив не собрался (нет места на диске), это ошибка с уведомлением, а не «успех»	Auto-backup: if the archive could not be built (disk full), it is an error with a notification, not a "success"
 Задача по расписанию, не дождавшаяся очереди за 30 минут, пишет об этом в журнал и в Telegram, а не пропускается молча	A scheduled task that waited 30 minutes for its turn now reports it to the log and Telegram instead of being skipped silently
 Удаление RemnaPilot предупреждает о пароле шифрования бэкапов и убирает за собой файлы блокировки	Removing RemnaPilot warns about the backup encryption password and cleans up its lock files
+мин	min
+сек	s
+Готово за	Done in
+Обновление панели за	Panel update in
+Обновление ноды за	Node update in
+Всё обновлено за	Everything updated in
+Перенос за	Migration in
+за	in
+сейчас v	now v
+Автопродление настроено (acme.sh cron, способ:	Auto-renewal is set up (acme.sh cron, method:
+socat не установился — без него выпуск через порт не работает	socat did not install — issuing via a port does not work without it
+или выбери DNS Cloudflare — socat для него не нужен	or choose Cloudflare DNS — it does not need socat
+Сертификат не выпущен	Certificate not issued
+лимит Let's Encrypt — слишком много попыток для этого домена	Let's Encrypt limit — too many attempts for this domain
+подожди час (при лимите на число сертификатов — до недели)	wait an hour (up to a week if it is the certificates-per-domain limit)
+домена нет в DNS или он указывает не на этот сервер	the domain is not in DNS or points to another server
+добавь у регистратора A-запись на IP сервера:	add an A record pointing to the server IP at your registrar:
+и подожди 5–10 минут	and wait 5–10 minutes
+выбери другой способ: порт 80 или DNS Cloudflare	choose another method: port 80 or Cloudflare DNS
+выбери другой способ: порт 443 или DNS Cloudflare	choose another method: port 443 or Cloudflare DNS
+закрыт снаружи	is closed from the outside
+Let's Encrypt не достучался до сервера — порт	Let's Encrypt could not reach the server — port
+открой этот порт у хостера (firewall / security group)	open this port at your hosting provider (firewall / security group)
+или выбери DNS Cloudflare — порты не нужны	or choose Cloudflare DNS — no ports needed
+проверку получил не этот сервер — домен смотрит на другой IP или включён прокси Cloudflare	the check reached another server — the domain points to another IP or the Cloudflare proxy is on
+через прокси Cloudflare работают только порт 80 и DNS	only port 80 and DNS work through the Cloudflare proxy
+проверь A-запись домена	check the domain's A record
+или выбери DNS Cloudflare	or choose Cloudflare DNS
+неверный токен Cloudflare или у него нет прав Zone → DNS → Edit	wrong Cloudflare token or it lacks Zone → DNS → Edit permission
+создай токен: dash.cloudflare.com → My Profile → API Tokens → «Edit zone DNS»	create a token: dash.cloudflare.com → My Profile → API Tokens → "Edit zone DNS"
+при следующей попытке спрошу его заново	I'll ask for it again on the next attempt
+не найден в DNS — сертификат не выпустится, панель по этому адресу не откроется.	is not in DNS — the certificate won't be issued and the panel won't open at this address.
+Устанавливаю acme.sh — он выпускает и продлевает сертификаты Let's Encrypt...	Installing acme.sh — it issues and renews Let's Encrypt certificates...
+acme.sh не установился	acme.sh did not install
+на этом порту не работает SSH	SSH is not running on this port
+проверь порт SSH (по умолчанию 22)	check the SSH port (22 by default)
+сервер не отвечает — выключен или порт SSH закрыт firewall	the server does not respond — it is off or the SSH port is blocked by a firewall
+проверь, что сервер включён и порт SSH открыт у хостера	make sure the server is on and the SSH port is open at your hosting provider
+сервер не принял ключ или пароль	the server rejected the key or password
+добавь ключ: ssh-copy-id -p <порт> root@<адрес>	add your key: ssh-copy-id -p <port> root@<address>
+проверь, что вход под root разрешён	make sure root login is allowed
+сервер не может найти адрес — не работает DNS	the server can't resolve the address — DNS is not working
+проверь /etc/resolv.conf или поставь DNS 1.1.1.1	check /etc/resolv.conf or set DNS to 1.1.1.1
+нет связи с GitHub (блокировка или сбой сети)	no connection to GitHub (blocked or a network failure)
+скачай remnapilot.sh из релиза на компьютер:	download remnapilot.sh from the release on your computer:
+скопируй на сервер и запусти: sudo bash remnapilot.sh	copy it to the server and run: sudo bash remnapilot.sh
+файла нет по этому адресу	there is no file at this address
+проверь адрес или попробуй позже	check the address or try later
+неверный токен бота	wrong bot token
+возьми токен у @BotFather → /mybots → API Token	get the token from @BotFather → /mybots → API Token
+бот не знает этот чат	the bot doesn't know this chat
+открой бота в Telegram и нажми Start (/start)	open the bot in Telegram and press Start (/start)
+бот заблокирован в Telegram	the bot is blocked in Telegram
+открой бота и разблокируй его	open the bot and unblock it
+Telegram ограничил частоту сообщений	Telegram rate-limited the messages
+подожди минуту	wait a minute
+нет связи с api.telegram.org — в РФ он часто заблокирован	no connection to api.telegram.org — it is often blocked in Russia
+отправка работает с серверов за границей	sending works from servers outside Russia
+или пропиши прокси: export https_proxy=… в /etc/environment	or set a proxy: export https_proxy=… in /etc/environment
+Последние строки:	Last lines:
+Причина:	Cause:
+Что делать:	What to do:
+на диске кончилось место	the disk is full
+освободи место: Сервер → Очистка диска, потом повтори	free up space: Server → Disk cleanup, then retry
+Docker Hub ограничил скачивание (лимит на число загрузок с одного IP)	Docker Hub limited downloads (pull limit per IP)
+подожди 1–6 часов и повтори	wait 1–6 hours and retry
+или войди в Docker Hub: docker login	or log in to Docker Hub: docker login
+такой версии образа нет	this image version does not exist
+проверь тег image: в docker-compose.yml	check the image: tag in docker-compose.yml
+или выбери версию: Панель → Обновления → Закрепить версию панели	or pick a version: Panel → Updates → Pin panel version
+Docker Hub не отвечает с этого сервера (блокировка или сбой сети)	Docker Hub does not respond from this server (blocked or a network failure)
+добавь зеркало в /etc/docker/daemon.json:	add a mirror to /etc/docker/daemon.json:
+затем: systemctl restart docker — и повтори	then: systemctl restart docker — and retry
+освободи порт или смени его в docker-compose.yml	free the port or change it in docker-compose.yml
+кто занял:	who holds it:
+уже занят:	is already taken:
+Docker не запущен	Docker is not running
+нет прав на Docker	no permission to use Docker
+запусти RemnaPilot под root: sudo rw	run RemnaPilot as root: sudo rw
+ошибка в docker-compose.yml	an error in docker-compose.yml
+покажет строку с ошибкой: docker compose config	shows the line with the error: docker compose config
+бэкап конфига — файлы *.bak-* рядом	config backup — the *.bak-* files next to it
+пароль базы в .env не совпадает с паролем в Postgres	the database password in .env does not match the one in Postgres
+Панель → Безопасность → 1 — сверит и предложит исправить	Panel → Security → 1 — compares them and offers a fix
+панель не достучалась до базы данных	the panel could not reach the database
+проверь контейнер базы: docker ps -a	check the database container: docker ps -a
+его логи: docker logs --tail 30 remnawave-db	its logs: docker logs --tail 30 remnawave-db
+нужный порт занят другой программой	the required port is taken by another program
+освободи порт или смени его в .env (APP_PORT, METRICS_PORT)	free the port or change it in .env (APP_PORT, METRICS_PORT)
+не хватило памяти	out of memory
+добавь swap: Сервер → Swap	add swap: Server → Swap
+или возьми сервер с 2 ГБ памяти и больше	or use a server with 2 GB of RAM or more
+не прошла миграция базы на новую версию	the database migration to the new version failed
+верни прошлую версию: Панель → Обновления → Откатить последнее обновление	go back to the previous version: Panel → Updates → Roll back the last update
+(бэкап базы сделан перед обновлением)	(the database was backed up before the update)
+в .env не хватает настройки или она неверная — новая версия могла добавить переменные	.env is missing a setting or has a wrong one — the new version may have added variables
+сравни .env с .env.sample из документации новой версии: docs.rw	compare .env with .env.sample from the new version's docs: docs.rw
+логин или пароль базы в .env не подходят	the database login or password in .env is wrong
+в .env указана база, которой нет	.env points to a database that does not exist
+проверь DATABASE_URL в	check DATABASE_URL in
+контейнер базы не запущен	the database container is not running
+запусти панель: cd	start the panel: cd
+установщик пакетов занят — обычно это автообновление системы	the package manager is busy — usually it's automatic system updates
+подожди 2–5 минут и повтори	wait 2–5 minutes and retry
+прошлая установка пакетов прервалась	a previous package installation was interrupted
+dpkg --configure -a — и повтори	dpkg --configure -a — then retry
+нет связи с репозиторием пакетов	no connection to the package repository
+проверь интернет и DNS: ping -c1 deb.debian.org	check the internet and DNS: ping -c1 deb.debian.org
+пакета нет в списках системы	the package is not in the system lists
+apt update — и повтори	apt update — then retry
+сменился ключ сервера — его переустановили или это другой сервер с тем же адресом	the server key changed — it was reinstalled or it is another server at the same address
+если сервер переустанавливал ты: ssh-keygen -R <адрес> — и повтори	if you reinstalled it: ssh-keygen -R <address> — then retry
+адрес сервера не найден	server address not found
+проверь IP или домен	check the IP or domain
+— останавливаю на время выпуска, потом запущу обратно	— stopping it while issuing, then I'll start it again
+это не контейнер и не сервис — остановить его сам я не могу	it is not a container or a service — I can't stop it myself
+выбери порт 443 или DNS Cloudflare — порт 80 для них не нужен	choose port 443 or Cloudflare DNS — they don't need port 80
+выбери порт 80 или DNS Cloudflare — порт 443 для них не нужен	choose port 80 or Cloudflare DNS — they don't need port 443
+или останови программу сам: kill	or stop the program yourself: kill
+останется рабочим — ссылки в приложениях клиентов не сломаются.	will keep working — links in client apps won't break.
+Убрать его потом: Домены → Удалить старые домены.	Remove it later: Domains → Remove old domains.
+Старый домен подписки останется рабочим — ссылки клиентов не сломаются. Убрать: Домены → Удалить старые домены.	The old subscription domain will keep working — client links won't break. Remove it: Domains → Remove old domains.
+Если домен не указывает на этот сервер, панель по новому адресу не откроется,	If the domain does not point to this server, the panel won't open at the new address
+пока не поправишь DNS (откатить: Домены → Откатить смену домена).	until you fix DNS (roll back: Domains → Roll back domain change).
+Всё равно применить? [y/N]	Apply anyway? [y/N]
+Не нашёл текущий домен панели	Could not find the current panel domain
+FRONT_END_DOMAIN и PANEL_DOMAIN в .env панели пустые (или там *)	FRONT_END_DOMAIN and PANEL_DOMAIN in the panel .env are empty (or *)
+укажи старый домен сам: rw --old старый.домен	specify the old domain yourself: rw --old old.domain
+База не восстановлена — ничего не изменилось (всё в одной транзакции), панель работает со старыми данными	Database not restored — nothing changed (single transaction), the panel runs with the old data
+дамп повреждён или сделан не для PostgreSQL	the dump is damaged or not a PostgreSQL dump
+возьми другой дамп из	take another dump from
+дамп сделан более новой версией PostgreSQL	the dump was made by a newer PostgreSQL version
+обнови панель до той версии, с которой делался бэкап, и повтори	update the panel to the version the backup was made with, then retry
+Бэкап базы не сделан	Database backup not made
+Пересоздаю контейнеры, чтобы применить изменения...	Recreating containers to apply the changes...
+не обновилась	not updated
+Нода не установилась на	Node was not installed on
+пользователь не root — ему нужен sudo без пароля	the user is not root — it needs passwordless sudo
+на сервере нет ноды в /opt/remnanode	no node in /opt/remnanode on the server
+установи её: Ноды → Установка → 2	install it: Nodes → Install → 2
+Всего записей:	Total entries:
+ошибок:	errors:
+все записи	all entries
+только ошибки	errors only
+за сегодня	today
+Показано:	Showing:
+последние 20	last 20
+поиск	search
+Журнал пуст — сюда пишется каждое действие RemnaPilot.	The log is empty — every RemnaPilot action is recorded here.
+Листать весь журнал	Browse the whole log
+с текущим фильтром	with the current filter
+За сегодня	Today
+Сбросить фильтр	Reset filter
+Удалить все записи? Это нельзя отменить [y/N]	Delete all entries? This cannot be undone [y/N]
+Слово (например: сертификат, бэкап, ошибка)	Word (e.g. certificate, backup, error)
+запущено	started
+не дождался очереди	did not get its turn
+Записей нет.	No entries.
+Сегодня,	Today,
+Вчера,	Yesterday,
+— прервано	— interrupted
+Firewall выключен. Включить снова: пункт 1	Firewall is off. To turn it back on: item 1
+(Enter — для всех)	(Enter — for everyone)
+нет apt, dnf или yum	no apt, dnf or yum
+ufw не установился	ufw did not install
+fail2ban не установился	fail2ban did not install
+: там уже есть настройки, а python3 нет — добавь вручную:	: it already has settings and there is no python3 — add manually:
+Панель здесь запущена обратно — всё работает как до переноса.	The panel here is running again — everything works as before the migration.
+укажи адрес как root@IP	enter the address as root@IP
+Ключа на новом сервере ещё нет. Сейчас попрошу пароль root один раз и добавлю ключ.	The new server doesn't have the key yet. I'll ask for the root password once and add the key.
+Нет связи с	No connection to
+Готовлю новый сервер (Docker)	Preparing the new server (Docker)
+Docker не установился на новом сервере	Docker did not install on the new server
+поставь вручную: curl -fsSL https://get.docker.com	install it manually: curl -fsSL https://get.docker.com
+Останавливаю панель здесь и делаю бэкап	Stopping the panel here and making a backup
+Перенос отменён — без свежего бэкапа переносить нельзя, панель запущена обратно	Migration cancelled — can't migrate without a fresh backup, the panel is running again
+Копирую файлы (	Copying files (
+) и дамп	) and the dump
+Файлы не скопировались	Files were not copied
+Дамп не скопировался	The dump was not copied
+Запускаю базу и восстанавливаю данные на новом сервере	Starting the database and restoring data on the new server
+Панель не запустилась на новом сервере	The panel did not start on the new server
+Разрешаю новый IP панели на нодах	Allowing the new panel IP on the nodes
+Перенос	Migration
+файловая система или виртуализация не разрешают swap-файл (так бывает на btrfs и у части хостеров)	the filesystem or virtualization does not allow a swap file (happens on btrfs and with some providers)
+попроси swap у хостера или возьми тариф с большим объёмом памяти	ask your provider for swap or choose a plan with more RAM
+Swap не включился	Swap was not enabled
+нод...	nodes...
+Диск	Disk
+аптайм	uptime
+нет docker-compose ноды	no node docker-compose
+не установился cloudflare-warp (нет пакета для	cloudflare-warp did not install (no package for
+и в "routing" → "rules" (выше остальных):	and in "routing" → "rules" (above the others):
+RemnaPilot: ошибка обновления.	RemnaPilot: update error.
+Собираю архив: база, .env, список нод	Building the archive: database, .env, node list
+Отправляю в Telegram	Sending to Telegram
+Храню последние	Keeping the last
+архивов	archives
+Автобэкап: не удалось собрать архив	Auto-backup: could not build the archive
+Расшифровать архив:  rw --decrypt файл.tar.gz.enc	Decrypt the archive:  rw --decrypt file.tar.gz.enc
+Не нашёл сообщений боту. Напиши ему и нажми Enter (или введи chat_id)	No messages to the bot found. Write to it and press Enter (or enter the chat_id)
+Сообщение не отправилось	The message was not sent
+Бот не подключился	The bot did not connect
+Не нашёл чат с ботом	Could not find the chat with the bot
+боту ещё никто не написал	nobody has written to the bot yet
+открой бота в Telegram, нажми Start и повтори	open the bot in Telegram, press Start and retry
+Без бэкапа откатить базу после неудачного обновления не получится.	Without a backup the database can't be rolled back after a failed update.
+Продолжить без бэкапа? [y/N]	Continue without a backup? [y/N]
+Бэкап базы не сделан — без него не обновляю	Database backup not made — not updating without it
+Скачиваю образы и пересоздаю контейнеры	Downloading images and recreating containers
+Не обновилось:	Not updated:
+старые образы сохранены: Панель → Обновления → Откатить последнее обновление	the old images are kept: Panel → Updates → Roll back the last update
+Жду запуска панели	Waiting for the panel to start
+Панель не запустилась после обновления	The panel did not start after the update
+вернуть прошлую версию: Панель → Обновления → Откатить последнее обновление	go back to the previous version: Panel → Updates → Roll back the last update
+Проверяю версию	Checking the version
+Панель уже на последней версии	The panel is already on the latest version
+Панель обновлена	Panel updated
+Скачиваю образ ноды	Downloading the node image
+Нода не обновилась	Node not updated
+Установил короткую команду	Installed the short command
+— дальше запускай просто  rw	— from now on just run  rw
+Жду запуска ноды	Waiting for the node to start
+Нечего обновлять: панели и нод на этом сервере нет, список нод пуст.	Nothing to update: no panel or node on this server and the node list is empty.
+Панель (с бэкапом базы)	Panel (with a database backup)
+Нода на этом сервере	Node on this server
+Ноды по SSH:	Nodes via SSH:
+Всё обновлено	Everything updated
+Команда rw — другая версия (	The rw command is a different version (
+, а эта	, this one is
+). Заменить её этой? [Y/n]	). Replace it with this one? [Y/n]
+вернуть	restore
+Введи версию (например	Enter a version (e.g.
+«latest» — всегда последняя, «2» — последняя 2.x	"latest" — always the newest, "2" — newest 2.x
+Нет Docker Compose v2 (команда «docker compose»)	No Docker Compose v2 ("docker compose" command)
+стоит старый docker-compose v1 — RemnaPilot с ним не работает	the old docker-compose v1 is installed — RemnaPilot does not work with it
+плагин compose не установлен	the compose plugin is not installed
+или: curl -fsSL https://get.docker.com	or: curl -fsSL https://get.docker.com
+Сейчас v	Now v
+Панель не найдена в	Panel not found in
+нет файла	no file
+если панель в другом месте: Прочее → Сменить каталог панели	if the panel is elsewhere: Other → Change panel directory
+если её нет — установи по docs.rw	if there is none — install it per docs.rw
+Не установлен Docker	Docker is not installed
+установи: curl -fsSL https://get.docker.com	install it: curl -fsSL https://get.docker.com
+Не установлен perl	perl is not installed
+remnapilot.sh не скачался	remnapilot.sh was not downloaded
+Не узнал внешний IP сервера	Could not get the server's public IP
+Все команды работают на сервере под root. Без аргументов открывается меню.	All commands run on the server as root. Without arguments the menu opens.
+ЗАПУСК	START
+открыть меню	open the menu
+интерфейс на английском (rw --lang ru — обратно)	English interface (rw --lang ru — back to Russian)
+каталог панели, если он не стандартный	panel directory, if it is not the default
+сменить домен панели	change the panel domain
+показать, что изменится, ничего не меняя	show what would change without changing anything
+сменить домен подписки	change the subscription domain
+если старый домен не нашёлся сам	if the old domain was not detected
+сменить домен без выпуска сертификата	change the domain without issuing a certificate
+способ выпуска: порт 80, порт 443, DNS Cloudflare, TXT вручную	issue method: port 80, port 443, Cloudflare DNS, manual TXT
+Пример:	Example:
+токен	token
+сколько дней осталось у каждого сертификата	days left for each certificate
+что можно обновить: RemnaPilot, панель, ноду	what can be updated: RemnaPilot, panel, node
+обновить панель — с бэкапом базы перед обновлением	update the panel — with a database backup first
+панель, ноду на этом сервере и ноды по SSH	the panel, the node on this server and nodes via SSH
+обновить RemnaPilot с GitHub (с проверкой подлинности)	update RemnaPilot from GitHub (authenticity-checked)
+обновить RemnaPilot из скачанного файла	update RemnaPilot from a downloaded file
+бэкап сейчас: база + .env + список нод, отправка в Telegram	backup now: database + .env + node list, sent to Telegram
+расшифровать архив из Telegram паролем	decrypt an archive from Telegram with the password
+готов ли сервер: Docker, порты, DNS, время, связь (ничего не меняет)	is the server ready: Docker, ports, DNS, time, network (changes nothing)
+совпадает ли этот файл с официальным релизом	does this file match the official release
+что нового в этой версии	what's new in this version
+вся история изменений	full changelog
+удалить RemnaPilot (панель и ноды не трогаются)	remove RemnaPilot (panel and nodes are not touched)
+версия	version
+Журнал действий: /var/log/remnapilot.log · Документация: github.com/Dubstep2004/RemnaPilot	Action log: /var/log/remnapilot.log · Docs: github.com/Dubstep2004/RemnaPilot
+docker-compose не найден в	docker-compose not found in
+Смена домена подписки	Subscription domain change
+Смена домена	Domain change
+Флаг	Flag
+требует значение (см. --help)	requires a value (see --help)
+Обновление geo	Geo update
+Установил короткую команду rw	Installed the short command rw
+часы точные (	clock is accurate (
+сек — Reality может не работать	s — Reality may not work
+Пересоздаю контейнеры	Recreating containers
+ОБНОВЛЕНИЯ	UPDATES
+Справка rw --help: все команды по разделам с примерами, на русском и английском	rw --help: every command by section with examples, in Russian and English
+Тесты на настоящей Remnawave в GitHub Actions: установка по docs.rw, смена домена и откат, бэкап и восстановление, обновление и настоящие ошибки Docker. Без них релиз не выходит	Tests on a real Remnawave in GitHub Actions: install per docs.rw, domain change and rollback, backup and restore, update and real Docker errors. No release without them
+Понятные ошибки: вместо «не удалось» — причина и что делать. Docker Hub недоступен или упёрся в лимит, нет места, нет такой версии, порт занят, пароль базы не совпадает, apt занят, SSH не пускает, нет связи с GitHub или Telegram	Clear errors: instead of "failed" — the cause and what to do. Docker Hub unreachable or rate-limited, disk full, no such version, port taken, database password mismatch, apt busy, SSH refused, no connection to GitHub or Telegram
+Журнал по дням: «Сегодня», «Вчера», значки и длительность действий; фильтры «только ошибки», «за сегодня» и поиск по слову	Log by day: "Today", "Yesterday", icons and action duration; filters "errors only", "today" and word search
+Прогресс у долгих операций: обновление, автобэкап и перенос панели показывают шаг 2/4 и сколько всё заняло	Progress for long operations: update, auto-backup and panel migration show step 2/4 and the total time
+Полный английский перевод, включая объяснения ошибок и сообщения в Telegram; тесты проверяют, что в EN-режиме не осталось русского	Full English translation, including error explanations and Telegram messages; tests check that no Russian is left in EN mode
+Меньше вопросов «да/нет»: подтверждение только перед необратимым или опасным — удаление, восстановление базы, firewall, SSH, перенос. Смена домена спрашивает, только если домен не указывает на сервер; старый домен подписки остаётся рабочим сам	Fewer yes/no questions: confirmation only before irreversible or risky actions — deletion, database restore, firewall, SSH, migration. Domain change asks only if the domain doesn't point to the server; the old subscription domain keeps working automatically
+Перед обновлением панели бэкап базы делается всегда; если он не удался, автообновление не обновляет, а в меню спросит	A database backup is always made before a panel update; if it fails, auto-update does not update and the menu asks
+Дамп повреждён:	Dump is damaged:
+архив обрезан или испорчен — например, скачался не до конца	the archive is truncated or corrupted — for example, it was not downloaded completely
+Дамп пустой:	Dump is empty:
+Восстановление базы из настоящего сжатого дампа ошибочно отвечало «файл повреждён» — теперь архив проверяется целиком, а обрезанный дамп честно называется обрезанным	Restoring the database from a real compressed dump wrongly said "file is damaged" — the archive is now checked in full, and a truncated dump is reported as truncated
+Команды без меню (rw --update, rw домен и другие) всегда завершались с кодом 0 — теперь cron и скрипты видят, что действие не удалось	Commands without the menu (rw --update, rw domain and others) always exited with code 0 — now cron and scripts see when an action failed
+Неверный пароль базы распознаётся по сообщению самой панели (Prisma), а не принимается за сбой миграции	A wrong database password is recognized from the panel's own (Prisma) message instead of being taken for a migration failure
+Часовой пояс мог ошибочно считаться несуществующим, а UTF-8 — не включаться на системах с большим числом локалей	A valid time zone could be reported as nonexistent, and UTF-8 not enabled on systems with many locales
+Предпросмотр смены домена подписки	Subscription domain change preview
+Предпросмотр смены домена	Domain change preview
 __RP_EN_END__

@@ -25,13 +25,16 @@ backup_db() { # $1 — необязательная метка
   db_info || { yel "⚠ Контейнер БД не найден, дамп пропущен."; return 1; }
   mkdir -p "$RW_DIR/backups"
   local f="$RW_DIR/backups/db-$(date +%Y%m%d-%H%M%S)${1:+-$1}.sql.gz"
+  local e; e=$(mktemp); BK_ERR=""
   echo "Дамп базы $DB_NAME ($DB_CT)..."
-  if docker exec "$DB_CT" pg_dump -U "$DB_USER" -d "$DB_NAME" --clean --if-exists | gzip > "$f" \
+  if docker exec "$DB_CT" pg_dump -U "$DB_USER" -d "$DB_NAME" --clean --if-exists 2>"$e" | gzip > "$f" \
      && [[ $(gzip -cd "$f" | head -c 100000 | wc -l) -gt 10 ]]; then
-    cp -a "$RW_DIR/.env" "${f%.sql.gz}.env"
+    rm -f "$e"; cp -a "$RW_DIR/.env" "${f%.sql.gz}.env"
     green "✓ Бэкап БД: $f ($(du -h "$f" | cut -f1))"
   else
-    rm -f "$f"; red "Дамп не удался."; return 1
+    BK_ERR=$(cat "$e"); rm -f "$e" "$f"
+    (( $(disk_free_mb 2>/dev/null || echo 999) < 50 )) && BK_ERR+=$'\nno space left on device'
+    fail "Бэкап базы не сделан" db "${BK_ERR:-пустой дамп}"; return 1
   fi
 }
 
@@ -56,8 +59,13 @@ restore_db() {
   [[ -f "$f" ]] || { err "файл не найден: $f"; return 1; }
 
   local cat=(cat); [[ "$f" == *.gz ]] && cat=(gzip -cd)
-  "${cat[@]}" "$f" | head -c 300 >/dev/null 2>&1 || { err "файл повреждён"; return 1; }
-  if "${cat[@]}" "$f" | head -c 4000 | grep -q 'database cluster dump'; then kind=cluster; else kind=db; fi
+  # целостность: у .gz — полная проверка архива; начало файла читаем без pipefail (head обрывает канал, это не ошибка)
+  if [[ "$f" == *.gz ]] && ! gzip -t "$f" 2>/dev/null; then
+    fail "Дамп повреждён: $(basename "$f")"; cause "архив обрезан или испорчен — например, скачался не до конца"; todo "возьми другой дамп из $RW_DIR/backups"; return 1
+  fi
+  local top; top=$( set +o pipefail; "${cat[@]}" "$f" 2>/dev/null | head -c 4000 )
+  [[ -n "$top" ]] || { fail "Дамп пустой: $(basename "$f")"; todo "возьми другой дамп из $RW_DIR/backups"; return 1; }
+  if grep -q 'database cluster dump' <<< "$top"; then kind=cluster; else kind=db; fi
 
   db_info || { err "контейнер БД не запущен"; return 1; }
   red "ВНИМАНИЕ: текущие данные базы $DB_NAME будут заменены содержимым $(basename "$f")."
@@ -74,8 +82,8 @@ restore_db() {
   echo "Восстанавливаю ($kind)..."
   local rc=0
   if [[ "$kind" == db ]]; then
-    "${cat[@]}" "$f" | docker exec -i "$DB_CT" psql -q -U "$DB_USER" -d "$DB_NAME" \
-      -v ON_ERROR_STOP=1 --single-transaction >/dev/null || rc=$?
+    local perr; perr=$( { "${cat[@]}" "$f" | docker exec -i "$DB_CT" psql -q -U "$DB_USER" -d "$DB_NAME" \
+      -v ON_ERROR_STOP=1 --single-transaction >/dev/null; } 2>&1 ) || rc=$?
   else
     # старый формат (pg_dumpall): очищаем схему и заливаем, ошибки «уже существует» не критичны
     docker exec "$DB_CT" psql -q -U "$DB_USER" -d "$DB_NAME" \
@@ -96,7 +104,14 @@ restore_db() {
 
   for c in "${cts[@]}"; do docker start "$c" >/dev/null 2>&1; done
   if (( rc )); then
-    red "Восстановление не удалось — изменения откачены (одна транзакция). Панель запущена со старыми данными."
+    fail "База не восстановлена — ничего не изменилось (всё в одной транзакции), панель работает со старыми данными"
+    if ! why db "${perr:-}" >/dev/null 2>&1; then
+      if grep -qiE 'syntax error|invalid input|unexpected' <<< "${perr:-}"; then
+        cause "дамп повреждён или сделан не для PostgreSQL"; todo "возьми другой дамп из $RW_DIR/backups"
+      elif grep -qiE 'version|unrecognized configuration parameter' <<< "${perr:-}"; then
+        cause "дамп сделан более новой версией PostgreSQL"; todo "обнови панель до той версии, с которой делался бэкап, и повтори"
+      else log_tail "${perr:-}" 6; fi
+    else why db "$perr"; fi
     return 1
   fi
   sleep 5

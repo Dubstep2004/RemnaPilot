@@ -183,17 +183,19 @@ free_port() { # временно освобождает порт
   fi
 
   if [[ -n "$ct" ]]; then
-    read -rp "Порт $p занят контейнером $ct. Остановить на время выпуска? [y/N] " ans
-    [[ "$ans" =~ ^[Yy]$ ]] || return 1
+    info "Порт $p занят контейнером $ct — останавливаю на время выпуска, потом запущу обратно"
     docker stop "$ct" >/dev/null && STOPPED_CT+=("$ct")
   elif [[ -n "$pid" ]]; then
     unit=$(ps -o unit= -p "$pid" 2>/dev/null | tr -d ' ')
     if [[ "$unit" == *.service ]]; then
-      read -rp "Порт $p занят сервисом $unit. Остановить на время выпуска? [y/N] " ans
-      [[ "$ans" =~ ^[Yy]$ ]] || return 1
+      info "Порт $p занят сервисом $unit — останавливаю на время выпуска, потом запущу обратно"
       systemctl stop "$unit" && STOPPED_SVC+=("$unit")
     else
-      red "Порт $p занят процессом $(ps -o comm= -p "$pid") (pid $pid), автоматически не остановить."
+      fail "Порт $p занят: $(ps -o comm= -p "$pid") (pid $pid)"
+      cause "это не контейнер и не сервис — остановить его сам я не могу"
+      if [[ $p == 80 ]]; then todo "выбери порт 443 или DNS Cloudflare — порт 80 для них не нужен"
+      else todo "выбери порт 80 или DNS Cloudflare — порт 443 для них не нужен"; fi
+      todo "или останови программу сам: kill $pid"
       return 1
     fi
   fi
@@ -205,14 +207,14 @@ free_port() { # временно освобождает порт
 fw_open() { # открывает порт в ufw/firewalld, если закрыт
   local p="$1"
   if command -v ufw >/dev/null && ufw status 2>/dev/null | grep -q '^Status: active'; then
-    if ! ufw status | grep -qE "^($p|$p/tcp)[[:space:]]+ALLOW"; then
+    if ! grep -qE "^($p|$p/tcp)[[:space:]]+ALLOW" < <(ufw status); then
       ufw allow "$p/tcp" >/dev/null && FW_OPENED+=("ufw:$p") && yel "Временно открыл $p/tcp в ufw"
     fi
   elif command -v firewall-cmd >/dev/null && firewall-cmd --state >/dev/null 2>&1; then
     if ! firewall-cmd --query-port="$p/tcp" >/dev/null 2>&1; then
       firewall-cmd --add-port="$p/tcp" >/dev/null && FW_OPENED+=("fwd:$p") && yel "Временно открыл $p/tcp в firewalld"
     fi
-  elif command -v iptables >/dev/null && iptables -S INPUT 2>/dev/null | grep -qE '^-P INPUT (DROP|REJECT)'; then
+  elif command -v iptables >/dev/null && grep -qE '^-P INPUT (DROP|REJECT)' < <(iptables -S INPUT 2>/dev/null); then
     iptables -I INPUT -p tcp --dport "$p" -j ACCEPT && FW_OPENED+=("ipt:$p") && yel "Временно открыл $p/tcp в iptables"
   fi
 }

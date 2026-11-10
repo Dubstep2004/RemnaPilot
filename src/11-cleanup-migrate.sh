@@ -102,7 +102,7 @@ PY
     elif [[ "$(tr -d ' \n\t' < "$dj")" == "{}" ]]; then
       printf '{\n  "log-driver": "json-file",\n  "log-opts": { "max-size": "50m", "max-file": "3" }\n}\n' > "$dj"
     elif ! grep -q '"log-opts"' "$dj"; then
-      yel "⚠ В $dj уже есть настройки, а python3 нет — добавь вручную: \"log-opts\": {\"max-size\": \"50m\", \"max-file\": \"3\"}"
+      yel "⚠ $dj: там уже есть настройки, а python3 нет — добавь вручную: \"log-opts\": {\"max-size\": \"50m\", \"max-file\": \"3\"}"
     fi
     systemctl restart docker && green "✔ Лимит логов Docker применён (для контейнеров, созданных заново — «Пересоздать контейнеры»)"
   fi
@@ -129,6 +129,11 @@ cleanup_menu() {
 }
 
 # ---------- перенос панели ----------
+mig_back() { # перенос не удался — снова запустить панель здесь
+  local c; for c in "$@"; do docker start "$c" >/dev/null 2>&1; done
+  yel "  Панель здесь запущена обратно — всё работает как до переноса."
+}
+
 migrate_panel() {
   local host port ans dump newip oldip stop_old=1 sshc
   need_panel || return 1
@@ -147,13 +152,17 @@ EOF
   ask "SSH-порт [22]"; read -r port; port="${port:-22}"
   sshc=(ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 -p "$port" "$host")
 
+  [[ "${host%%@*}" == root ]] || { fail "Нужен вход под root на новом сервере"; todo "укажи адрес как root@IP"; return 1; }
   info "Проверяю подключение..."
-  "${sshc[@]}" 'echo ok' >/dev/null 2>&1 || {
-    yel "Не удалось войти без пароля. Сейчас попрошу пароль один раз и добавлю ключ."
-    [[ -f "$HOME/.ssh/id_ed25519" ]] || ssh-keygen -t ed25519 -N "" -f "$HOME/.ssh/id_ed25519" -q
-    ssh-copy-id -i "$HOME/.ssh/id_ed25519.pub" -p "$port" -o StrictHostKeyChecking=accept-new "$host" || { red "✖ Нет доступа к $host"; return 1; }
-  }
-  [[ "${host%%@*}" == root ]] || { red "✖ Нужен вход под root на новом сервере"; return 1; }
+  local out; out=$("${sshc[@]}" -o BatchMode=yes 'echo ok' 2>&1 </dev/null)
+  if [[ "$out" != *ok* ]]; then
+    if grep -qiE 'Permission denied \(' <<< "$out"; then
+      yel "Ключа на новом сервере ещё нет. Сейчас попрошу пароль root один раз и добавлю ключ."
+      [[ -f "$HOME/.ssh/id_ed25519" ]] || ssh-keygen -t ed25519 -N "" -f "$HOME/.ssh/id_ed25519" -q
+      out=$(ssh-copy-id -i "$HOME/.ssh/id_ed25519.pub" -p "$port" -o StrictHostKeyChecking=accept-new "$host" 2>&1 | tee /dev/stderr) \
+        || { fail "Нет доступа к $host" ssh "$out"; return 1; }
+    else fail "Нет связи с $host" ssh "$out"; return 1; fi
+  fi
   if "${sshc[@]}" "test -f /opt/remnawave/.env"; then
     yel "⚠ На новом сервере уже есть /opt/remnawave — он будет перезаписан."
   fi
@@ -167,27 +176,32 @@ EOF
   ask "Начать перенос? [y/N]"; read -r ans; [[ "$ans" =~ ^[Yy]$ ]] || return 0
   jlog INFO "Перенос панели: $oldip → $newip"
 
-  info "1/5 Готовлю новый сервер (Docker)..."
-  "${sshc[@]}" 'command -v docker >/dev/null || curl -fsSL https://get.docker.com | sh >/dev/null 2>&1; docker compose version >/dev/null' \
-    || { red "✖ Не удалось поставить Docker на новом сервере"; return 1; }
+  steps 5
+  step "Готовлю новый сервер (Docker)"
+  out=$("${sshc[@]}" 'command -v docker >/dev/null || curl -fsSL https://get.docker.com | sh 2>&1 | tail -20; docker compose version' 2>&1) \
+    || { fail "Docker не установился на новом сервере" docker "$out"; todo "поставь вручную: curl -fsSL https://get.docker.com | sh"; steps_done; return 1; }
 
-  info "2/5 Останавливаю панель и делаю бэкап..."
+  step "Останавливаю панель здесь и делаю бэкап"
   local cts=(); mapfile -t cts < <(app_containers)
   for c in "${cts[@]}"; do docker stop "$c" >/dev/null 2>&1; done
-  backup_db migrate || { for c in "${cts[@]}"; do docker start "$c" >/dev/null; done; red "✖ Бэкап не удался — перенос отменён"; return 1; }
+  backup_db migrate || { for c in "${cts[@]}"; do docker start "$c" >/dev/null; done; red "✖ Перенос отменён — без свежего бэкапа переносить нельзя, панель запущена обратно"; steps_done; return 1; }
   dump=$(ls -1t "$RW_DIR"/backups/db-*-migrate.sql.gz | head -1)
 
-  info "3/5 Копирую файлы ($(du -sh --exclude='backup-domain-*' --exclude='backups' "$RW_DIR" 2>/dev/null | cut -f1))..."
+  step "Копирую файлы ($(du -sh --exclude='backup-domain-*' --exclude='backups' "$RW_DIR" 2>/dev/null | cut -f1)) и дамп"
   tar -C "$RW_DIR" --exclude='./backup-domain-*' --exclude='./backups' --exclude='./data' --exclude='./db' \
       --exclude='./db-data' --exclude='./pgdata' --exclude='./postgres*' -czf - . \
-    | "${sshc[@]}" "mkdir -p /opt/remnawave/backups && tar -xzf - -C /opt/remnawave" || { red "✖ Ошибка копирования"; return 1; }
-  scp -q -P "$port" -o StrictHostKeyChecking=accept-new "$dump" "$host:/opt/remnawave/backups/" || { red "✖ Не скопировался дамп"; return 1; }
+    | "${sshc[@]}" "mkdir -p /opt/remnawave/backups && tar -xzf - -C /opt/remnawave" 2>"$RW_DIR/.migrate.err" \
+    || { fail "Файлы не скопировались" ssh "$(cat "$RW_DIR/.migrate.err")"; mig_back "${cts[@]}"; steps_done; return 1; }
+  scp -q -P "$port" -o StrictHostKeyChecking=accept-new "$dump" "$host:/opt/remnawave/backups/" 2>"$RW_DIR/.migrate.err" \
+    || { fail "Дамп не скопировался" ssh "$(cat "$RW_DIR/.migrate.err")"; mig_back "${cts[@]}"; steps_done; return 1; }
+  rm -f "$RW_DIR/.migrate.err"
   [[ -s "$NODES_FILE" ]] && "${sshc[@]}" "mkdir -p /etc/rw" && scp -q -P "$port" "$NODES_FILE" "$host:$NODES_FILE"
   local me; me=$(readlink -f "$0"); [[ -f "$me" ]] && scp -q -P "$port" "$me" "$host:/usr/local/bin/rw"
 
-  info "4/5 Запускаю базу и восстанавливаю данные на новом сервере..."
+  step "Запускаю базу и восстанавливаю данные на новом сервере"
   db_info >/dev/null 2>&1
-  "${sshc[@]}" "DUMP='/opt/remnawave/backups/$(basename "$dump")' DBU='$DB_USER' DBN='$DB_NAME' DBH='$DB_HOST' bash -s" <<'EOS' || { red "✖ Ошибка на новом сервере"; return 1; }
+  out=$("${sshc[@]}" "DUMP='/opt/remnawave/backups/$(basename "$dump")' DBU='$DB_USER' DBN='$DB_NAME' DBH='$DB_HOST' bash -s" 2>&1 <<'EOS'
+
 set -e
 cd /opt/remnawave
 svc=$(docker compose config --services | grep -iE 'db|postgres' | head -1)
@@ -200,11 +214,14 @@ for f in $(find /opt/remnawave -mindepth 2 -maxdepth 2 \( -name docker-compose.y
 sleep 10
 docker ps --format '  {{.Names}}\t{{.Status}}' | grep -i remna
 EOS
+) || { fail "Панель не запустилась на новом сервере"; why_first "$out" docker db container
+       mig_back "${cts[@]}"; steps_done; return 1; }
+  printf '%s\n' "$out"
   green "✔ Панель запущена на $newip"
   # старая панель не должна сама подняться после перезагрузки и спорить с новой за ноды
   for c in "${cts[@]}"; do docker update --restart=no "$c" >/dev/null 2>&1; done
 
-  info "5/5 Ноды..."
+  step "Разрешаю новый IP панели на нодах"
   if [[ -s "$NODES_FILE" ]]; then
     local lines=() nm h p np
     mapfile -t lines < "$NODES_FILE"
@@ -225,5 +242,6 @@ EOS
   echo "   3. На новом сервере запусти  rw  → «Сертификаты» → перевыпусти, чтобы заработало автопродление."
   echo "   4. Если всё хорошо — старую панель можно удалить. Если нет — запусти её здесь: Панель → Пересоздать контейнеры."
   jlog OK "Перенос панели на $newip завершён"
+  steps_done "Перенос"
 }
 

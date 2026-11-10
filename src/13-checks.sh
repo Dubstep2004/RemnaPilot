@@ -4,7 +4,7 @@ ch_api() { curl -fsS --max-time 15 -H 'Accept: application/json' "https://check-
 ip_check() {
   local ip port info rid res nodes=() n json
   ip=$(curl -4 -s --max-time 6 https://ifconfig.me)
-  [[ -n "$ip" ]] || { red "✖ Не удалось узнать внешний IP"; return 1; }
+  [[ -n "$ip" ]] || { fail "Не узнал внешний IP сервера" net "$(curl -4 -sS --max-time 6 -o /dev/null https://ifconfig.me 2>&1 || true)"; return 1; }
   ask "Порт для проверки [443]"; read -r port; port="${port:-443}"
 
   section "СЕРВЕР"
@@ -84,7 +84,7 @@ sni_check_one() { # домен -> печатает строку оценки; в
   tc=$(for _ in 1 2 3; do curl -s -o /dev/null --max-time 5 -w '%{time_connect}\n' "https://$d/"; done | sort -n | head -1)
   tc=$(awk -v t="${tc:-9}" 'BEGIN{printf "%.0f", t*1000}')
   if (( tc <= 20 )); then score=$((score+1)); elif (( tc > 80 )); then notes+=("далеко (${tc} мс)"); fi
-  if curl -sI --max-time 6 "https://$d/" | grep -qiE '^server: *cloudflare|^cf-ray'; then notes+=("за Cloudflare — нежелательно"); else score=$((score+1)); fi
+  if grep -qiE '^server: *cloudflare|^cf-ray' < <(curl -sI --max-time 6 "https://$d/"); then notes+=("за Cloudflare — нежелательно"); else score=$((score+1)); fi
   local col="$C_OK" mark="✔"; (( score < 7 )) && { col="$C_WARN"; mark="⚠"; }; (( !tls13 || !h2 || !x25519 )) && { col="$C_ERR"; mark="✖"; }
   local nt="всё отлично"; (( ${#notes[@]} )) && nt=$(printf '%s, ' "${notes[@]}") && nt="${nt%, }"
   printf '  %s%s %-30s%s %3s мс  %s%s%s\n' "$col" "$mark" "${d:0:30}" "$C0" "$tc" "$C_MUT" "$nt" "$C0"

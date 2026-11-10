@@ -27,13 +27,20 @@ while [[ $# -gt 0 ]]; do
                    if [[ -n "${2:-}" && "$2" != -* ]]; then self_update "$2"; else self_update_online; fi; exit $? ;;
     --sub)       SUB_NEW="$2"; shift 2 ;;
     --cert-status) DO_CERT_STATUS=1; shift ;;
-    -h|--help)   awk 'NR==1{next} /^#/{sub(/^# ?/,""); print; next} {exit}' "$RP_SELF"; exit 0 ;;
+    -h|--help)   DO_HELP=1; shift ;;
     -v|--version) echo "$RP_NAME $RP_VERSION"; exit 0 ;;
     --lang)      RP_LANG="$2"; [[ "$RP_LANG" == en ]] || RP_LANG=ru; shift 2 ;;
     -*)          red "Неизвестный флаг $1"; exit 1 ;;
     *)           NEW="$1"; shift ;;
   esac
 done
+
+if [[ -n "${DO_HELP:-}" ]]; then        # справка не требует root и идёт до остальной инициализации
+  apply_ui
+  if [[ "$RP_LANG" == en && -f "$RP_SELF" ]] && command -v perl >/dev/null; then rp_load_dict; show_help | rp_translate
+  else show_help; fi
+  exit 0
+fi
 
 [[ $EUID -eq 0 ]] || { red "Запусти от root (sudo)"; exit 1; }
 
@@ -89,13 +96,13 @@ elif [[ -n "${DO_GEO:-}" ]]; then
 elif (( ${DO_CERT_STATUS:-0} )); then
   cert_status
 elif [[ -n "${SUB_NEW:-}" ]]; then
-  run_action "Смена домена подписки" change_sub_domain "$SUB_NEW" "$DRY"
+  run_action "$( (( ${DRY:-0} )) && echo "Предпросмотр смены домена подписки" || echo "Смена домена подписки")" change_sub_domain "$SUB_NEW" "$DRY"
 elif (( ${DO_UPDATE_ALL:-0} )); then
   run_action "Обновление: всё" update_all
 elif (( ${DO_UPDATE:-0} )); then
   run_action "Обновление панели" update_panel
 elif [[ -n "$NEW" ]]; then
-  run_action "Смена домена" change_domain "$NEW" "$OLD" "$DRY"
+  run_action "$( (( ${DRY:-0} )) && echo "Предпросмотр смены домена" || echo "Смена домена")" change_domain "$NEW" "$OLD" "$DRY"
 else
   offer_cmd
   check_whats_new
@@ -107,5 +114,5 @@ else
   fi
   menu
 fi
-exit 0
+exit $?          # код действия: cron и скрипты видят, если обновление или смена домена не удались
 
