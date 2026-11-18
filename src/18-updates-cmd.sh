@@ -129,7 +129,7 @@ update_panel() { # без вопросов; спросит, только есл�
   if backup_db pre-update; then echo "DUMP $(ls -1t "$RW_DIR"/backups/db-*-pre-update.sql.gz | head -1)" >> "$UPD_LOG"
   elif [[ -t 0 ]]; then
     yel "  Без бэкапа откатить базу после неудачного обновления не получится."
-    ask "Продолжить без бэкапа? [y/N]"; read -r ans; [[ "$ans" =~ ^[Yy]$ ]] || { steps_done; return 0; }
+    ask "Продолжить без бэкапа? [y/N]"; read -r ans; [[ "$ans" =~ ^[Yy]$ ]] || { echo "  Отменено."; steps_done; return $RP_CANCEL; }
   else red "✖ Бэкап базы не сделан — без него не обновляю"; steps_done; return 1; fi
 
   step "Скачиваю образы и пересоздаю контейнеры"
@@ -430,7 +430,7 @@ change_dir() {
 # ---------- справка rw --help ----------
 show_help() {
   local A="" B="" M="" Z=""
-  [[ -t 1 ]] && { A="$C_ACC"; B="$CB"; M="$C_MUT"; Z="$C0"; }
+  [[ -t 1 || -n "${RP_HELP_TTY:-}" ]] && { A="$C_ACC"; B="$CB"; M="$C_MUT"; Z="$C0"; }   # в EN справка идёт через фильтр перевода
   h_sec() { printf '\n%s%s%s\n' "$B" "$(T "$1")" "$Z"; }
   h_cmd() { printf '  %s%s%s\n      %s\n' "$A" "$1" "$Z" "$(T "$2")"; }
   h_ex()  { printf '  %s%s%s\n' "$M" "$(T "$1")" "$Z"; }

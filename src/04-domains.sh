@@ -1,7 +1,7 @@
 dns_confirm() { # подтверждение нужно, только если новый домен не указывает на этот сервер
   [[ -n "${DNS_WARN:-}" ]] || return 0
-  echo; yel "  Если домен не указывает на этот сервер, панель по новому адресу не откроется,"
-  yel "  пока не поправишь DNS (откатить: Домены → Откатить смену домена)."
+  echo; yel "  Если домен за прокси Cloudflare — всё в порядке, применяй."
+  yel "  Если нет — панель по новому адресу не откроется, пока не поправишь DNS (откатить: Домены → Откатить смену домена)."
   local ans; ask "Всё равно применить? [y/N]"; read -r ans; [[ "$ans" =~ ^[Yy]$ ]]
 }
 
@@ -48,7 +48,7 @@ change_domain() { # $1 new, $2 old (может быть пустым), $3 dry
   fi
 
   if [[ -z "${DOM_BATCH:-}" ]]; then
-    dns_confirm || { echo "  Отменено."; return 0; }
+    dns_confirm || { echo "  Отменено."; return $RP_CANCEL; }
     BK_DIR=""
   fi
   backup_files "" "${files[@]}"
@@ -176,7 +176,7 @@ change_sub_domain() { # $1 new, $2 dry
       keep=1; info "Старый домен $old_host останется рабочим — ссылки в приложениях клиентов не сломаются."
       echo "    Убрать его потом: Домены → Удалить старые домены."
     fi
-    dns_confirm || { echo "  Отменено."; return 0; }
+    dns_confirm || { echo "  Отменено."; return $RP_CANCEL; }
     BK_DIR=""
   fi
   backup_files "-sub" "${files[@]}"
@@ -265,7 +265,7 @@ change_domains() { # $1 = 1 — только предпросмотр
   [[ -n "$np" ]] && echo "   Панель:   $op → $np"
   [[ -n "$ns" ]] && echo "   Подписка: $os → $ns$( (( keep )) && echo "  (+ старый как алиас)")"
   (( keep )) && echo "   Старый домен подписки останется рабочим — ссылки клиентов не сломаются. Убрать: Домены → Удалить старые домены."
-  dns_confirm || { echo "  Отменено."; return 0; }
+  dns_confirm || { echo "  Отменено."; return $RP_CANCEL; }
 
   BK_DIR=""; export DOM_BATCH=1 SUB_KEEP="$keep"
   [[ -n "$np" ]] && { change_domain "$np" "$op" 0 >/dev/null || { unset DOM_BATCH; return 1; }; green "✔ Панель: $op → $np"; }
@@ -385,7 +385,7 @@ remove_domains() {
   section "БУДЕТ УДАЛЕНО"
   printf '   ✖ %s\n' "${sel[@]}"
   yel "Ссылки подписки и адреса на этих доменах перестанут открываться."
-  ask "Удалить? [y/N]"; read -r ans; [[ "$ans" =~ ^[Yy]$ ]] || { echo "  Отменено."; return 0; }
+  ask "Удалить? [y/N]"; read -r ans; [[ "$ans" =~ ^[Yy]$ ]] || { echo "  Отменено."; return $RP_CANCEL; }
 
   # какие сертификаты затронуты (запомнить до правки)
   for d in "${sel[@]}"; do cf=$(cert_paths_for "$d" 2>/dev/null); [[ -n "$cf" ]] && certs+=("$cf"); done
@@ -432,7 +432,7 @@ rollback() {
   for i in "${!bks[@]}"; do item $((i+1)) "$(basename "${bks[$i]}")" "$(date -r "${bks[$i]}" '+%d.%m %H:%M')"; done
   hr; item 0 "Отмена"
   ask "Номер"; read -r n
-  [[ "$n" =~ ^[0-9]+$ ]] && (( n >= 1 && n <= ${#bks[@]} )) || { echo "Отменено."; return 0; }
+  [[ "$n" =~ ^[0-9]+$ ]] && (( n >= 1 && n <= ${#bks[@]} )) || { echo "Отменено."; return $RP_CANCEL; }
   cp -a "${bks[$((n-1))]}/." "$RW_DIR/"
   green "✓ Файлы восстановлены из $(basename "${bks[$((n-1))]}")"
   echo "Пересоздаю контейнеры..."; stack_down; stack_up

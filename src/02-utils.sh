@@ -54,7 +54,7 @@ check_dns() { # $1 = domain
     yel "⚠ $1 не найден в DNS — сертификат не выпустится, панель по этому адресу не откроется."
     DNS_WARN=1; return 1
   elif [[ -n "$sip" && "$dip" != "$sip" ]]; then
-    yel "⚠ $1 -> $dip, IP сервера $sip (ок, если домен за Cloudflare)."
+    yel "⚠ $1 -> $dip, а IP этого сервера $sip — домен смотрит на другой сервер или за прокси Cloudflare."
     DNS_WARN=1; return 1
   else
     green "✓ DNS: $1 -> $dip"

@@ -54,7 +54,7 @@ restore_db() {
     read -rep "Путь к дампу (.sql или .sql.gz): " f
   elif [[ "$n" =~ ^[0-9]+$ ]] && (( n >= 1 && n <= ${#files[@]} )); then
     f="${files[$((n-1))]}"
-  else echo "Отменено."; return 0; fi
+  else echo "Отменено."; return $RP_CANCEL; fi
   fi
   [[ -f "$f" ]] || { err "файл не найден: $f"; return 1; }
 
@@ -70,7 +70,7 @@ restore_db() {
   db_info || { err "контейнер БД не запущен"; return 1; }
   red "ВНИМАНИЕ: текущие данные базы $DB_NAME будут заменены содержимым $(basename "$f")."
   read -rp "Для подтверждения введи YES: " ans
-  [[ "$ans" == "YES" ]] || { echo "Отменено."; return 0; }
+  [[ "$ans" == "YES" ]] || { echo "Отменено."; return $RP_CANCEL; }
 
   echo "Страховочный бэкап текущей базы..."
   backup_db before-restore || { read -rp "Бэкап не удался. Всё равно продолжить? [y/N] " ans; [[ "$ans" =~ ^[Yy]$ ]] || return 0; }

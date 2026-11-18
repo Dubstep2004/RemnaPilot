@@ -42,7 +42,18 @@ rw
 ---
 
 <!-- whats-new:start -->
-## 🆕 What's new in v2.5
+## 🆕 What's new in v2.5.1
+
+#### 🐛 Fixed
+
+- Almost any panel startup failure was explained as "the migration failed" with advice to roll back — every startup mentions migrations. Now only on a real migration failure
+- An unreachable Redis (Valkey) is no longer reported as an unreachable database
+- A cancelled action was logged as successful and the command exited with 0 — now it's "cancelled" with its own exit code 10
+- rw --help in English is colored again; the Cloudflare domain message no longer contradicts the question
+- Menu input waiting works without perl too
+
+<details>
+<summary><b>Previous version — v2.5</b></summary>
 
 #### ✨ New
 
@@ -67,24 +78,6 @@ rw
 
 - Fewer yes/no questions: confirmation only before irreversible or risky actions — deletion, database restore, firewall, SSH, migration. Domain change asks only if the domain doesn't point to the server; the old subscription domain keeps working automatically
 - A database backup is always made before a panel update; if it fails, auto-update does not update and the menu asks
-
-<details>
-<summary><b>Previous version — v2.4</b></summary>
-
-#### ✨ New
-
-- Live status: the status box refreshes by itself while the menu is open — a stopped panel or a new update shows up right away. Interval and off switch — Other → Appearance → Live status
-
-#### 🚀 Improved
-
-- Removing RemnaPilot warns about the backup encryption password and cleans up its lock files
-
-#### 🐛 Fixed
-
-- After the first menu action, error messages and some prompts (e.g. "Password:" in encryption setup) disappeared — error output is no longer switched off
-- After updating RemnaPilot from the menu the lock stayed held, so auto-backup and auto-update waited in vain — it is released now
-- Auto-backup: if the archive could not be built (disk full), it is an error with a notification, not a "success"
-- A scheduled task that waited 30 minutes for its turn now reports it to the log and Telegram instead of being skipped silently
 
 </details>
 

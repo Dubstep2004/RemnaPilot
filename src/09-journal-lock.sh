@@ -41,7 +41,8 @@ run_action() { # название, команда… — журнал + блок
   local name="$1" rc; shift
   jlog START "$name"
   with_lock "$name" "$@"; rc=$?
-  if (( rc )); then jlog FAIL "$name (код $rc)"; else jlog OK "$name"; fi
+  if (( rc == RP_CANCEL )); then jlog INFO "$name (отменено)"
+  elif (( rc )); then jlog FAIL "$name (код $rc)"; else jlog OK "$name"; fi
   return $rc
 }
 
@@ -60,7 +61,7 @@ journal_fmt() { # режим (all|fail|today), слово для поиска, �
       d = substr(ts, 1, 10); t = substr(ts, 12, 8)
       if (lvl == "START") { open[txt] = NR; sd[NR] = d; st[NR] = t; R[NR] = 0; D[NR] = d; T[NR] = t; L[NR] = "START"; X[NR] = txt; Mt[NR] = m; next }
       # результат действия закрывает его START: «Имя» или «Имя (код N)»
-      base = txt; sub(/ \(код [0-9]+\)$/, "", base)
+      base = txt; sub(/ \((код [0-9]+|отменено)\)$/, "", base)
       dur = ""
       if (base in open) { s0 = open[base]; delete open[base]; done[s0] = 1
         if (sd[s0] == d) { x = secs(t) - secs(st[s0]); if (x >= 60) dur = int(x / 60) " мин"; else if (x >= 10) dur = x " сек" } }
@@ -90,6 +91,7 @@ journal_fmt() { # режим (all|fail|today), слово для поиска, �
         if (L[i] == "OK")    { ic = "✔"; col = cok }
         if (L[i] == "FAIL")  { ic = "✖"; col = cerr }
         if (L[i] == "START") { ic = "⏸"; col = cmut; tail = " — прервано" }
+        if (L[i] == "INFO" && X[i] ~ / \(отменено\)$/) { ic = "–"; col = cmut }
         if (U[i] != "") tail = tail cmut " · " U[i] c0
         printf "   %s%s%s  %s%s %s%s%s\n", cmut, substr(T[i], 1, 5), c0, col, ic, X[i], c0, tail
       }

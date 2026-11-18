@@ -170,7 +170,8 @@ tty_wait() { # секунд → 0, если в терминале есть вв�
   if command -v perl >/dev/null; then
     perl -e 'my $r = ""; vec($r, 0, 1) = 1; exit(select($r, undef, undef, $ARGV[0]) > 0 ? 0 : 1)' "$1" <&0
   else
-    local i; for ((i = 0; i < $1 * 10; i++)); do read -t 0 2>/dev/null && return 0; sleep 0.1; done; return 1
+    local i n; n=$(awk -v s="$1" 'BEGIN { n = int(s * 10 + 0.5); print (n < 1 ? 1 : n) }')   # десятые доли секунды: bash не считает дроби
+    for ((i = 0; i < n; i++)); do read -t 0 2>/dev/null && return 0; sleep 0.1; done; read -t 0 2>/dev/null
   fi
 }
 

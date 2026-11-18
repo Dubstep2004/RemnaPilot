@@ -1634,3 +1634,16 @@ docker-compose не найден в	docker-compose not found in
 Часовой пояс мог ошибочно считаться несуществующим, а UTF-8 — не включаться на системах с большим числом локалей	A valid time zone could be reported as nonexistent, and UTF-8 not enabled on systems with many locales
 Предпросмотр смены домена подписки	Subscription domain change preview
 Предпросмотр смены домена	Domain change preview
+панель не достучалась до Redis (Valkey) — он хранит кэш и очереди	the panel could not reach Redis (Valkey) — it stores the cache and queues
+проверь контейнер: docker ps -a	check the container: docker ps -a
+его логи: docker logs --tail 30 remnawave-redis	its logs: docker logs --tail 30 remnawave-redis
+(отменено)	(cancelled)
+, а IP этого сервера	, while this server's IP is
+— домен смотрит на другой сервер или за прокси Cloudflare.	— the domain points to another server or is behind the Cloudflare proxy.
+Если домен за прокси Cloudflare — всё в порядке, применяй.	If the domain is behind the Cloudflare proxy, it's fine — apply.
+Если нет — панель по новому адресу не откроется, пока не поправишь DNS (откатить: Домены → Откатить смену домена).	Otherwise the panel won't open at the new address until you fix DNS (roll back: Domains → Roll back domain change).
+Почти любой сбой запуска панели объяснялся как «не прошла миграция» с советом откатиться — строки про миграции есть в каждом запуске. Теперь это только при настоящем сбое миграции	Almost any panel startup failure was explained as "the migration failed" with advice to roll back — every startup mentions migrations. Now only on a real migration failure
+Недоступный Redis (Valkey) больше не выдаётся за недоступную базу данных	An unreachable Redis (Valkey) is no longer reported as an unreachable database
+Отменённое действие записывалось в журнал как успешное, а команда завершалась с кодом 0 — теперь «отменено» и отдельный код 10	A cancelled action was logged as successful and the command exited with 0 — now it's "cancelled" with its own exit code 10
+Справка rw --help на английском снова цветная; сообщение про домен за Cloudflare больше не противоречит вопросу	rw --help in English is colored again; the Cloudflare domain message no longer contradicts the question
+Ожидание ввода в меню работает и без perl	Menu input waiting works without perl too
