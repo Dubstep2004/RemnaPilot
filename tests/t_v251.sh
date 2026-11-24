@@ -52,4 +52,12 @@ check "справка в файл/канал — без цветов" '! grep -q
 o=$(run 'curl(){ echo 203.0.113.9; }; getent(){ echo "104.16.1.1 STREAM x"; }; DNS_WARN=""; check_dns x.example.com; dns_confirm <<< n; echo rc=$?')
 check "Cloudflare: нет «ок» рядом с «не откроется»" '! { grep -q "ок, если" <<< "$o" && grep -q "не откроется" <<< "$o"; }'
 out_has "Cloudflare: вопрос задаётся" "Всё равно применить" "$o"
+# --- новый Docker (containerd) пишет про несуществующую версию иначе, чем «manifest unknown» ---
+o=$(run "why docker 'Error response from daemon: failed to resolve reference \"docker.io/remnawave/backend:9.99.99-does-not-exist\": docker.io/remnawave/backend:9.99.99-does-not-exist: not found'")
+out_has "новый Docker: «failed to resolve reference … not found» → нет такой версии" "такой версии образа нет" "$o"
+o=$(run "why docker 'Error response from daemon: manifest for remnawave/backend:9.9 not found: manifest unknown'")
+out_has "старый Docker: «manifest unknown» → нет такой версии" "такой версии образа нет" "$o"
+o=$(run "why docker 'failed to resolve reference \"docker.io/remnawave/backend:2.3\": failed to do request: Head \"https://registry-1.docker.io/v2/remnawave/backend/manifests/2.3\": dial tcp: i/o timeout'")
+check "нет связи с Docker Hub — не «нет такой версии»" '! grep -q "такой версии" <<< "$o" && grep -q "Docker Hub не отвечает" <<< "$o"'
+
 finish

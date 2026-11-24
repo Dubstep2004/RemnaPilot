@@ -29,7 +29,7 @@ why() { # вид (docker|container|apt|ssh|net|telegram|db), текст лога
       if grep -qiE 'toomanyrequests|rate limit' <<< "$t"; then
         cause "Docker Hub ограничил скачивание (лимит на число загрузок с одного IP)"
         todo "подожди 1–6 часов и повтори" "или войди в Docker Hub: docker login"
-      elif grep -qiE 'manifest (for .* )?(unknown|not found)|not found: manifest|repository does not exist' <<< "$t"; then
+      elif grep -qiE 'manifest (for .* )?(unknown|not found)|not found: manifest|repository does not exist|failed to resolve reference .*: not found' <<< "$t"; then
         cause "такой версии образа нет"
         todo "проверь тег image: в docker-compose.yml" "или выбери версию: Панель → Обновления → Закрепить версию панели"
       elif grep -qiE 'registry-1\.docker\.io|docker\.io|production\.cloudflare\.docker\.com|auth\.docker\.io' <<< "$t" \

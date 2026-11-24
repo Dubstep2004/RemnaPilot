@@ -46,6 +46,7 @@ rw
 
 #### 🐛 Fixed
 
+- Newer Docker versions report a nonexistent image version differently ("failed to resolve reference … not found") — RemnaPilot names the cause again
 - Almost any panel startup failure was explained as "the migration failed" with advice to roll back — every startup mentions migrations. Now only on a real migration failure
 - An unreachable Redis (Valkey) is no longer reported as an unreachable database
 - A cancelled action was logged as successful and the command exited with 0 — now it's "cancelled" with its own exit code 10

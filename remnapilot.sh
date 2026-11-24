@@ -658,7 +658,7 @@ why() { # вид (docker|container|apt|ssh|net|telegram|db), текст лога
       if grep -qiE 'toomanyrequests|rate limit' <<< "$t"; then
         cause "Docker Hub ограничил скачивание (лимит на число загрузок с одного IP)"
         todo "подожди 1–6 часов и повтори" "или войди в Docker Hub: docker login"
-      elif grep -qiE 'manifest (for .* )?(unknown|not found)|not found: manifest|repository does not exist' <<< "$t"; then
+      elif grep -qiE 'manifest (for .* )?(unknown|not found)|not found: manifest|repository does not exist|failed to resolve reference .*: not found' <<< "$t"; then
         cause "такой версии образа нет"
         todo "проверь тег image: в docker-compose.yml" "или выбери версию: Панель → Обновления → Закрепить версию панели"
       elif grep -qiE 'registry-1\.docker\.io|docker\.io|production\.cloudflare\.docker\.com|auth\.docker\.io' <<< "$t" \
@@ -3768,6 +3768,7 @@ theme_swatch() { # цветные блоки темы
 
 # ---------- версия ----------
 RP_CHANGELOG=(
+  "2.5.1|fix|Новые версии Docker пишут про несуществующую версию образа иначе («failed to resolve reference … not found») — RemnaPilot снова называет причину"
   "2.5.1|fix|Почти любой сбой запуска панели объяснялся как «не прошла миграция» с советом откатиться — строки про миграции есть в каждом запуске. Теперь это только при настоящем сбое миграции"
   "2.5.1|fix|Недоступный Redis (Valkey) больше не выдаётся за недоступную базу данных"
   "2.5.1|fix|Отменённое действие записывалось в журнал как успешное, а команда завершалась с кодом 0 — теперь «отменено» и отдельный код 10"
@@ -6524,4 +6525,5 @@ docker-compose не найден в	docker-compose not found in
 Отменённое действие записывалось в журнал как успешное, а команда завершалась с кодом 0 — теперь «отменено» и отдельный код 10	A cancelled action was logged as successful and the command exited with 0 — now it's "cancelled" with its own exit code 10
 Справка rw --help на английском снова цветная; сообщение про домен за Cloudflare больше не противоречит вопросу	rw --help in English is colored again; the Cloudflare domain message no longer contradicts the question
 Ожидание ввода в меню работает и без perl	Menu input waiting works without perl too
+Новые версии Docker пишут про несуществующую версию образа иначе («failed to resolve reference … not found») — RemnaPilot снова называет причину	Newer Docker versions report a nonexistent image version differently ("failed to resolve reference … not found") — RemnaPilot names the cause again
 __RP_EN_END__

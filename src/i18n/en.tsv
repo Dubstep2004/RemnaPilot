@@ -1647,3 +1647,4 @@ docker-compose не найден в	docker-compose not found in
 Отменённое действие записывалось в журнал как успешное, а команда завершалась с кодом 0 — теперь «отменено» и отдельный код 10	A cancelled action was logged as successful and the command exited with 0 — now it's "cancelled" with its own exit code 10
 Справка rw --help на английском снова цветная; сообщение про домен за Cloudflare больше не противоречит вопросу	rw --help in English is colored again; the Cloudflare domain message no longer contradicts the question
 Ожидание ввода в меню работает и без perl	Menu input waiting works without perl too
+Новые версии Docker пишут про несуществующую версию образа иначе («failed to resolve reference … not found») — RemnaPilot снова называет причину	Newer Docker versions report a nonexistent image version differently ("failed to resolve reference … not found") — RemnaPilot names the cause again
