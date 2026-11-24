@@ -40,7 +40,8 @@ out=$(bk 'bk_run')
 out_has "с паролем уходит .enc" ".tar.gz.enc]" "$out"
 plain=$(zcat -f "$T/sent" 2>/dev/null | tr -d '\0')       # сначала весь вывод, потом поиск: grep -q обрывает канал (pipefail)
 check "в отправленном файле нет открытых данных" '! grep -qa SECRET_DUMP <<< "$plain"'
-dec=$(printf "MyStrongPass123" | openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass stdin -in "$T/sent" 2>/dev/null | tar -xzO 2>/dev/null | zcat -f 2>/dev/null)
+mkdir -p "$T/dec"; printf "MyStrongPass123" | openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass stdin -in "$T/sent" 2>/dev/null | tar -xz -C "$T/dec" 2>/dev/null
+dec=$(for g in "$T"/dec/*.sql.gz; do zcat "$g"; done 2>/dev/null)   # порядок файлов в архиве не важен
 check "расшифровывается паролем" 'grep -qa SECRET_DUMP <<< "$dec"'
 cp "$T/sent" "$T/x.tar.gz.enc"
 out=$(printf 'wrong\n' | bash -c 'source "'"$F"'"; BK_PASS=/nonexistent; bk_decrypt "'"$T"'/x.tar.gz.enc"' 2>&1 | nocolor)
