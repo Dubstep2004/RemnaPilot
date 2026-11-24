@@ -92,6 +92,7 @@ rw
 ### 🌐 Domains
 - Change the **panel and subscription** domains at once
 - Keep the old subscription domain working — **clients don't break**
+- **Change a node's domain** — in the panel and for clients at once
 - Remove old domains and aliases
 - Preview and **roll back** any change
 
@@ -126,8 +127,10 @@ rw
 <tr>
 <td valign="top">
 
-### 🖥️ Nodes
-- Install locally, via SSH or with one command
+### 🖥️ Panel and nodes
+- **Install the panel** from scratch: Nginx or Caddy, certificate, secrets
+- Install a node locally, via SSH or with one command — with a domain check
+- **Forgot the password** — reset with guidance
 - **All nodes status** on one screen
 - geoip / geosite, **WARP** for ChatGPT etc.
 
@@ -135,7 +138,7 @@ rw
 <td valign="top">
 
 ### 🛡️ Server
-- One-click **firewall**
+- One-click **firewall** and a clear **rules list**
 - SSH hardening: port, fail2ban, key-only login
 - BBR, swap, time sync, disk cleanup
 - **Move the panel** to another server
@@ -200,6 +203,12 @@ Everything is in **Other → Appearance**: theme, number style (`1` `1)` `[1]` `
 ---
 
 ## ❓ FAQ
+
+<details>
+<summary><b>Forgot the panel password?</b></summary>
+
+**Panel → Forgot the panel password.** The old password can't be recovered — the panel stores only its hash — but the superadmin can be reset with the official Rescue CLI. Users, nodes and settings stay. Right after the reset open the panel and register a new administrator: whoever opens it first becomes the admin.
+</details>
 
 <details>
 <summary><b>Is it safe?</b></summary>
