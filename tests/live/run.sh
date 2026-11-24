@@ -51,6 +51,9 @@ sed -i "s|^SUB_PUBLIC_DOMAIN=.*|SUB_PUBLIC_DOMAIN=panel.rp-live.test/api/sub|" .
 docker compose up -d 2>&1 | tail -5
 check "панель запустилась" panel_up
 docker ps --format '   {{.Names}}  {{.Image}}  {{.Status}}'
+echo "── схема базы (для разработки) ──"
+docker exec remnawave-db psql -U postgres -d postgres -c '\dt' 2>&1 | head -60
+for t in nodes hosts; do docker exec remnawave-db psql -U postgres -d postgres -c "\\d $t" 2>&1 | head -60; done
 cd "$ROOT" || exit 1
 mkdir -p /etc/rw; touch "$HOME/.rw-nocmd"
 
