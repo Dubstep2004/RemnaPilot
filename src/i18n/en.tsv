@@ -1846,7 +1846,7 @@ Caddy будет пробовать сам — перезапускать нич
 Вернуть на этом или другом сервере: Панель → Установить панель,	To bring it back on this or another server: Panel → Install panel,
 затем распакуй архив в	then unpack the archive into
 /backups и выбери дамп: База → Восстановить из дампа.	/backups and pick the dump: Database → Restore from dump.
-Remnawave, база и сертификаты	Remnawave, database and certificates
+контейнеры, база и каталог панели	containers, database and the panel directory
 Бэкап:	Backup:
 Обновить RemnaPilot	Update RemnaPilot
 доступна v	available v

@@ -5069,7 +5069,7 @@ item_info() {
     36) echo "Установить панель|Remnawave + nginx или Caddy + HTTPS" ;;
     37) echo "Сменить домен ноды|адрес в панели и у клиентов" ;;
     38) echo "Забыл пароль от панели|сброс через Rescue CLI" ;;
-    39) echo "Удалить панель|Remnawave, база и сертификаты" ;;
+    39) echo "Удалить панель|контейнеры, база и каталог панели" ;;
     40) echo "Обновить RemnaPilot|$(lv=$(cat /etc/rw/.latest_version 2>/dev/null); ver_newer "$RP_VERSION" "$lv" && echo "доступна v$lv" || echo "сейчас v$RP_VERSION")" ;;
   esac
 }
@@ -7277,7 +7277,7 @@ Caddy будет пробовать сам — перезапускать нич
 Вернуть на этом или другом сервере: Панель → Установить панель,	To bring it back on this or another server: Panel → Install panel,
 затем распакуй архив в	then unpack the archive into
 /backups и выбери дамп: База → Восстановить из дампа.	/backups and pick the dump: Database → Restore from dump.
-Remnawave, база и сертификаты	Remnawave, database and certificates
+контейнеры, база и каталог панели	containers, database and the panel directory
 Бэкап:	Backup:
 Обновить RemnaPilot	Update RemnaPilot
 доступна v	available v
