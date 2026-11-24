@@ -42,7 +42,26 @@ rw
 ---
 
 <!-- whats-new:start -->
-## 🆕 What's new in v2.5.1
+## 🆕 What's new in v2.6
+
+#### ✨ New
+
+- Panel installation: Panel → Install panel. Remnawave per docs.rw, secrets and the database password are generated, panel and subscription domains, Nginx or Caddy to choose, a Let's Encrypt certificate
+- Node domain change: Domains → Change node domain. Changes the node address in the panel and for clients (hosts, SNI) in one transaction, with a database backup
+- Domain when installing a node: RemnaPilot asks for it and checks that it points to the node
+- Firewall rules list: port, allowed from and purpose; warns about open panel, database and Redis ports
+- Forgot the panel password: an item in the Panel section with step-by-step Rescue CLI guidance
+
+#### 🚀 Improved
+
+- Certificate auto-renewal opens the firewall port only for the renewal (now iptables too) and stops nginx only if it holds that port — the panel stays up during renewal. Old renewal rules are upgraded automatically
+
+#### 🔄 Changed
+
+- Full menu list numbering shifted: "Change node domain", "Install panel" and "Forgot the panel password" were added. Word search works as before
+
+<details>
+<summary><b>Previous version — v2.5.1</b></summary>
 
 #### 🐛 Fixed
 
@@ -52,33 +71,6 @@ rw
 - A cancelled action was logged as successful and the command exited with 0 — now it's "cancelled" with its own exit code 10
 - rw --help in English is colored again; the Cloudflare domain message no longer contradicts the question
 - Menu input waiting works without perl too
-
-<details>
-<summary><b>Previous version — v2.5</b></summary>
-
-#### ✨ New
-
-- rw --help: every command by section with examples, in Russian and English
-- Tests on a real Remnawave in GitHub Actions: install per docs.rw, domain change and rollback, backup and restore, update and real Docker errors. No release without them
-
-#### 🚀 Improved
-
-- Clear errors: instead of "failed" — the cause and what to do. Docker Hub unreachable or rate-limited, disk full, no such version, port taken, database password mismatch, apt busy, SSH refused, no connection to GitHub or Telegram
-- Log by day: "Today", "Yesterday", icons and action duration; filters "errors only", "today" and word search
-- Progress for long operations: update, auto-backup and panel migration show step 2/4 and the total time
-- Full English translation, including error explanations and Telegram messages; tests check that no Russian is left in EN mode
-
-#### 🐛 Fixed
-
-- Restoring the database from a real compressed dump wrongly said "file is damaged" — the archive is now checked in full, and a truncated dump is reported as truncated
-- Commands without the menu (rw --update, rw domain and others) always exited with code 0 — now cron and scripts see when an action failed
-- A wrong database password is recognized from the panel's own (Prisma) message instead of being taken for a migration failure
-- A valid time zone could be reported as nonexistent, and UTF-8 not enabled on systems with many locales
-
-#### 🔄 Changed
-
-- Fewer yes/no questions: confirmation only before irreversible or risky actions — deletion, database restore, firewall, SSH, migration. Domain change asks only if the domain doesn't point to the server; the old subscription domain keeps working automatically
-- A database backup is always made before a panel update; if it fails, auto-update does not update and the menu asks
 
 </details>
 
@@ -100,6 +92,7 @@ rw
 ### 🌐 Domains
 - Change the **panel and subscription** domains at once
 - Keep the old subscription domain working — **clients don't break**
+- **Change a node's domain** — in the panel and for clients at once
 - Remove old domains and aliases
 - Preview and **roll back** any change
 
@@ -134,8 +127,10 @@ rw
 <tr>
 <td valign="top">
 
-### 🖥️ Nodes
-- Install locally, via SSH or with one command
+### 🖥️ Panel and nodes
+- **Install the panel** from scratch: Nginx or Caddy, certificate, secrets
+- Install a node locally, via SSH or with one command — with a domain check
+- **Forgot the password** — reset with guidance
 - **All nodes status** on one screen
 - geoip / geosite, **WARP** for ChatGPT etc.
 
@@ -143,7 +138,7 @@ rw
 <td valign="top">
 
 ### 🛡️ Server
-- One-click **firewall**
+- One-click **firewall** and a clear **rules list**
 - SSH hardening: port, fail2ban, key-only login
 - BBR, swap, time sync, disk cleanup
 - **Move the panel** to another server
@@ -208,6 +203,12 @@ Everything is in **Other → Appearance**: theme, number style (`1` `1)` `[1]` `
 ---
 
 ## ❓ FAQ
+
+<details>
+<summary><b>Forgot the panel password?</b></summary>
+
+**Panel → Forgot the panel password.** The old password can't be recovered — the panel stores only its hash — but the superadmin can be reset with the official Rescue CLI. Users, nodes and settings stay. Right after the reset open the panel and register a new administrator: whoever opens it first becomes the admin.
+</details>
 
 <details>
 <summary><b>Is it safe?</b></summary>

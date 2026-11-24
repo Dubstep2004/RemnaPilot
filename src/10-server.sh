@@ -31,6 +31,57 @@ public_listeners() { # «порт/протокол процесс» для вс�
     }' | sort -V -u
 }
 
+port_purpose() { # порт → для чего он (по известным портам и тому, кто слушает)
+  local p="$1" who
+  [[ " $(ssh_ports) " == *" $p "* ]] && { echo "SSH — вход на сервер"; return; }
+  [[ -n "${FW_NODE_PORT:-}" && "$p" == "$FW_NODE_PORT" ]] && { echo "нода — связь с панелью"; return; }
+  case "$p" in
+    80)   echo "HTTP — выпуск сертификатов"; return ;;
+    443)  echo "HTTPS — панель или Xray"; return ;;
+    8443) echo "сертификаты (TLS-ALPN)"; return ;;
+    3000) echo "⚠ панель напрямую — лучше закрыть, она работает через nginx"; return ;;
+    5432) echo "⚠ база данных — закрой, снаружи она не нужна"; return ;;
+    6379) echo "⚠ Redis — закрой, снаружи он не нужен"; return ;;
+  esac
+  who=$(public_listeners | awk -v p="$p" '{split($1, a, "/")} a[1] == p {print $2; exit}')
+  [[ -n "$who" ]] && echo "слушает $who" || echo "—"
+}
+
+fw_rules() { # понятный список правил ufw: порт, откуда, для чего
+  local st line to act from p proto c=0 warn=0
+  FW_NODE_PORT=$(local_node_port 2>/dev/null)
+  if ! command -v ufw >/dev/null; then
+    yel "ufw не установлен — правил нет, все порты открыты. Включить: пункт 1 «Настроить одной кнопкой»."
+    return 0
+  fi
+  st=$(ufw status 2>/dev/null)
+  if ! grep -q '^Status: active' <<< "$st"; then
+    yel "Firewall выключен — открыты все порты. Сейчас снаружи слушают:"
+    public_listeners | while read -r p who; do
+      printf '   %s%s%s%s\n' "$CB" "$(padr "$p" 11)" "$C0" "$(port_purpose "${p%/*}")"
+    done
+    echo; info "Включить и оставить нужное: пункт 1 «Настроить одной кнопкой»."
+    return 0
+  fi
+  printf '   %s%s%s%s%s\n' "$C_MUT" "$(padr Порт 12)" "$(padr Откуда 18)" "$(T "Для чего")" "$C0"
+  while IFS= read -r line; do
+    [[ "$line" =~ ^[0-9A-Za-z] ]] || continue
+    [[ "$line" == To* || "$line" == Status* || "$line" == --* ]] && continue
+    [[ "$line" == *"(v6)"* ]] && continue                     # то же правило для IPv6
+    IFS=$'\t' read -r to act from _ < <(sed -E 's/ {2,}/\t/g' <<< "$line")   # 4-е поле — комментарий ufw
+    [[ "$from" == Anywhere ]] && from="$(T "отовсюду")"
+    p="${to%%/*}"; proto="${to#"$p"}"
+    [[ "$act" == ALLOW* ]] || { printf '   %s%s%s%s%s\n' "$C_ERR" "$(padr "$to" 12)" "$(padr "$from" 18)" "$(T "запрещено")" "$C0"; continue; }
+    c=$((c + 1))
+    local why; why=$(port_purpose "${p%%:*}")
+    [[ "$why" == ⚠* ]] && { warn=1; why="${C_WARN}$why${C0}"; }
+    printf '   %s%s%s%s%s\n' "$CB" "$(padr "$to" 12)" "$C0" "$(padr "$from" 18)" "$why"
+  done <<< "$st"
+  (( c )) || echo "   $(T "Нет разрешающих правил — снаружи закрыто всё.")"
+  (( warn )) && { echo; yel "Закрыть лишнее: пункт 3 «Закрыть порт»."; }
+  return 0
+}
+
 # ---------- firewall ----------
 fw_status_box() {
   local st rules
@@ -43,8 +94,7 @@ fw_status_box() {
   local np; np=$(local_node_port 2>/dev/null) && box_line "${C_MUT}$(padr "Нода" 11)${C0}порт $np"
   box_bottom
   if command -v ufw >/dev/null && ufw status 2>/dev/null | grep -q '^Status: active'; then
-    section "ПРАВИЛА"
-    ufw status numbered 2>/dev/null | grep -E '^\[' | sed 's/^/  /'
+    section "ПРАВИЛА"; fw_rules
   fi
 }
 
@@ -137,6 +187,7 @@ firewall_menu() {
     item 2 "Открыть порт"
     item 3 "Закрыть порт"
     item 4 "Выключить firewall"
+    item 5 "Список правил" "порт · откуда · для чего"
     hr; item 0 "Назад"
     ask; read -r c; echo
     case "$c" in
@@ -144,6 +195,7 @@ firewall_menu() {
       2) command -v ufw >/dev/null && run_action "Firewall: открыть порт" fw_port allow; pause ;;
       3) command -v ufw >/dev/null && run_action "Firewall: закрыть порт" fw_port deny; pause ;;
       4) ufw disable >/dev/null && { yel "Firewall выключен. Включить снова: пункт 1"; jlog INFO "Firewall выключен"; }; pause ;;
+      5) section "ПРАВИЛА FIREWALL"; fw_rules; pause ;;
       0|q|"") return ;;
     esac
   done

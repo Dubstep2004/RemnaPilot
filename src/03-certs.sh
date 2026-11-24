@@ -10,21 +10,29 @@ nginx_ct() {
 }
 
 write_renew_hooks() { # $1 = домен, $2 = порт для standalone (пусто для dns)
-  local d="$1" p="${2:-}" ng x
+  # Хуки автопродления (их запускает acme.sh из cron). pre: если порт занят — останавливает то, что его держит,
+  # и открывает порт в firewall; post: закрывает порт и запускает остановленное обратно. Что сделано — в .state.
+  # nginx останавливается, только если он действительно на этом порту: при DNS и при «порт 80» панель не падает.
+  local d="$1" p="${2:-}" ng x st="$HOOK_DIR/$1.state"
   ng=$(nginx_ct)
   mkdir -p "$HOOK_DIR"
   {
     echo '#!/bin/sh'
-    echo "# остановка того, что мешает выпуску (сгенерировано RemnaPilot)"
-    echo "docker stop $ng >/dev/null 2>&1"
-    for x in "${STOPPED_CT[@]:-}";  do [[ -n "$x" ]] && echo "docker stop $x >/dev/null 2>&1"; done
-    for x in "${STOPPED_SVC[@]:-}"; do [[ -n "$x" ]] && echo "systemctl stop $x"; done
-    if [[ -n "$p" ]]; then cat <<EOF
-rm -f $HOOK_DIR/$d.fw
-if command -v ufw >/dev/null && ufw status | grep -q '^Status: active' && ! ufw status | grep -qE '^($p|$p/tcp)[[:space:]]+ALLOW'; then
-  ufw allow $p/tcp >/dev/null && echo ufw > $HOOK_DIR/$d.fw
-elif command -v firewall-cmd >/dev/null && firewall-cmd --state >/dev/null 2>&1 && ! firewall-cmd --query-port=$p/tcp >/dev/null 2>&1; then
-  firewall-cmd --add-port=$p/tcp >/dev/null && echo fwd > $HOOK_DIR/$d.fw
+    echo "# rp-hooks-v2 · сгенерировано RemnaPilot · домен $d · порт ${p:-нет (DNS)}"
+    echo ": > $st"
+    if [[ -n "$p" ]]; then
+      echo "busy() { ss -ltnH 'sport = :$p' 2>/dev/null | grep -q .; }"
+      for x in "$ng" "${STOPPED_CT[@]:-}"; do
+        [[ -n "$x" ]] && echo "busy && docker stop $x >/dev/null 2>&1 && echo 'ct $x' >> $st"
+      done
+      for x in "${STOPPED_SVC[@]:-}"; do [[ -n "$x" ]] && echo "busy && systemctl stop $x && echo 'svc $x' >> $st"; done
+      cat <<EOF
+if command -v ufw >/dev/null && ufw status | grep -q '^Status: active'; then
+  ufw status | grep -qE '^($p|$p/tcp)[[:space:]]+ALLOW' || { ufw allow $p/tcp >/dev/null && echo 'fw ufw' >> $st; }
+elif command -v firewall-cmd >/dev/null && firewall-cmd --state >/dev/null 2>&1; then
+  firewall-cmd --query-port=$p/tcp >/dev/null 2>&1 || { firewall-cmd --add-port=$p/tcp >/dev/null && echo 'fw fwd' >> $st; }
+elif command -v iptables >/dev/null && iptables -S INPUT 2>/dev/null | grep -qE '^-P INPUT (DROP|REJECT)'; then
+  iptables -C INPUT -p tcp --dport $p -j ACCEPT 2>/dev/null || { iptables -I INPUT -p tcp --dport $p -j ACCEPT && echo 'fw ipt' >> $st; }
 fi
 EOF
     fi
@@ -33,22 +41,41 @@ EOF
 
   {
     echo '#!/bin/sh'
+    echo "# rp-hooks-v2 · закрыть порт и запустить остановленное обратно"
+    echo "[ -f $st ] || exit 0"
     if [[ -n "$p" ]]; then cat <<EOF
-case "\$(cat $HOOK_DIR/$d.fw 2>/dev/null)" in
+case "\$(grep '^fw ' $st | cut -d' ' -f2)" in
   ufw) ufw delete allow $p/tcp >/dev/null ;;
   fwd) firewall-cmd --remove-port=$p/tcp >/dev/null ;;
+  ipt) iptables -D INPUT -p tcp --dport $p -j ACCEPT ;;
 esac
-rm -f $HOOK_DIR/$d.fw
 EOF
     fi
-    for x in "${STOPPED_SVC[@]:-}"; do [[ -n "$x" ]] && echo "systemctl start $x"; done
-    for x in "${STOPPED_CT[@]:-}";  do [[ -n "$x" ]] && echo "docker start $x >/dev/null 2>&1"; done
-    echo "docker start $ng >/dev/null 2>&1"
+    echo "grep '^svc ' $st | cut -d' ' -f2 | while read -r x; do systemctl start \"\$x\"; done"
+    echo "grep '^ct ' $st | cut -d' ' -f2 | while read -r x; do docker start \"\$x\" >/dev/null 2>&1; done"
+    echo "rm -f $st"
     echo "exit 0"
   } > "$HOOK_DIR/$d-post.sh"
 
-  printf '#!/bin/sh\ndocker restart %s >/dev/null 2>&1\nexit 0\n' "$ng" > "$HOOK_DIR/$d-reload.sh"
+  # перезагрузка nginx с новым сертификатом: без остановки, а если не вышло — перезапуск
+  printf '#!/bin/sh\ndocker exec %s nginx -s reload >/dev/null 2>&1 || docker restart %s >/dev/null 2>&1\nexit 0\n' "$ng" "$ng" > "$HOOK_DIR/$d-reload.sh"
   chmod +x "$HOOK_DIR/$d"-*.sh
+}
+
+upgrade_renew_hooks() { # хуки старых версий (останавливали nginx всегда, без iptables) → v2, с теми же настройками
+  local f d p cts svcs ng
+  [[ -d "$HOOK_DIR" ]] || return 0
+  for f in "$HOOK_DIR"/*-pre.sh; do
+    [[ -f "$f" ]] || continue
+    grep -q 'rp-hooks-v2' "$f" && continue
+    d=$(basename "$f" -pre.sh); ng=$(nginx_ct)
+    p=$(grep -oE 'ufw allow [0-9]+' "$f" | grep -oE '[0-9]+$' | head -1)
+    mapfile -t cts  < <(grep -oE '^docker stop [^ >]+' "$f" | awk '{print $3}' | grep -vxF "$ng")
+    mapfile -t svcs < <(grep -oE '^systemctl stop [^ >]+' "$f" | awk '{print $3}')
+    STOPPED_CT=("${cts[@]}"); STOPPED_SVC=("${svcs[@]}")
+    write_renew_hooks "$d" "$p"
+    STOPPED_CT=(); STOPPED_SVC=()
+  done
 }
 
 ensure_acme_cron() { # $1 = путь к acme.sh

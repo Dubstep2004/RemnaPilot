@@ -59,6 +59,25 @@ ask_node_params() { # заполняет NP_PORT NP_SECRET NP_PANEL
   read -rp "IP панели (порт ноды откроется только для него; пусто — пропустить) [${def_ip:-}]: " NP_PANEL
   NP_PANEL="${NP_PANEL:-$def_ip}"
   [[ -z "$NP_PANEL" || "$NP_PANEL" =~ ^[0-9.]+$ || "$NP_PANEL" =~ : ]] || { err "некорректный IP"; return 1; }
+  echo "Домен ноды — адрес, который ты укажешь в панели (Ноды → Адрес) и в хостах для клиентов."
+  read -rp "Домен ноды (Enter — без домена, по IP): " NP_DOMAIN; NP_DOMAIN=$(clean_domain "$NP_DOMAIN")
+  [[ -z "$NP_DOMAIN" ]] || valid_domain "$NP_DOMAIN" || { err "«$NP_DOMAIN» — не похоже на домен"; return 1; }
+}
+
+ip_of() { # домен или IP → первый IPv4
+  [[ "$1" =~ ^[0-9]+(\.[0-9]+){3}$ ]] && { echo "$1"; return; }
+  getent ahostsv4 "$1" 2>/dev/null | awk 'NR==1{print $1}'
+}
+
+node_domain_check() { # домен ноды, IP сервера ноды — указывает ли домен на ноду
+  local d="$1" want="$2" got
+  [[ -n "$d" ]] || return 0
+  got=$(ip_of "$d")
+  if [[ -z "$got" ]]; then yel "⚠ Домен ноды $d не найден в DNS — добавь A-запись на ${want:-IP ноды}"
+  elif [[ -n "$want" && "$got" != "$want" ]]; then yel "⚠ Домен ноды $d указывает на $got, а нода на $want — поправь A-запись"
+  else green "✔ Домен ноды $d указывает на ноду ($got)"; fi
+  echo "  В панели: Ноды → нода → Адрес: $d (и в хостах для клиентов)."
+  echo "  Поменять потом: Домены → Сменить домен ноды."
 }
 
 ssh_target() { # $1 user@host, $2 port → печатает sudo-префикс
@@ -67,7 +86,8 @@ ssh_target() { # $1 user@host, $2 port → печатает sudo-префикс
 
 node_install_local() {
   ask_node_params || return 1
-  node_script "$NP_PORT" "$NP_SECRET" "$NP_PANEL" | bash
+  node_script "$NP_PORT" "$NP_SECRET" "$NP_PANEL" | bash || return 1
+  node_domain_check "$NP_DOMAIN" "$(curl -4 -s --max-time 5 https://ifconfig.me)"
 }
 
 node_install_remote() {
@@ -83,6 +103,7 @@ node_install_remote() {
   rc=${PIPESTATUS[1]}
   if (( rc == 0 )); then
     green "✓ Нода установлена на $host"
+    node_domain_check "$NP_DOMAIN" "$(ip_of "${host#*@}")"
     read -rp "Добавить в список для массового обновления? Имя [${host#*@}]: " name
     node_list_add "${name:-${host#*@}}" "$host" "$port"
   else
@@ -96,6 +117,7 @@ node_oneliner() {
   ask_node_params || return 1
   echo; bold "Скопируй целиком и вставь на новом сервере (под root):"; echo
   echo "bash <<'RWNODE'"; node_script "$NP_PORT" "$NP_SECRET" "$NP_PANEL"; echo "RWNODE"
+  [[ -n "$NP_DOMAIN" ]] && { echo; node_domain_check "$NP_DOMAIN" ""; }
 }
 
 node_list_add() { # имя host port
@@ -197,3 +219,55 @@ node_menu() {
   done
 }
 
+
+# ---------- смена домена ноды ----------
+# Адрес ноды хранится в базе панели в двух местах: nodes.address — по нему панель подключается к ноде,
+# hosts.address / sni / host — эти адреса получают клиенты в подписке. Меняем всё в одной транзакции.
+db_q() { docker exec "$DB_CT" psql -U "$DB_USER" -d "$DB_NAME" -tAF $'\t' -v ON_ERROR_STOP=1 -c "$1" 2>&1; }
+sql_s() { local v="${1//\'/\'\'}"; printf "'%s'" "$v"; }   # строка для SQL
+
+node_domain_change() {
+  local rows=() i n sel name old new hosts out ans want got
+  db_info >/dev/null 2>&1 || { fail "База панели не найдена"; cause "контейнер Postgres панели не запущен"; todo "запусти панель: cd $RW_DIR && docker compose up -d"; return 1; }
+  out=$(db_q "SELECT name, address FROM nodes ORDER BY view_position") \
+    || { fail "Не прочитал список нод из базы" db "$out"; return 1; }
+  mapfile -t rows < <(grep . <<< "$out")
+  (( ${#rows[@]} )) || { yel "В панели ещё нет нод — сначала добавь ноду в панели (Ноды → +)."; return 0; }
+  section "НОДЫ В ПАНЕЛИ"
+  for i in "${!rows[@]}"; do item $((i + 1)) "${rows[i]%%$'\t'*}" "${rows[i]#*$'\t'}"; done
+  item 0 "Отмена"
+  ask "Нода"; read -r sel
+  [[ "$sel" =~ ^[0-9]+$ ]] && (( sel >= 1 && sel <= ${#rows[@]} )) || { echo "  Отменено."; return $RP_CANCEL; }
+  name="${rows[sel-1]%%$'\t'*}"; old="${rows[sel-1]#*$'\t'}"
+  hosts=$(db_q "SELECT count(*) FROM hosts WHERE address = $(sql_s "$old") OR sni = $(sql_s "$old") OR host = $(sql_s "$old")")
+  echo "  Нода «$name»: адрес $old; хостов с этим адресом: ${hosts:-0}"
+  ask "Новый домен (или IP) ноды"; read -r new; new=$(clean_domain "$new")
+  [[ -n "$new" && "$new" != "$old" ]] || { echo "  Отменено."; return $RP_CANCEL; }
+  valid_domain "$new" || [[ "$new" =~ ^[0-9]+(\.[0-9]+){3}$ ]] || { err "«$new» — не домен и не IP"; return 1; }
+  [[ "$(db_q "SELECT count(*) FROM nodes WHERE address = $(sql_s "$new")")" == 0 ]] \
+    || { fail "Адрес $new уже занят другой нодой"; todo "в панели у каждой ноды свой адрес"; return 1; }
+  want=$(ip_of "$old"); got=$(ip_of "$new")
+  if [[ -z "$got" ]] || [[ -n "$want" && "$got" != "$want" ]]; then
+    if [[ -z "$got" ]]; then yel "⚠ $new не найден в DNS"; else yel "⚠ $new указывает на $got, а нода сейчас на $want"; fi
+    yel "  Если не поправить DNS, панель потеряет связь с нодой, а клиенты — подключение."
+    ask "Всё равно сменить? [y/N]"; read -r ans; [[ "$ans" =~ ^[Yy]$ ]] || { echo "  Отменено."; return $RP_CANCEL; }
+  else green "✔ $new указывает на ноду ($got)"; fi
+
+  steps 3
+  step "Бэкап базы"
+  backup_db node-domain || { steps_done; return 1; }
+  step "Меняю адрес ноды и хостов"
+  out=$(db_q "BEGIN;
+    UPDATE nodes SET address = $(sql_s "$new"), updated_at = now() WHERE address = $(sql_s "$old");
+    UPDATE hosts SET address = $(sql_s "$new") WHERE address = $(sql_s "$old");
+    UPDATE hosts SET sni = $(sql_s "$new") WHERE sni = $(sql_s "$old");
+    UPDATE hosts SET host = $(sql_s "$new") WHERE host = $(sql_s "$old");
+    COMMIT;") || { fail "Адрес не изменён — база осталась прежней" db "$out"; steps_done; return 1; }
+  step "Перезапускаю панель, чтобы она подхватила адрес"
+  docker restart remnawave >/dev/null 2>&1; wait_healthy remnawave 120 || yel "⚠ Панель долго запускается — проверь: Панель → Логи"
+  steps_done "Смена домена ноды"
+  green "✔ Нода «$name»: $old → $new (хостов: ${hosts:-0})"
+  echo "  Клиенты получат новый адрес при следующем обновлении подписки."
+  echo "  Если у хоста свой TLS-сертификат на ноде (не Reality) — выпусти его для $new."
+  echo "  Вернуть как было: База → Восстановить из дампа (бэкап *-node-domain.sql.gz)."
+}

@@ -36,23 +36,31 @@ panel_up() { # ждёт, пока контейнер панели здоров (
 envv() { grep -m1 "^$1=" "$RW/.env" | cut -d= -f2- | tr -d '"'; }
 
 # ─────────────────────────────────────────────────────────────
-sec "Установка Remnawave по docs.rw"
-mkdir -p "$RW" && cd "$RW" || exit 1
-curl -fsSL -o docker-compose.yml https://raw.githubusercontent.com/remnawave/backend/refs/heads/main/docker-compose-prod.yml
-curl -fsSL -o .env https://raw.githubusercontent.com/remnawave/backend/refs/heads/main/.env.sample
-for k in APP_SECRET METRICS_PASS WEBHOOK_SECRET_HEADER JWT_AUTH_SECRET JWT_API_TOKENS_SECRET; do
-  grep -q "^$k=" .env && sed -i "s/^$k=.*/$k=$(openssl rand -hex 64)/" .env
-done
-pw=$(openssl rand -hex 24)
-sed -i "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$pw/" .env
-sed -i "s|^\(DATABASE_URL=\"postgresql://postgres:\)[^\@]*\(@.*\)|\1$pw\2|" .env
-sed -i "s/^FRONT_END_DOMAIN=.*/FRONT_END_DOMAIN=panel.rp-live.test/" .env
-sed -i "s|^SUB_PUBLIC_DOMAIN=.*|SUB_PUBLIC_DOMAIN=panel.rp-live.test/api/sub|" .env
-docker compose up -d 2>&1 | tail -5
+sec "Установка панели через RemnaPilot (Панель → Установить панель)"
+mkdir -p /etc/rw; touch "$HOME/.rw-nocmd"
+# домены не существуют → RemnaPilot предупредит и спросит (y); веб-сервер 1 = nginx;
+# Let's Encrypt для .test не выпустит → на «другой способ?» отвечаем 0 — панель остаётся с временным сертификатом
+out=$(printf 'panel.rp-live.test\nsub.rp-live.test\ny\n1\n0\n' | fn 'apply_ui; panel_install; echo "rc=$?"')
+noerr "установка панели" "$out"
+printf '%s\n' "$out" | grep -E '/6|✔|✖|⚠|rc=' | sed 's/^/      │ /'
+has "шаги установки 6/6" "6/6" "$out"
+has "честно: сертификат не выпущен (домен .test)" "Сертификат Let's Encrypt не выпущен" "$out"
 check "панель запустилась" panel_up
+check "nginx запущен" '[[ "$(docker inspect -f "{{.State.Status}}" remnawave-nginx 2>/dev/null)" == running ]]'
+check "конфиг nginx правильный (nginx -t)" 'docker exec remnawave-nginx nginx -t >/dev/null 2>&1'
+check "секреты случайные" '[[ "$(envv APP_SECRET)" =~ ^[0-9a-f]{128}$ ]]'
+check "домены в .env" '[[ "$(envv FRONT_END_DOMAIN)" == panel.rp-live.test && "$(envv SUB_PUBLIC_DOMAIN)" == sub.rp-live.test ]]'
+code=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 --resolve panel.rp-live.test:443:127.0.0.1 https://panel.rp-live.test/)
+check "панель открывается через nginx (HTTP $code)" '[[ "$code" =~ ^[23] ]]'
+body=$(curl -sk --max-time 10 --resolve sub.rp-live.test:443:127.0.0.1 https://sub.rp-live.test/nonexistent-short-uuid)
+code=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 --resolve sub.rp-live.test:443:127.0.0.1 https://sub.rp-live.test/nonexistent-short-uuid)
+echo "      │ подписка: HTTP $code · $(head -c 160 <<< "$body")"
+check "домен подписки доходит до панели (не 502 и не ошибка nginx)" '[[ "$code" =~ ^[0-9]+$ && "$code" != 502 && "$code" != 000 ]] && ! grep -qi "<center>nginx" <<< "$body"'
+code=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 --resolve other.rp-live.test:443:127.0.0.1 https://other.rp-live.test/)
+check "чужой домен отклоняется (ssl_reject_handshake)" '[[ "$code" == 000 ]]'
+out=$(printf 'x\n\n1\n' | fn 'panel_install'); has "повторная установка — отказ" "Панель уже установлена" "$out"
 docker ps --format '   {{.Names}}  {{.Image}}  {{.Status}}'
 cd "$ROOT" || exit 1
-mkdir -p /etc/rw; touch "$HOME/.rw-nocmd"
 
 # ─────────────────────────────────────────────────────────────
 sec "Самопроверка и статус"
@@ -72,7 +80,9 @@ check "предпросмотр ничего не поменял" '[[ "$(envv FR
 out=$(printf 'y\n' | rw --skip-cert new.rp-live.test); noerr "смена домена" "$out"
 has "предупредил, что домена нет в DNS" "не найден в DNS" "$out"
 check "FRONT_END_DOMAIN сменился" '[[ "$(envv FRONT_END_DOMAIN)" == new.rp-live.test ]]'
-check "SUB_PUBLIC_DOMAIN сменился вместе с панелью" '[[ "$(envv SUB_PUBLIC_DOMAIN)" == new.rp-live.test/api/sub ]]'
+check "отдельный домен подписки не тронут" '[[ "$(envv SUB_PUBLIC_DOMAIN)" == sub.rp-live.test ]]'
+check "nginx: server_name сменился" 'grep -q "server_name new.rp-live.test;" "$RW/nginx/nginx.conf"'
+check "nginx после смены домена работает" 'docker exec remnawave-nginx nginx -t >/dev/null 2>&1'
 check "панель работает после смены домена" panel_up
 check "в журнале — успех" 'grep -q "| OK    | Смена домена$" /var/log/remnapilot.log'
 check "предпросмотр записан в журнал как предпросмотр" 'grep -q "Предпросмотр смены домена" /var/log/remnapilot.log'
@@ -146,6 +156,21 @@ left=$(perl -CSD -Mutf8 -ne 'print if /\p{Cyrillic}/' <<< "$out" | grep -v 'rp_l
 check "в EN-выводе обновления нет русского" '[[ -z "$left" ]]'; [[ -n "$left" ]] && printf '%s\n' "$left" | head -10 | sed 's/^/      │ /'
 
 # ─────────────────────────────────────────────────────────────
+sec "Смена домена ноды (на настоящей базе)"
+psql_q "INSERT INTO nodes (name, address, port) VALUES ('rp-live-node', 'old-node.rp-live.test', 2222);
+        INSERT INTO hosts (remark, address, port, sni) VALUES ('rp-live-host', 'old-node.rp-live.test', 443, 'old-node.rp-live.test');" >/dev/null
+n=$(psql_q "SELECT count(*) FROM nodes WHERE view_position <= (SELECT view_position FROM nodes WHERE name = 'rp-live-node')")
+out=$(printf '%s\nnew-node.rp-live.test\ny\n' "$n" | fn 'apply_ui; node_domain_change; echo "rc=$?"'); noerr "смена домена ноды" "$out"
+printf '%s\n' "$out" | grep -E '/3|✔|✖|⚠|→|rc=' | sed 's/^/      │ /'
+check "адрес ноды сменился" '[[ "$(psql_q "SELECT address FROM nodes WHERE name = '"'"'rp-live-node'"'"'")" == new-node.rp-live.test ]]'
+check "адрес и SNI хоста сменились" '[[ "$(psql_q "SELECT address || '"'"' '"'"' || sni FROM hosts WHERE remark = '"'"'rp-live-host'"'"'")" == "new-node.rp-live.test new-node.rp-live.test" ]]'
+check "бэкап перед сменой сделан" 'ls "$RW"/backups/db-*-node-domain.sql.gz >/dev/null 2>&1'
+check "панель работает после смены домена ноды" panel_up
+
+sec "Firewall: список правил"
+out=$(fn 'apply_ui; fw_rules'); noerr "список правил" "$out"; printf '%s\n' "$out" | head -12 | sed 's/^/      │ /'
+has "список показывает порт панели" "443" "$out"
+
 sec "Журнал"
 out=$(fn 'apply_ui; journal_fmt all "" 30'); printf '%s\n' "$out" | sed 's/^/      │ /'
 has "журнал по дням" "Сегодня," "$out"

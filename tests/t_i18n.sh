@@ -63,8 +63,8 @@ touch "$HOME/.rw-nocmd" /etc/rw/autoupdate.conf /etc/rw/.latest_version
 JS=/var/log/remnapilot.log; [ -f "$JS" ] && cp -a "$JS" "$T/journal.saved"
 printf '%s 10:00:00 | OK    | Смена домена\n' "$(date +%F)" > "$JS"
 menu_all=""
-for n in $(seq 1 33); do
-  [ "$n" = 30 ] && continue                                  # переключатель языка
+for n in $(seq 1 36); do
+  [ "$n" = 33 ] && continue                                  # переключатель языка
   menu_all+=$(printf '%s\n' "$n" "" "" 0 "" 0 0 0 0 | PATH="$T/bin:$PATH" TERM=xterm-256color RP_NO_LIVE=1 RP_LANG=en \
               timeout 40 script -qc "bash '$SCRIPT'" /dev/null 2>&1 | nocolor)$'\n'
 done
