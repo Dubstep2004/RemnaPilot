@@ -24,10 +24,10 @@ out=$(L=en menu cert 0 0); out_has "поиск по-английски" "◆ Cer
 
 # удаление: без YES ничего не удаляется
 rm -f /etc/rw/ui.conf; install -m 755 "$SCRIPT" /usr/local/bin/rw; echo "x" > /etc/cron.d/remnapilot-update
-out=$(menu 37 n no 0)
+out=$(menu 40 n no 0)
 check "без YES ничего не удалено" '[ -x /usr/local/bin/rw ] && [ -d /etc/rw ] && [ -f /etc/cron.d/remnapilot-update ]'
 echo dump > /opt/remnawave/backups/db-1.sql.gz
-out=$(menu 37 y YES)
+out=$(menu 40 y YES)
 out_has "удаление завершено" "RemnaPilot удалён" "$out"
 check "команда rw удалена" '[ ! -e /usr/local/bin/rw ]'
 check "настройки и расписания удалены" '[ ! -e /etc/rw ] && [ ! -e /etc/cron.d/remnapilot-update ]'

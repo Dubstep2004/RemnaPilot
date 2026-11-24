@@ -263,3 +263,62 @@ panel_install() {
   echo "  Дальше: Ноды → Установка — поставить ноду; Сервер → Firewall — закрыть лишние порты."
   (( le )) || return 1
 }
+
+# ---------- удаление панели ----------
+confirm_delete() { # подсказка → 0, если человек ввёл УДАЛИТЬ (или DELETE)
+  local a; ask "$1 — введи УДАЛИТЬ"; read -r a
+  [[ "$a" == "УДАЛИТЬ" || "$a" == "удалить" || "$a" == "DELETE" || "$a" == "delete" ]]
+}
+
+panel_uninstall() {
+  local dir="$RW_DIR" c cs=() doms=() d acme bk tmp out
+  case "${dir%/}" in ""|/|/root|/opt|/home|/etc|/var|/usr) fail "Каталог панели «$dir» удалять опасно"; todo "Прочее → Сменить каталог панели"; return 1 ;; esac
+  [[ -f "$dir/.env" || -n "$(find_composes 2>/dev/null)" ]] || { fail "Панель не найдена в $dir"; todo "если она в другом месте: Прочее → Сменить каталог панели"; return 1; }
+  mapfile -t cs < <(find_composes | awk -v r="$dir/docker-compose.yml" '$0 != r' ; [[ -f "$dir/docker-compose.yml" ]] && echo "$dir/docker-compose.yml")
+  mapfile -t doms < <({ detect_old; all_proxy_domains 2>/dev/null; sub_host; } | grep -E '^[A-Za-z0-9.-]+\.[A-Za-z]{2,}$' | sort -u)
+  local names; names=$(for c in "${cs[@]}"; do (cd "$(dirname "$c")" && docker compose -f "$c" ps -a --format '{{.Name}}' 2>/dev/null); done | sort -u | tr '\n' ' ')
+  red "Будет удалено навсегда:"
+  echo "  • контейнеры панели, базы, Redis и веб-сервера: ${names:-—}"
+  echo "  • база данных: пользователи, ноды, хосты, настройки панели"
+  echo "  • каталог $dir"
+  (( ${#doms[@]} )) && echo "  • сертификаты: ${doms[*]}"
+  green "Останется: ноды на других серверах, RemnaPilot, firewall и SSH."
+  echo "  Перед удалением сделаю последний бэкап — его можно будет развернуть на новой панели."
+  echo
+  confirm_delete "Удалить панель" || { echo "  Отменено."; return $RP_CANCEL; }
+
+  steps 4
+  step "Последний бэкап базы и настроек"
+  bk="${RP_REMOVED_DIR:-/root}/remnawave-removed-$(date +%Y%m%d-%H%M%S).tar.gz"; tmp=$(mktemp -d)
+  if backup_db removed >/dev/null 2>&1; then cp -a "$(ls -1t "$dir"/backups/db-*-removed.sql.gz | head -1)" "$tmp/"
+  else
+    local why; why=$(why_short db "$BK_ERR"); yel "⚠ Бэкап базы не получился${why:+: $why}."
+    confirm_delete "Удалить без бэкапа базы? Данные пропадут" || { rm -rf "$tmp"; echo "  Отменено."; steps_done; return $RP_CANCEL; }
+  fi
+  for c in .env docker-compose.yml nginx/nginx.conf caddy/Caddyfile; do [[ -f "$dir/$c" ]] && cp -a "$dir/$c" "$tmp/${c//\//-}"; done
+  [[ -s "$NODES_FILE" ]] && cp -a "$NODES_FILE" "$tmp/"
+  tar -C "$tmp" -czf "$bk" . && chmod 600 "$bk" && green "✔ Бэкап: $bk ($(du -h "$bk" | cut -f1))"
+  rm -rf "$tmp"
+
+  step "Останавливаю и удаляю контейнеры и данные"
+  for c in "${cs[@]}"; do
+    out=$(cd "$(dirname "$c")" && docker compose -f "$c" down -v --rmi all --remove-orphans 2>&1) || log_tail "$out" 3
+  done
+
+  step "Удаляю сертификаты и их автопродление"
+  acme=$(acme_bin 2>/dev/null)
+  for d in "${doms[@]}"; do
+    [[ -n "$acme" ]] && "$acme" --remove -d "$d" >/dev/null 2>&1
+    rm -rf "$HOME/.acme.sh/$d" "$HOME/.acme.sh/${d}_ecc"
+    rm -f "$HOOK_DIR/$d"-*.sh "$HOOK_DIR/$d.state" "$HOOK_DIR/$d.fw"
+  done
+
+  step "Удаляю каталог панели"
+  rm -rf "${dir:?}"
+  if [[ "$(bk_get SCHED off)" != off ]]; then bk_set SCHED off; bk_install_cron; info "Автобэкап выключен — бэкапить больше нечего"; fi
+  steps_done "Удаление панели"
+  green "✔ Панель удалена."
+  echo "  Бэкап: $bk"
+  echo "  Вернуть на этом или другом сервере: Панель → Установить панель,"
+  echo "  затем распакуй архив в $dir/backups и выбери дамп: База → Восстановить из дампа."
+}

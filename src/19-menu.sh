@@ -40,6 +40,8 @@ item_info() {
     36) echo "Установить панель|Remnawave + nginx или Caddy + HTTPS" ;;
     37) echo "Сменить домен ноды|адрес в панели и у клиентов" ;;
     38) echo "Забыл пароль от панели|сброс через Rescue CLI" ;;
+    39) echo "Удалить панель|Remnawave, база и сертификаты" ;;
+    40) echo "Обновить RemnaPilot|$(lv=$(cat /etc/rw/.latest_version 2>/dev/null); ver_newer "$RP_VERSION" "$lv" && echo "доступна v$lv" || echo "сейчас v$RP_VERSION")" ;;
   esac
 }
 
@@ -50,7 +52,7 @@ MENU_SECTIONS=(
   "Ноды|статус · geo · WARP|13 14 15 16"
   "Сервер|firewall · SSH · BBR · swap|17 18 19 20 21 22 23"
   "Проверки|IP · SNI для Reality|24 25"
-  "Прочее|оформление · Telegram · язык|33 34 26 27 28 29 30 35"
+  "Прочее|оформление · Telegram · язык|33 34 26 27 28 29 30 40 39 35"
 )
 
 menu_mode() { local m; m=$(cat /etc/rw/menu_mode 2>/dev/null); [[ "$m" == sections ]] && echo sections || echo flat; }
@@ -115,6 +117,8 @@ run_item() { # внутренний номер пункта → действие
     36) run_action "Установка панели" panel_install; pause ;;
     37) run_action "Смена домена ноды" node_domain_change; pause ;;
     38) run_action "Сброс пароля панели" reset_admin; pause ;;
+    39) screen "Удаление панели"; echo; run_action "Удаление панели" panel_uninstall; pause ;;
+    40) screen "Обновление RemnaPilot"; echo; self_update_menu; pause ;;
     28) install_cmd; pause ;;
     29) change_dir; pause ;;
     30) about_screen; pause ;;

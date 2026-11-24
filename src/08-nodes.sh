@@ -204,9 +204,10 @@ node_menu() {
     item 3 "Показать команду установки" "скопировать и вставить на сервере"
     item 4 "Список нод"
     item 5 "Добавить ноду в список"
-    item 6 "Удалить ноду из списка"
+    item 6 "Убрать ноду из списка" "сама нода не удаляется"
     item 7 "Настроить вход по SSH-ключу" "без паролей"
     item 8 "Обновить ноды по SSH"
+    item 9 "Удалить ноду" "контейнер и файлы — здесь или по SSH"
     hr; item 0 "Назад"
     ask; read -r c
     case "$c" in
@@ -214,11 +215,50 @@ node_menu() {
       3) node_oneliner; pause ;;       4) node_list_show; pause ;;
       5) node_add_menu; pause ;;       6) node_remove_menu; pause ;;
       7) node_ssh_key; pause ;;        8) run_action "Обновление нод по SSH" nodes_update; pause ;;
+      9) run_action "Удаление ноды" node_uninstall; pause ;;
       0|q) return ;;
     esac
   done
 }
 
+
+# ---------- удаление ноды ----------
+node_rm_script() {
+  cat <<'EOF'
+d=""; for x in /opt/remnanode /opt/remnawave-node; do [ -d "$x" ] && d="$x"; done
+[ -n "$d" ] || { echo NO_NODE_DIR; exit 3; }
+cd "$d" || exit 1
+c=docker-compose.yml; [ -f "$c" ] || c=compose.yml
+docker compose -f "$c" down --rmi all --remove-orphans 2>&1 | tail -3
+cd / && rm -rf "$d" && echo "REMOVED $d"
+EOF
+}
+
+node_uninstall() {
+  local t nm h p out np
+  pick_targets "КАКУЮ НОДУ УДАЛИТЬ" || { echo "  Отменено."; return $RP_CANCEL; }
+  (( ${#TARGETS[@]} == 1 )) || { yel "Удаляю по одной ноде — выбери номер, а не «все»."; return $RP_CANCEL; }
+  t="${TARGETS[0]}"; nm=$(target_name "$t")
+  [[ "$t" == local ]] && np=$(local_node_port 2>/dev/null)
+  red "Будет удалено на сервере «$nm»: контейнер remnanode, его образ и каталог /opt/remnanode."
+  echo "  Клиенты, подключённые через эту ноду, потеряют связь."
+  confirm_delete "Удалить ноду «$nm»" || { echo "  Отменено."; return $RP_CANCEL; }
+  steps 2
+  step "Удаляю контейнер и файлы ноды"
+  out=$(run_on "$t" "$(node_rm_script)" 2>&1)
+  if [[ "$out" == *NO_NODE_DIR* ]]; then yel "На сервере «$nm» ноды уже нет (/opt/remnanode не найден)."
+  elif [[ "$out" != *REMOVED* ]]; then fail "Нода не удалилась" "" ""; why_first "$out" ssh docker; steps_done; return 1; fi
+  step "Убираю из списка RemnaPilot"
+  if [[ "$t" != local ]]; then
+    IFS='|' read -r nm h p <<< "$t"
+    NM="$nm" H="$h" P="$p" perl -ni -e 'print unless $_ eq "$ENV{NM} $ENV{H} $ENV{P}\n"' "$NODES_FILE"
+  fi
+  steps_done "Удаление ноды"
+  green "✔ Нода «$nm» удалена."
+  echo "  В панели удали её тоже: Ноды → нода → Удалить — иначе она будет висеть офлайн."
+  [[ -n "$np" ]] && echo "  Правило firewall для порта $np осталось — закрыть: Сервер → Firewall → Закрыть порт."
+  return 0
+}
 
 # ---------- смена домена ноды ----------
 # Адрес ноды хранится в базе панели в двух местах: nodes.address — по нему панель подключается к ноде,

@@ -175,6 +175,30 @@ sec "Журнал"
 out=$(fn 'apply_ui; journal_fmt all "" 30'); printf '%s\n' "$out" | sed 's/^/      │ /'
 has "журнал по дням" "Сегодня," "$out"
 
+# ─────────────────────────────────────────────────────────────
+sec "Удаление ноды (на этом сервере)"
+mkdir -p /opt/remnanode && printf 'services:\n  remnanode:\n    image: alpine:3.20\n    container_name: remnanode\n    command: sleep infinity\n' > /opt/remnanode/docker-compose.yml
+(cd /opt/remnanode && docker compose up -d >/dev/null 2>&1)
+check "тестовая нода запущена" '[[ "$(docker inspect -f "{{.State.Status}}" remnanode 2>/dev/null)" == running ]]'
+out=$(printf '1\nнет\n' | fn 'apply_ui; node_uninstall; echo "rc=$?"'); has "без слова УДАЛИТЬ — отмена" "rc=10" "$out"
+check "…нода на месте" '[[ -d /opt/remnanode ]]'
+out=$(printf '1\nУДАЛИТЬ\n' | fn 'apply_ui; node_uninstall; echo "rc=$?"'); noerr "удаление ноды" "$out"
+printf '%s\n' "$out" | grep -E '/2|✔|✖|rc=' | sed 's/^/      │ /'
+check "контейнер ноды удалён" '! docker ps -a --format "{{.Names}}" | grep -qx remnanode'
+check "каталог ноды удалён" '[[ ! -e /opt/remnanode ]]'
+
+sec "Удаление панели"
+out=$(printf 'УДАЛИТЬ\n' | fn 'apply_ui; panel_uninstall; echo "rc=$?"'); noerr "удаление панели" "$out"
+printf '%s\n' "$out" | grep -E '/4|✔|✖|⚠|rc=' | sed 's/^/      │ /'
+has "панель удалена" "Панель удалена" "$out"
+check "контейнеры панели удалены" '! docker ps -a --format "{{.Names}}" | grep -qE "^(remnawave|remnawave-db|remnawave-redis|remnawave-nginx)$"'
+check "данные базы удалены (том)" '! docker volume ls --format "{{.Name}}" | grep -q remnawave-db-data'
+check "каталог панели удалён" '[[ ! -e /opt/remnawave ]]'
+bk=$(ls -1t /root/remnawave-removed-*.tar.gz 2>/dev/null | head -1)
+check "последний бэкап сохранён вне панели" '[[ -s "$bk" ]] && tar -tzf "$bk" | grep -q "\.sql\.gz$"'
+zdump=$(tar -xzOf "$bk" --wildcards "*.sql.gz" 2>/dev/null | zcat 2>/dev/null)
+check "…и в нём настоящие данные (маркер из теста бэкапа)" 'grep -q rp_live_marker <<< "$zdump"'
+
 echo
 if (( FAILS )); then printf '\e[31mНе прошло: %d из %d\e[0m\n' "$FAILS" $((FAILS + PASSES)); exit 1; fi
 printf '\e[32mВсе проверки на настоящей панели прошли: %d\e[0m\n' "$PASSES"
