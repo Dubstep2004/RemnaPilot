@@ -54,7 +54,7 @@ set -o pipefail
 export PATH="$PATH:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"   # cron даёт урезанный PATH
 RP_NAME="RemnaPilot"
 RP_CANCEL=10        # код «отменено пользователем»: не успех и не ошибка (журнал пишет «отменено»)
-RP_VERSION="2.5.1"
+RP_VERSION="2.6"
 CERT_METHOD="${CERT_METHOD:-}"
 STOPPED_CT=(); STOPPED_SVC=(); FW_OPENED=()
 
@@ -786,21 +786,29 @@ nginx_ct() {
 }
 
 write_renew_hooks() { # $1 = домен, $2 = порт для standalone (пусто для dns)
-  local d="$1" p="${2:-}" ng x
+  # Хуки автопродления (их запускает acme.sh из cron). pre: если порт занят — останавливает то, что его держит,
+  # и открывает порт в firewall; post: закрывает порт и запускает остановленное обратно. Что сделано — в .state.
+  # nginx останавливается, только если он действительно на этом порту: при DNS и при «порт 80» панель не падает.
+  local d="$1" p="${2:-}" ng x st="$HOOK_DIR/$1.state"
   ng=$(nginx_ct)
   mkdir -p "$HOOK_DIR"
   {
     echo '#!/bin/sh'
-    echo "# остановка того, что мешает выпуску (сгенерировано RemnaPilot)"
-    echo "docker stop $ng >/dev/null 2>&1"
-    for x in "${STOPPED_CT[@]:-}";  do [[ -n "$x" ]] && echo "docker stop $x >/dev/null 2>&1"; done
-    for x in "${STOPPED_SVC[@]:-}"; do [[ -n "$x" ]] && echo "systemctl stop $x"; done
-    if [[ -n "$p" ]]; then cat <<EOF
-rm -f $HOOK_DIR/$d.fw
-if command -v ufw >/dev/null && ufw status | grep -q '^Status: active' && ! ufw status | grep -qE '^($p|$p/tcp)[[:space:]]+ALLOW'; then
-  ufw allow $p/tcp >/dev/null && echo ufw > $HOOK_DIR/$d.fw
-elif command -v firewall-cmd >/dev/null && firewall-cmd --state >/dev/null 2>&1 && ! firewall-cmd --query-port=$p/tcp >/dev/null 2>&1; then
-  firewall-cmd --add-port=$p/tcp >/dev/null && echo fwd > $HOOK_DIR/$d.fw
+    echo "# rp-hooks-v2 · сгенерировано RemnaPilot · домен $d · порт ${p:-нет (DNS)}"
+    echo ": > $st"
+    if [[ -n "$p" ]]; then
+      echo "busy() { ss -ltnH 'sport = :$p' 2>/dev/null | grep -q .; }"
+      for x in "$ng" "${STOPPED_CT[@]:-}"; do
+        [[ -n "$x" ]] && echo "busy && docker stop $x >/dev/null 2>&1 && echo 'ct $x' >> $st"
+      done
+      for x in "${STOPPED_SVC[@]:-}"; do [[ -n "$x" ]] && echo "busy && systemctl stop $x && echo 'svc $x' >> $st"; done
+      cat <<EOF
+if command -v ufw >/dev/null && ufw status | grep -q '^Status: active'; then
+  ufw status | grep -qE '^($p|$p/tcp)[[:space:]]+ALLOW' || { ufw allow $p/tcp >/dev/null && echo 'fw ufw' >> $st; }
+elif command -v firewall-cmd >/dev/null && firewall-cmd --state >/dev/null 2>&1; then
+  firewall-cmd --query-port=$p/tcp >/dev/null 2>&1 || { firewall-cmd --add-port=$p/tcp >/dev/null && echo 'fw fwd' >> $st; }
+elif command -v iptables >/dev/null && iptables -S INPUT 2>/dev/null | grep -qE '^-P INPUT (DROP|REJECT)'; then
+  iptables -C INPUT -p tcp --dport $p -j ACCEPT 2>/dev/null || { iptables -I INPUT -p tcp --dport $p -j ACCEPT && echo 'fw ipt' >> $st; }
 fi
 EOF
     fi
@@ -809,22 +817,41 @@ EOF
 
   {
     echo '#!/bin/sh'
+    echo "# rp-hooks-v2 · закрыть порт и запустить остановленное обратно"
+    echo "[ -f $st ] || exit 0"
     if [[ -n "$p" ]]; then cat <<EOF
-case "\$(cat $HOOK_DIR/$d.fw 2>/dev/null)" in
+case "\$(grep '^fw ' $st | cut -d' ' -f2)" in
   ufw) ufw delete allow $p/tcp >/dev/null ;;
   fwd) firewall-cmd --remove-port=$p/tcp >/dev/null ;;
+  ipt) iptables -D INPUT -p tcp --dport $p -j ACCEPT ;;
 esac
-rm -f $HOOK_DIR/$d.fw
 EOF
     fi
-    for x in "${STOPPED_SVC[@]:-}"; do [[ -n "$x" ]] && echo "systemctl start $x"; done
-    for x in "${STOPPED_CT[@]:-}";  do [[ -n "$x" ]] && echo "docker start $x >/dev/null 2>&1"; done
-    echo "docker start $ng >/dev/null 2>&1"
+    echo "grep '^svc ' $st | cut -d' ' -f2 | while read -r x; do systemctl start \"\$x\"; done"
+    echo "grep '^ct ' $st | cut -d' ' -f2 | while read -r x; do docker start \"\$x\" >/dev/null 2>&1; done"
+    echo "rm -f $st"
     echo "exit 0"
   } > "$HOOK_DIR/$d-post.sh"
 
-  printf '#!/bin/sh\ndocker restart %s >/dev/null 2>&1\nexit 0\n' "$ng" > "$HOOK_DIR/$d-reload.sh"
+  # перезагрузка nginx с новым сертификатом: без остановки, а если не вышло — перезапуск
+  printf '#!/bin/sh\ndocker exec %s nginx -s reload >/dev/null 2>&1 || docker restart %s >/dev/null 2>&1\nexit 0\n' "$ng" "$ng" > "$HOOK_DIR/$d-reload.sh"
   chmod +x "$HOOK_DIR/$d"-*.sh
+}
+
+upgrade_renew_hooks() { # хуки старых версий (останавливали nginx всегда, без iptables) → v2, с теми же настройками
+  local f d p cts svcs ng
+  [[ -d "$HOOK_DIR" ]] || return 0
+  for f in "$HOOK_DIR"/*-pre.sh; do
+    [[ -f "$f" ]] || continue
+    grep -q 'rp-hooks-v2' "$f" && continue
+    d=$(basename "$f" -pre.sh); ng=$(nginx_ct)
+    p=$(grep -oE 'ufw allow [0-9]+' "$f" | grep -oE '[0-9]+$' | head -1)
+    mapfile -t cts  < <(grep -oE '^docker stop [^ >]+' "$f" | awk '{print $3}' | grep -vxF "$ng")
+    mapfile -t svcs < <(grep -oE '^systemctl stop [^ >]+' "$f" | awk '{print $3}')
+    STOPPED_CT=("${cts[@]}"); STOPPED_SVC=("${svcs[@]}")
+    write_renew_hooks "$d" "$p"
+    STOPPED_CT=(); STOPPED_SVC=()
+  done
 }
 
 ensure_acme_cron() { # $1 = путь к acme.sh
@@ -1666,22 +1693,35 @@ security_check() {
   echo "Бэкап старого .env лежит рядом: .env.bak-*"
 }
 
-reset_admin() {
-  local ct; ct=$(app_containers | head -1)
-  yel "Откроется Rescue CLI панели. «Reset superadmin» удалит текущего суперадмина —"
-  yel "после этого открой панель в браузере и зарегистрируй нового."
-  read -rp "Запустить? [y/N] " a; [[ "$a" =~ ^[Yy]$ ]] || return 0
+reset_admin() { # «забыл пароль от панели»: сброс суперадмина через официальный Rescue CLI
+  local ct a dom; ct=$(app_containers | head -1)
+  [[ -n "$ct" ]] || { fail "Панель не запущена"; todo "запусти: cd $RW_DIR && docker compose up -d"; return 1; }
+  [[ -t 0 ]] || { fail "Нужен терминал"; cause "Rescue CLI панели работает только в интерактивном окне SSH"; return 1; }
+  dom=$(detect_old)
+  echo "Пароль администратора панель хранит только в виде хеша — узнать его нельзя, можно только сбросить."
+  echo "Сброс удаляет учётную запись суперадмина. Пользователи, ноды, хосты и настройки остаются."
+  echo
+  bold "Что будет:"
+  echo "  1. Откроется Rescue CLI панели — выбери в нём сброс суперадмина (Reset superadmin) и подтверди."
+  echo "     Если вход по паролю был выключен (только Telegram или OAuth) — там же можно включить его снова."
+  echo "  2. Закрой Rescue CLI."
+  echo "  3. Сразу открой ${dom:+https://$dom}${dom:-панель} в браузере и зарегистрируй нового администратора."
+  yel "  Первый, кто откроет панель после сброса, станет администратором — не откладывай шаг 3."
+  echo
+  ask "Сбросить суперадмина? Это нельзя отменить [y/N]"; read -r a; [[ "$a" =~ ^[Yy]$ ]] || { echo "  Отменено."; return $RP_CANCEL; }
   docker exec -it "$ct" cli
+  echo
+  green "Готово. Теперь открой ${dom:+https://$dom}${dom:-панель} и зарегистрируй администратора."
 }
 
 security_menu() {
   while true; do
     screen "Безопасность"
     item 1 "Проверить и исправить секреты, пароль БД, открытые порты"
-    item 2 "Сбросить суперадмина / включить вход по паролю" "Rescue CLI"
+    item 2 "Забыл пароль от панели" "сброс суперадмина · Rescue CLI"
     hr; item 0 "Назад"
     ask; read -r c
-    case "$c" in 1) run_action "Безопасность: проверка" security_check; pause ;; 2) run_action "Сброс суперадмина" reset_admin; pause ;; 0|q) return ;; esac
+    case "$c" in 1) run_action "Безопасность: проверка" security_check; pause ;; 2) run_action "Сброс пароля панели" reset_admin; pause ;; 0|q) return ;; esac
   done
 }
 
@@ -1816,6 +1856,25 @@ ask_node_params() { # заполняет NP_PORT NP_SECRET NP_PANEL
   read -rp "IP панели (порт ноды откроется только для него; пусто — пропустить) [${def_ip:-}]: " NP_PANEL
   NP_PANEL="${NP_PANEL:-$def_ip}"
   [[ -z "$NP_PANEL" || "$NP_PANEL" =~ ^[0-9.]+$ || "$NP_PANEL" =~ : ]] || { err "некорректный IP"; return 1; }
+  echo "Домен ноды — адрес, который ты укажешь в панели (Ноды → Адрес) и в хостах для клиентов."
+  read -rp "Домен ноды (Enter — без домена, по IP): " NP_DOMAIN; NP_DOMAIN=$(clean_domain "$NP_DOMAIN")
+  [[ -z "$NP_DOMAIN" ]] || valid_domain "$NP_DOMAIN" || { err "«$NP_DOMAIN» — не похоже на домен"; return 1; }
+}
+
+ip_of() { # домен или IP → первый IPv4
+  [[ "$1" =~ ^[0-9]+(\.[0-9]+){3}$ ]] && { echo "$1"; return; }
+  getent ahostsv4 "$1" 2>/dev/null | awk 'NR==1{print $1}'
+}
+
+node_domain_check() { # домен ноды, IP сервера ноды — указывает ли домен на ноду
+  local d="$1" want="$2" got
+  [[ -n "$d" ]] || return 0
+  got=$(ip_of "$d")
+  if [[ -z "$got" ]]; then yel "⚠ Домен ноды $d не найден в DNS — добавь A-запись на ${want:-IP ноды}"
+  elif [[ -n "$want" && "$got" != "$want" ]]; then yel "⚠ Домен ноды $d указывает на $got, а нода на $want — поправь A-запись"
+  else green "✔ Домен ноды $d указывает на ноду ($got)"; fi
+  echo "  В панели: Ноды → нода → Адрес: $d (и в хостах для клиентов)."
+  echo "  Поменять потом: Домены → Сменить домен ноды."
 }
 
 ssh_target() { # $1 user@host, $2 port → печатает sudo-префикс
@@ -1824,7 +1883,8 @@ ssh_target() { # $1 user@host, $2 port → печатает sudo-префикс
 
 node_install_local() {
   ask_node_params || return 1
-  node_script "$NP_PORT" "$NP_SECRET" "$NP_PANEL" | bash
+  node_script "$NP_PORT" "$NP_SECRET" "$NP_PANEL" | bash || return 1
+  node_domain_check "$NP_DOMAIN" "$(curl -4 -s --max-time 5 https://ifconfig.me)"
 }
 
 node_install_remote() {
@@ -1840,6 +1900,7 @@ node_install_remote() {
   rc=${PIPESTATUS[1]}
   if (( rc == 0 )); then
     green "✓ Нода установлена на $host"
+    node_domain_check "$NP_DOMAIN" "$(ip_of "${host#*@}")"
     read -rp "Добавить в список для массового обновления? Имя [${host#*@}]: " name
     node_list_add "${name:-${host#*@}}" "$host" "$port"
   else
@@ -1853,6 +1914,7 @@ node_oneliner() {
   ask_node_params || return 1
   echo; bold "Скопируй целиком и вставь на новом сервере (под root):"; echo
   echo "bash <<'RWNODE'"; node_script "$NP_PORT" "$NP_SECRET" "$NP_PANEL"; echo "RWNODE"
+  [[ -n "$NP_DOMAIN" ]] && { echo; node_domain_check "$NP_DOMAIN" ""; }
 }
 
 node_list_add() { # имя host port
@@ -1954,6 +2016,323 @@ node_menu() {
   done
 }
 
+
+# ---------- смена домена ноды ----------
+# Адрес ноды хранится в базе панели в двух местах: nodes.address — по нему панель подключается к ноде,
+# hosts.address / sni / host — эти адреса получают клиенты в подписке. Меняем всё в одной транзакции.
+db_q() { docker exec "$DB_CT" psql -U "$DB_USER" -d "$DB_NAME" -tAF $'\t' -v ON_ERROR_STOP=1 -c "$1" 2>&1; }
+sql_s() { local v="${1//\'/\'\'}"; printf "'%s'" "$v"; }   # строка для SQL
+
+node_domain_change() {
+  local rows=() i n sel name old new hosts out ans want got
+  db_info >/dev/null 2>&1 || { fail "База панели не найдена"; cause "контейнер Postgres панели не запущен"; todo "запусти панель: cd $RW_DIR && docker compose up -d"; return 1; }
+  out=$(db_q "SELECT name, address FROM nodes ORDER BY view_position") \
+    || { fail "Не прочитал список нод из базы" db "$out"; return 1; }
+  mapfile -t rows < <(grep . <<< "$out")
+  (( ${#rows[@]} )) || { yel "В панели ещё нет нод — сначала добавь ноду в панели (Ноды → +)."; return 0; }
+  section "НОДЫ В ПАНЕЛИ"
+  for i in "${!rows[@]}"; do item $((i + 1)) "${rows[i]%%$'\t'*}" "${rows[i]#*$'\t'}"; done
+  item 0 "Отмена"
+  ask "Нода"; read -r sel
+  [[ "$sel" =~ ^[0-9]+$ ]] && (( sel >= 1 && sel <= ${#rows[@]} )) || { echo "  Отменено."; return $RP_CANCEL; }
+  name="${rows[sel-1]%%$'\t'*}"; old="${rows[sel-1]#*$'\t'}"
+  hosts=$(db_q "SELECT count(*) FROM hosts WHERE address = $(sql_s "$old") OR sni = $(sql_s "$old") OR host = $(sql_s "$old")")
+  echo "  Нода «$name»: адрес $old; хостов с этим адресом: ${hosts:-0}"
+  ask "Новый домен (или IP) ноды"; read -r new; new=$(clean_domain "$new")
+  [[ -n "$new" && "$new" != "$old" ]] || { echo "  Отменено."; return $RP_CANCEL; }
+  valid_domain "$new" || [[ "$new" =~ ^[0-9]+(\.[0-9]+){3}$ ]] || { err "«$new» — не домен и не IP"; return 1; }
+  [[ "$(db_q "SELECT count(*) FROM nodes WHERE address = $(sql_s "$new")")" == 0 ]] \
+    || { fail "Адрес $new уже занят другой нодой"; todo "в панели у каждой ноды свой адрес"; return 1; }
+  want=$(ip_of "$old"); got=$(ip_of "$new")
+  if [[ -z "$got" ]] || [[ -n "$want" && "$got" != "$want" ]]; then
+    if [[ -z "$got" ]]; then yel "⚠ $new не найден в DNS"; else yel "⚠ $new указывает на $got, а нода сейчас на $want"; fi
+    yel "  Если не поправить DNS, панель потеряет связь с нодой, а клиенты — подключение."
+    ask "Всё равно сменить? [y/N]"; read -r ans; [[ "$ans" =~ ^[Yy]$ ]] || { echo "  Отменено."; return $RP_CANCEL; }
+  else green "✔ $new указывает на ноду ($got)"; fi
+
+  steps 3
+  step "Бэкап базы"
+  backup_db node-domain || { steps_done; return 1; }
+  step "Меняю адрес ноды и хостов"
+  out=$(db_q "BEGIN;
+    UPDATE nodes SET address = $(sql_s "$new"), updated_at = now() WHERE address = $(sql_s "$old");
+    UPDATE hosts SET address = $(sql_s "$new") WHERE address = $(sql_s "$old");
+    UPDATE hosts SET sni = $(sql_s "$new") WHERE sni = $(sql_s "$old");
+    UPDATE hosts SET host = $(sql_s "$new") WHERE host = $(sql_s "$old");
+    COMMIT;") || { fail "Адрес не изменён — база осталась прежней" db "$out"; steps_done; return 1; }
+  step "Перезапускаю панель, чтобы она подхватила адрес"
+  docker restart remnawave >/dev/null 2>&1; wait_healthy remnawave 120 || yel "⚠ Панель долго запускается — проверь: Панель → Логи"
+  steps_done "Смена домена ноды"
+  green "✔ Нода «$name»: $old → $new (хостов: ${hosts:-0})"
+  echo "  Клиенты получат новый адрес при следующем обновлении подписки."
+  echo "  Если у хоста свой TLS-сертификат на ноде (не Reality) — выпусти его для $new."
+  echo "  Вернуть как было: База → Восстановить из дампа (бэкап *-node-domain.sql.gz)."
+}
+# ---------- установка панели ----------
+# По официальной инструкции docs.rw: /opt/remnawave — docker-compose.yml и .env панели,
+# /opt/remnawave/nginx — nginx (reverse proxy) с сертификатом Let's Encrypt.
+# Раскладка та же, что у ручной установки, поэтому смена домена, продление и удаление доменов
+# в RemnaPilot сразу работают с установленной панелью.
+RW_SRC="https://raw.githubusercontent.com/remnawave/backend/refs/heads/main"
+
+pi_nginx_conf() { # домен панели, домен подписки (пусто — подписка на домене панели)
+  cat <<'EOF'
+# Создано RemnaPilot по docs.rw. Домены меняй через RemnaPilot: Домены → Сменить домены.
+upstream remnawave {
+    server remnawave:3000;
+}
+
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ""      close;
+}
+
+ssl_protocols TLSv1.2 TLSv1.3;
+ssl_ecdh_curve X25519:prime256v1:secp384r1;
+ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305;
+ssl_prefer_server_ciphers on;
+ssl_session_timeout 1d;
+ssl_session_cache shared:MozSSL:10m;
+ssl_session_tickets off;
+
+EOF
+  pi_server "$1" "http://remnawave"
+  [[ -n "$2" ]] && pi_server "$2" "http://remnawave/api/sub/"
+  cat <<'EOF'
+server {
+    listen 443 ssl default_server;
+    listen [::]:443 ssl default_server;
+    server_name _;
+    ssl_reject_handshake on;
+}
+EOF
+}
+
+pi_server() { # домен, куда проксировать
+  cat <<EOF
+server {
+    server_name $1;
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+
+    ssl_certificate "/etc/nginx/ssl/fullchain.pem";
+    ssl_certificate_key "/etc/nginx/ssl/privkey.key";
+
+    location / {
+        proxy_http_version 1.1;
+        proxy_pass $2;
+        proxy_set_header Host \$host;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection \$connection_upgrade;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header X-Forwarded-Host \$host;
+        proxy_set_header X-Forwarded-Port \$server_port;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+    }
+}
+
+EOF
+}
+
+pi_nginx_compose() {
+  cat <<'EOF'
+services:
+  remnawave-nginx:
+    image: nginx:1.30
+    container_name: remnawave-nginx
+    hostname: remnawave-nginx
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./fullchain.pem:/etc/nginx/ssl/fullchain.pem:ro
+      - ./privkey.key:/etc/nginx/ssl/privkey.key:ro
+    restart: always
+    ports:
+      - '0.0.0.0:443:443'
+    networks:
+      - remnawave-network
+
+networks:
+  remnawave-network:
+    name: remnawave-network
+    driver: bridge
+    external: true
+EOF
+}
+
+pi_caddyfile() { # домен панели, домен подписки (пусто — подписка на домене панели)
+  echo "# Создано RemnaPilot по docs.rw. Сертификаты Caddy выпускает и продлевает сам."
+  echo "# Домены меняй через RemnaPilot: Домены → Сменить домены."
+  printf 'https://%s {\n    encode gzip zstd\n    reverse_proxy * http://remnawave:3000\n}\n\n' "$1"
+  [[ -n "$2" ]] && printf 'https://%s {\n    encode gzip zstd\n    rewrite * /api/sub{uri}\n    reverse_proxy * http://remnawave:3000\n}\n\n' "$2"
+  printf ':443 {\n    tls internal\n    respond 204\n}\n'
+}
+
+pi_caddy_compose() {
+  cat <<'EOF'
+services:
+  caddy:
+    image: caddy:2.9
+    container_name: caddy
+    hostname: caddy
+    restart: always
+    ports:
+      - '0.0.0.0:443:443'
+      - '0.0.0.0:80:80'
+    networks:
+      - remnawave-network
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy-ssl-data:/data
+
+networks:
+  remnawave-network:
+    name: remnawave-network
+    driver: bridge
+    external: true
+
+volumes:
+  caddy-ssl-data:
+    driver: local
+    external: false
+    name: caddy-ssl-data
+EOF
+}
+
+fw_allow_perm() { # порт — открыть насовсем, если firewall включён (fw_open открывает только на время)
+  if command -v ufw >/dev/null && ufw status 2>/dev/null | grep -q '^Status: active'; then ufw allow "$1/tcp" >/dev/null && info "Открыл $1/tcp в ufw"
+  elif command -v firewall-cmd >/dev/null && firewall-cmd --state >/dev/null 2>&1; then
+    firewall-cmd --permanent --add-port="$1/tcp" >/dev/null && firewall-cmd --reload >/dev/null && info "Открыл $1/tcp в firewalld"; fi
+  return 0
+}
+
+pi_ask_domain() { # подсказка, переменная; пустой ввод допустим, если $3=1
+  local -n _d="$2"; local v
+  while true; do
+    ask "$1"; read -r v; v=$(clean_domain "$v")
+    [[ -z "$v" && "${3:-0}" == 1 ]] && { _d=""; return 0; }
+    [[ -z "$v" ]] && return 1
+    valid_domain "$v" && { _d="$v"; return 0; }
+    red "  «$v» — не похоже на домен (пример: panel.example.com)"
+  done
+}
+
+panel_install() {
+  local panel sub sub_env out pw k ok=1 code web dir="$RW_DIR"
+  if [[ -f "$dir/.env" ]] || docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qx remnawave; then
+    fail "Панель уже установлена"; cause "уже есть .env или контейнер remnawave ($dir)"
+    todo "сменить домены: Домены → Сменить домены" "обновить: Панель → Обновления"; return 1
+  fi
+  echo "Поставлю Remnawave по официальной инструкции docs.rw: панель, базу, nginx и сертификат Let's Encrypt."
+  echo "Нужно: домен с A-записью на этот сервер и свободные порты 80 и 443."
+  echo
+  pi_ask_domain "Домен панели (например panel.example.com)" panel || { echo "  Отменено."; return $RP_CANCEL; }
+  echo "  Ссылки подписки можно отдавать с домена панели или с отдельного домена."
+  pi_ask_domain "Домен подписки (Enter — тот же, что у панели: $panel/api/sub)" sub 1 || return $RP_CANCEL
+  [[ "$sub" == "$panel" ]] && sub=""
+  DNS_WARN=""; check_dns "$panel"; [[ -n "$sub" ]] && check_dns "$sub"
+  dns_confirm || { echo "  Отменено."; return $RP_CANCEL; }
+  echo
+  section "ВЕБ-СЕРВЕР"
+  item 1 "Nginx" "сертификат через acme.sh, как в docs.rw"
+  item 2 "Caddy" "сам выпускает и продлевает сертификат"
+  ask "Выберите веб-сервер [1]"; read -r web
+  case "${web:-1}" in 1) web=nginx ;; 2) web=caddy ;; *) echo "  Отменено."; return $RP_CANCEL ;; esac
+
+  steps 6
+  step "Проверяю сервер: Docker, порты"
+  if ! command -v docker >/dev/null; then
+    info "Устанавливаю Docker (get.docker.com)..."
+    out=$(curl -fsSL https://get.docker.com | sh 2>&1) || { fail "Docker не установился" apt "$out"; steps_done; return 1; }
+    green "✔ Docker установлен"
+  fi
+  need_compose || { steps_done; return 1; }
+  command -v openssl >/dev/null || pkg_install openssl || { fail "Не установлен openssl" apt "$PKG_LOG"; steps_done; return 1; }
+  for k in 80 443; do
+    port_busy "$k" && { yel "⚠ Порт $k занят: $(port_owner "$k") — для сертификата и nginx он нужен свободным"; ok=0; }
+  done
+  (( ok )) || { ask "Продолжить всё равно? [y/N]"; read -r k; [[ "$k" =~ ^[Yy]$ ]] || { echo "  Отменено."; steps_done; return $RP_CANCEL; }; }
+
+  step "Скачиваю Remnawave и создаю секреты"
+  mkdir -p "$dir/$web" "$dir/backups" && chmod 700 "$dir"
+  out=$( { curl -fsSL -o "$dir/docker-compose.yml" "$RW_SRC/docker-compose-prod.yml" \
+           && curl -fsSL -o "$dir/.env" "$RW_SRC/.env.sample"; } 2>&1 ) \
+    || { fail "Файлы Remnawave не скачались" net "$out"; rm -f "$dir/.env"; steps_done; return 1; }
+  chmod 600 "$dir/.env"
+  for k in APP_SECRET JWT_AUTH_SECRET JWT_API_TOKENS_SECRET METRICS_PASS WEBHOOK_SECRET_HEADER; do
+    grep -q "^$k=" "$dir/.env" && env_set "$k" "$(openssl rand -hex 64)"
+  done
+  pw=$(openssl rand -hex 24)
+  env_set POSTGRES_PASSWORD "$pw"
+  PW="$pw" perl -pi -e 's|^(DATABASE_URL="?postgresql://[^:]+:)[^@]*(@)|$1$ENV{PW}$2|' "$dir/.env"
+  env_set FRONT_END_DOMAIN "$panel"
+  grep -q '^PANEL_DOMAIN=' "$dir/.env" && env_set PANEL_DOMAIN "$panel"
+  sub_env="${sub:-$panel/api/sub}"; env_set SUB_PUBLIC_DOMAIN "$sub_env"
+  green "✔ Секреты и пароль базы созданы случайно (они в $dir/.env, файл доступен только root)"
+
+  step "Запускаю панель и базу"
+  out=$(cd "$dir" && docker compose pull 2>&1 && docker compose up -d 2>&1) \
+    || { fail "Панель не запустилась" docker "$out"; steps_done; return 1; }
+  wait_healthy remnawave 180 || { fail "Панель не запустилась" container "$(docker logs --tail 60 remnawave 2>&1)"; steps_done; return 1; }
+  green "✔ Панель и база работают"
+
+  local le=1
+  if [[ "$web" == caddy ]]; then
+    step "Запускаю Caddy"
+    pi_caddyfile "$panel" "$sub" > "$dir/caddy/Caddyfile"
+    pi_caddy_compose > "$dir/caddy/docker-compose.yml"
+    fw_allow_perm 80; fw_allow_perm 443                       # Caddy продлевает сертификат сам, через 80/443
+    out=$(cd "$dir/caddy" && docker compose up -d 2>&1) || { fail "Caddy не запустился" docker "$out"; steps_done; return 1; }
+    wait_healthy caddy 30 || { fail "Caddy не запустился" container "$(docker logs --tail 30 caddy 2>&1)"; steps_done; return 1; }
+
+    step "Жду, пока Caddy выпустит сертификат"
+    for k in $(seq 1 30); do
+      curl -s -o /dev/null --max-time 5 --resolve "$panel:443:127.0.0.1" "https://$panel/" && break
+      sleep 2
+    done
+    if curl -s -o /dev/null --max-time 5 --resolve "$panel:443:127.0.0.1" "https://$panel/"; then green "✔ Сертификат выпущен"
+    else
+      le=0
+      yel "⚠ Caddy пока не выпустил сертификат — обычно домен не указывает на сервер или закрыт порт 80/443."
+      todo "проверь A-запись домена и порты у хостера" "логи Caddy: docker logs --tail 30 caddy" "Caddy будет пробовать сам — перезапускать ничего не нужно"
+    fi
+  else
+    step "Запускаю nginx (пока с временным сертификатом)"
+    pi_nginx_conf "$panel" "$sub" > "$dir/nginx/nginx.conf"
+    pi_nginx_compose > "$dir/nginx/docker-compose.yml"
+    # временный самоподписанный сертификат: nginx нужен запущенным, чтобы acme.sh мог его перезагрузить
+    out=$(openssl req -x509 -nodes -newkey rsa:2048 -days 7 -subj "/CN=$panel" \
+            -keyout "$dir/nginx/privkey.key" -out "$dir/nginx/fullchain.pem" 2>&1) \
+      || { fail "Временный сертификат не создался" "" ""; log_tail "$out"; steps_done; return 1; }
+    chmod 600 "$dir/nginx/privkey.key"
+    out=$(cd "$dir/nginx" && docker compose up -d 2>&1) || { fail "nginx не запустился" docker "$out"; steps_done; return 1; }
+    wait_healthy remnawave-nginx 30 || { fail "nginx не запустился" container "$(docker logs --tail 30 remnawave-nginx 2>&1)"; steps_done; return 1; }
+    fw_allow_perm 443                                         # порт 80 для продления откроется сам, на время
+
+    step "Выпускаю сертификат Let's Encrypt"
+    if ! CERT_EXTRA="$sub" issue_cert "$panel"; then
+      le=0
+      yel "⚠ Сертификат Let's Encrypt не выпущен — панель открывается, но браузер предупредит о небезопасном сертификате."
+      todo "выпусти его позже: Панель → Сертификаты → 2"
+    fi
+
+  fi
+
+  step "Проверяю, что панель открывается"
+  code=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 --resolve "$panel:443:127.0.0.1" "https://$panel/")
+  if [[ "$code" =~ ^[23] ]]; then green "✔ https://$panel отвечает (HTTP $code)"
+  else yel "⚠ https://$panel ответил HTTP ${code:-нет ответа} — проверь логи: Панель → Логи"; fi
+  steps_done "Установка панели"
+  echo
+  green "Панель:   https://$panel"
+  green "Подписка: https://$sub_env/…"
+  echo "  Открой панель в браузере и создай администратора — первый вход регистрирует его."
+  echo "  Дальше: Ноды → Установка — поставить ноду; Сервер → Firewall — закрыть лишние порты."
+  (( le )) || return 1
+}
 # ---------- журнал ----------
 JOURNAL="/var/log/remnapilot.log"
 
@@ -2120,6 +2499,57 @@ public_listeners() { # «порт/протокол процесс» для вс�
     }' | sort -V -u
 }
 
+port_purpose() { # порт → для чего он (по известным портам и тому, кто слушает)
+  local p="$1" who
+  [[ " $(ssh_ports) " == *" $p "* ]] && { echo "SSH — вход на сервер"; return; }
+  [[ -n "${FW_NODE_PORT:-}" && "$p" == "$FW_NODE_PORT" ]] && { echo "нода — связь с панелью"; return; }
+  case "$p" in
+    80)   echo "HTTP — выпуск сертификатов"; return ;;
+    443)  echo "HTTPS — панель или Xray"; return ;;
+    8443) echo "сертификаты (TLS-ALPN)"; return ;;
+    3000) echo "⚠ панель напрямую — лучше закрыть, она работает через nginx"; return ;;
+    5432) echo "⚠ база данных — закрой, снаружи она не нужна"; return ;;
+    6379) echo "⚠ Redis — закрой, снаружи он не нужен"; return ;;
+  esac
+  who=$(public_listeners | awk -v p="$p" '{split($1, a, "/")} a[1] == p {print $2; exit}')
+  [[ -n "$who" ]] && echo "слушает $who" || echo "—"
+}
+
+fw_rules() { # понятный список правил ufw: порт, откуда, для чего
+  local st line to act from p proto c=0 warn=0
+  FW_NODE_PORT=$(local_node_port 2>/dev/null)
+  if ! command -v ufw >/dev/null; then
+    yel "ufw не установлен — правил нет, все порты открыты. Включить: пункт 1 «Настроить одной кнопкой»."
+    return 0
+  fi
+  st=$(ufw status 2>/dev/null)
+  if ! grep -q '^Status: active' <<< "$st"; then
+    yel "Firewall выключен — открыты все порты. Сейчас снаружи слушают:"
+    public_listeners | while read -r p who; do
+      printf '   %s%s%s%s\n' "$CB" "$(padr "$p" 11)" "$C0" "$(port_purpose "${p%/*}")"
+    done
+    echo; info "Включить и оставить нужное: пункт 1 «Настроить одной кнопкой»."
+    return 0
+  fi
+  printf '   %s%s%s%s%s\n' "$C_MUT" "$(padr Порт 12)" "$(padr Откуда 18)" "$(T "Для чего")" "$C0"
+  while IFS= read -r line; do
+    [[ "$line" =~ ^[0-9A-Za-z] ]] || continue
+    [[ "$line" == To* || "$line" == Status* || "$line" == --* ]] && continue
+    [[ "$line" == *"(v6)"* ]] && continue                     # то же правило для IPv6
+    IFS=$'\t' read -r to act from _ < <(sed -E 's/ {2,}/\t/g' <<< "$line")   # 4-е поле — комментарий ufw
+    [[ "$from" == Anywhere ]] && from="$(T "отовсюду")"
+    p="${to%%/*}"; proto="${to#"$p"}"
+    [[ "$act" == ALLOW* ]] || { printf '   %s%s%s%s%s\n' "$C_ERR" "$(padr "$to" 12)" "$(padr "$from" 18)" "$(T "запрещено")" "$C0"; continue; }
+    c=$((c + 1))
+    local why; why=$(port_purpose "${p%%:*}")
+    [[ "$why" == ⚠* ]] && { warn=1; why="${C_WARN}$why${C0}"; }
+    printf '   %s%s%s%s%s\n' "$CB" "$(padr "$to" 12)" "$C0" "$(padr "$from" 18)" "$why"
+  done <<< "$st"
+  (( c )) || echo "   $(T "Нет разрешающих правил — снаружи закрыто всё.")"
+  (( warn )) && { echo; yel "Закрыть лишнее: пункт 3 «Закрыть порт»."; }
+  return 0
+}
+
 # ---------- firewall ----------
 fw_status_box() {
   local st rules
@@ -2132,8 +2562,7 @@ fw_status_box() {
   local np; np=$(local_node_port 2>/dev/null) && box_line "${C_MUT}$(padr "Нода" 11)${C0}порт $np"
   box_bottom
   if command -v ufw >/dev/null && ufw status 2>/dev/null | grep -q '^Status: active'; then
-    section "ПРАВИЛА"
-    ufw status numbered 2>/dev/null | grep -E '^\[' | sed 's/^/  /'
+    section "ПРАВИЛА"; fw_rules
   fi
 }
 
@@ -2226,6 +2655,7 @@ firewall_menu() {
     item 2 "Открыть порт"
     item 3 "Закрыть порт"
     item 4 "Выключить firewall"
+    item 5 "Список правил" "порт · откуда · для чего"
     hr; item 0 "Назад"
     ask; read -r c; echo
     case "$c" in
@@ -2233,6 +2663,7 @@ firewall_menu() {
       2) command -v ufw >/dev/null && run_action "Firewall: открыть порт" fw_port allow; pause ;;
       3) command -v ufw >/dev/null && run_action "Firewall: закрыть порт" fw_port deny; pause ;;
       4) ufw disable >/dev/null && { yel "Firewall выключен. Включить снова: пункт 1"; jlog INFO "Firewall выключен"; }; pause ;;
+      5) section "ПРАВИЛА FIREWALL"; fw_rules; pause ;;
       0|q|"") return ;;
     esac
   done
@@ -3768,6 +4199,13 @@ theme_swatch() { # цветные блоки темы
 
 # ---------- версия ----------
 RP_CHANGELOG=(
+  "2.6|new|Установка панели: Панель → Установить панель. Remnawave по docs.rw, секреты и пароль базы создаются сами, домены панели и подписки, на выбор Nginx или Caddy, сертификат Let's Encrypt"
+  "2.6|new|Смена домена ноды: Домены → Сменить домен ноды. Меняет адрес ноды в панели и у клиентов (хосты, SNI) одной транзакцией, с бэкапом базы"
+  "2.6|new|Домен при установке ноды: RemnaPilot спросит его и проверит, что он указывает на ноду"
+  "2.6|new|Список правил firewall: порт, откуда разрешён и для чего; предупреждает об открытых портах панели, базы и Redis"
+  "2.6|new|Забыл пароль от панели: пункт в разделе «Панель» с пошаговой подсказкой для Rescue CLI"
+  "2.6|improve|Автопродление сертификатов открывает порт в firewall только на время продления (теперь и iptables) и останавливает nginx, только если он занимает этот порт — панель не падает при продлении. Старые правила продления обновляются сами"
+  "2.6|change|Нумерация полного списка меню сдвинулась: добавлены «Сменить домен ноды», «Установить панель» и «Забыл пароль от панели». Поиск по слову работает как раньше"
   "2.5.1|fix|Новые версии Docker пишут про несуществующую версию образа иначе («failed to resolve reference … not found») — RemnaPilot снова называет причину"
   "2.5.1|fix|Почти любой сбой запуска панели объяснялся как «не прошла миграция» с советом откатиться — строки про миграции есть в каждом запуске. Теперь это только при настоящем сбое миграции"
   "2.5.1|fix|Недоступный Redis (Valkey) больше не выдаётся за недоступную базу данных"
@@ -4041,7 +4479,7 @@ need_compose() { # все действия используют «docker compose
 
 need_panel() {
   [[ -f "$RW_DIR/.env" ]] || { fail "Панель не найдена в $RW_DIR"; cause "нет файла $RW_DIR/.env"
-                               todo "если панель в другом месте: Прочее → Сменить каталог панели" "если её нет — установи по docs.rw"; return 1; }
+                               todo "если панель в другом месте: Прочее → Сменить каталог панели" "если её нет — установи: Панель → Установить панель"; return 1; }
   command -v docker >/dev/null || { fail "Не установлен Docker"; todo "установи: curl -fsSL https://get.docker.com | sh"; return 1; }
   need_compose || return 1
   command -v perl   >/dev/null || { fail "Не установлен perl"; todo "apt install perl"; return 1; }
@@ -4525,12 +4963,15 @@ item_info() {
     33) echo "Оформление|тема · номера · логотип" ;;
     34) echo "Уведомления в Telegram|$(tg_on && echo подключено || echo выключено)" ;;
     35) echo "Удалить RemnaPilot|панель и ноды не трогаются" ;;
+    36) echo "Установить панель|Remnawave + nginx или Caddy + HTTPS" ;;
+    37) echo "Сменить домен ноды|адрес в панели и у клиентов" ;;
+    38) echo "Забыл пароль от панели|сброс через Rescue CLI" ;;
   esac
 }
 
 MENU_SECTIONS=(
-  "Домены|смена · удаление · откат|1 2 3 4"
-  "Панель|обновления · сертификаты · логи|5 6 7 8 9 10"
+  "Домены|смена · домен ноды · откат|1 37 2 3 4"
+  "Панель|установка · обновления · пароль|36 5 6 7 8 9 10 38"
   "База|бэкап · автобэкап · восстановление|11 32 12"
   "Ноды|статус · geo · WARP|13 14 15 16"
   "Сервер|firewall · SSH · BBR · swap|17 18 19 20 21 22 23"
@@ -4553,14 +4994,15 @@ print_item() { # номер_на_экране внутренний_номер
 run_item() { # внутренний номер пункта → действие
   local ch="$1"
   case "$ch" in
-    1|2|3|4|5|7|9|10|11|12|23) need_panel || { pause; return 1; } ;;
+    1|2|3|4|5|7|9|10|11|12|23|37|38) need_panel || { pause; return 1; } ;;
   esac
   case "$ch" in
-    1|2|3|4|5|7|11|12|14|23|24|28|29) screen "$(case $ch in
+    1|2|3|4|5|7|11|12|14|23|24|28|29|36|37|38) screen "$(case $ch in
         1) echo "Смена доменов";; 2) echo "Удаление доменов";; 3) echo "Предпросмотр смены доменов";; 4) echo "Откат смены домена";;
         5) echo "Настройки и контейнеры";; 7) echo "Пересоздание контейнеров";;
         11) echo "Бэкап базы";; 12) echo "Восстановление базы";; 14) echo "Статус всех нод";;
         23) echo "Перенос панели";; 24) echo "Проверка IP сервера";; 28) echo "Команда rw";; 29) echo "Каталог панели";;
+        36) echo "Установка панели";; 37) echo "Смена домена ноды";; 38) echo "Забыл пароль от панели";;
       esac)"; echo ;;
   esac
   case "$ch" in
@@ -4596,6 +5038,9 @@ run_item() { # внутренний номер пункта → действие
     33) ui_menu ;;
     34) tg_menu ;;
     35) with_lock "Удаление RemnaPilot" rp_uninstall ;;
+    36) run_action "Установка панели" panel_install; pause ;;
+    37) run_action "Смена домена ноды" node_domain_change; pause ;;
+    38) run_action "Сброс пароля панели" reset_admin; pause ;;
     28) install_cmd; pause ;;
     29) change_dir; pause ;;
     30) about_screen; pause ;;
@@ -4800,6 +5245,7 @@ if [[ -n "${DO_HELP:-}" ]]; then        # справка не требует roo
 fi
 
 [[ $EUID -eq 0 ]] || { red "Запусти от root (sudo)"; exit 1; }
+upgrade_renew_hooks 2>/dev/null      # правила автопродления старых версий → новые (порт открывается только на время продления)
 
 # Запуск через «bash <(curl …)»: файла скрипта нет — ставим его в /usr/local/bin/rw и перезапускаемся оттуда,
 # иначе не работают перевод, cron-задачи и смена языка
@@ -6526,4 +6972,154 @@ docker-compose не найден в	docker-compose not found in
 Справка rw --help на английском снова цветная; сообщение про домен за Cloudflare больше не противоречит вопросу	rw --help in English is colored again; the Cloudflare domain message no longer contradicts the question
 Ожидание ввода в меню работает и без perl	Menu input waiting works without perl too
 Новые версии Docker пишут про несуществующую версию образа иначе («failed to resolve reference … not found») — RemnaPilot снова называет причину	Newer Docker versions report a nonexistent image version differently ("failed to resolve reference … not found") — RemnaPilot names the cause again
+Готово. Теперь открой	Done. Now open
+и зарегистрируй администратора.	and register an administrator.
+Забыл пароль от панели	Forgot the panel password
+сброс суперадмина · Rescue CLI	superadmin reset · Rescue CLI
+Панель не запущена	The panel is not running
+запусти: cd	start it: cd
+Нужен терминал	A terminal is required
+Rescue CLI панели работает только в интерактивном окне SSH	the panel's Rescue CLI works only in an interactive SSH session
+Пароль администратора панель хранит только в виде хеша — узнать его нельзя, можно только сбросить.	The panel stores the admin password only as a hash — it can't be recovered, only reset.
+Сброс удаляет учётную запись суперадмина. Пользователи, ноды, хосты и настройки остаются.	The reset deletes the superadmin account. Users, nodes, hosts and settings stay.
+Что будет:	What happens:
+1. Откроется Rescue CLI панели — выбери в нём сброс суперадмина (Reset superadmin) и подтверди.	1. The panel's Rescue CLI opens — choose the superadmin reset (Reset superadmin) and confirm.
+Если вход по паролю был выключен (только Telegram или OAuth) — там же можно включить его снова.	If password login was turned off (Telegram or OAuth only), you can turn it back on there.
+2. Закрой Rescue CLI.	2. Close the Rescue CLI.
+3. Сразу открой	3. Right away open
+в браузере и зарегистрируй нового администратора.	in a browser and register a new administrator.
+Первый, кто откроет панель после сброса, станет администратором — не откладывай шаг 3.	Whoever opens the panel first after the reset becomes the administrator — don't put off step 3.
+Сбросить суперадмина? Это нельзя отменить [y/N]	Reset the superadmin? This cannot be undone [y/N]
+панель	the panel
+База панели не найдена	Panel database not found
+контейнер Postgres панели не запущен	the panel's Postgres container is not running
+Не прочитал список нод из базы	Could not read the node list from the database
+В панели ещё нет нод — сначала добавь ноду в панели (Ноды → +).	There are no nodes in the panel yet — add one in the panel first (Nodes → +).
+НОДЫ В ПАНЕЛИ	NODES IN THE PANEL
+Нода «	Node "
+»: адрес	": address
+; хостов с этим адресом:	; hosts with this address:
+Новый домен (или IP) ноды	New node domain (or IP)
+Адрес	Address
+уже занят другой нодой	is already used by another node
+в панели у каждой ноды свой адрес	each node in the panel has its own address
+не найден в DNS	is not in DNS
+, а нода сейчас на	, while the node is now on
+Если не поправить DNS, панель потеряет связь с нодой, а клиенты — подключение.	If DNS isn't fixed, the panel will lose the node and clients will lose the connection.
+Всё равно сменить? [y/N]	Change anyway? [y/N]
+Меняю адрес ноды и хостов	Changing the node and host addresses
+Перезапускаю панель, чтобы она подхватила адрес	Restarting the panel so it picks up the address
+⚠ Панель долго запускается — проверь: Панель → Логи	⚠ The panel is slow to start — check: Panel → Logs
+Смена домена ноды	Node domain change
+Смена домена ноды за	Node domain change in
+(хостов:	(hosts:
+Клиенты получат новый адрес при следующем обновлении подписки.	Clients get the new address on their next subscription update.
+Если у хоста свой TLS-сертификат на ноде (не Reality) — выпусти его для	If a host uses its own TLS certificate on the node (not Reality), issue it for
+Вернуть как было: База → Восстановить из дампа (бэкап *-node-domain.sql.gz).	To undo: Database → Restore from dump (backup *-node-domain.sql.gz).
+Адрес не изменён — база осталась прежней	Address not changed — the database is unchanged
+Домен ноды — адрес, который ты укажешь в панели (Ноды → Адрес) и в хостах для клиентов.	The node domain is the address you set in the panel (Nodes → Address) and in hosts for clients.
+Домен ноды (Enter — без домена, по IP):	Node domain (Enter — no domain, use the IP):
+» — не похоже на домен	" doesn't look like a domain
+⚠ Домен ноды	⚠ Node domain
+не найден в DNS — добавь A-запись на	is not in DNS — add an A record pointing to
+IP ноды	the node IP
+указывает на	points to
+, а нода на	, while the node is on
+— поправь A-запись	— fix the A record
+✔ Домен ноды	✔ Node domain
+указывает на ноду (	points to the node (
+В панели: Ноды → нода → Адрес:	In the panel: Nodes → node → Address:
+(и в хостах для клиентов).	(and in the hosts for clients).
+Поменять потом: Домены → Сменить домен ноды.	To change it later: Domains → Change node domain.
+» — не похоже на домен (пример: panel.example.com)	" doesn't look like a domain (example: panel.example.com)
+Панель уже установлена	The panel is already installed
+уже есть .env или контейнер remnawave	there is already a .env or a remnawave container
+сменить домены: Домены → Сменить домены	change the domains: Domains → Change domains
+обновить: Панель → Обновления	update: Panel → Updates
+Поставлю Remnawave по официальной инструкции docs.rw: панель, базу, nginx и сертификат Let's Encrypt.	I'll install Remnawave per the official docs.rw guide: the panel, database, nginx and a Let's Encrypt certificate.
+Нужно: домен с A-записью на этот сервер и свободные порты 80 и 443.	You need a domain with an A record pointing to this server and free ports 80 and 443.
+Домен панели (например panel.example.com)	Panel domain (e.g. panel.example.com)
+Ссылки подписки можно отдавать с домена панели или с отдельного домена.	Subscription links can be served from the panel domain or from a separate domain.
+Домен подписки (Enter — тот же, что у панели:	Subscription domain (Enter — same as the panel:
+Проверяю сервер: Docker, порты	Checking the server: Docker, ports
+Устанавливаю Docker (get.docker.com)...	Installing Docker (get.docker.com)...
+Docker установлен	Docker installed
+Не установлен openssl	openssl is not installed
+— для сертификата и nginx он нужен свободным	— it must be free for the certificate and nginx
+Продолжить всё равно? [y/N]	Continue anyway? [y/N]
+Скачиваю Remnawave и создаю секреты	Downloading Remnawave and creating secrets
+Файлы Remnawave не скачались	Remnawave files were not downloaded
+✔ Секреты и пароль базы созданы случайно (они в	✔ Secrets and the database password were generated randomly (they're in
+/.env, файл доступен только root)	/.env, readable by root only)
+Запускаю панель и базу	Starting the panel and database
+Панель не запустилась	The panel did not start
+✔ Панель и база работают	✔ The panel and database are running
+Запускаю nginx (пока с временным сертификатом)	Starting nginx (with a temporary certificate for now)
+Временный сертификат не создался	The temporary certificate was not created
+nginx не запустился	nginx did not start
+Открыл 443/tcp в ufw	Opened 443/tcp in ufw
+Открыл 443/tcp в firewalld	Opened 443/tcp in firewalld
+Выпускаю сертификат Let's Encrypt	Issuing a Let's Encrypt certificate
+⚠ Сертификат Let's Encrypt не выпущен — панель открывается, но браузер предупредит о небезопасном сертификате.	⚠ The Let's Encrypt certificate was not issued — the panel opens, but the browser will warn about an insecure certificate.
+выпусти его позже: Панель → Сертификаты → 2	issue it later: Panel → Certificates → 2
+Проверяю, что панель открывается	Checking that the panel opens
+отвечает (HTTP	responds (HTTP
+ответил HTTP	responded HTTP
+нет ответа	no response
+— проверь логи: Панель → Логи	— check the logs: Panel → Logs
+Установка панели	Panel installation
+Установка панели за	Panel installation in
+Открой панель в браузере и создай администратора — первый вход регистрирует его.	Open the panel in a browser and create an administrator — the first login registers it.
+Дальше: Ноды → Установка — поставить ноду; Сервер → Firewall — закрыть лишние порты.	Next: Nodes → Install — set up a node; Server → Firewall — close unneeded ports.
+Список правил	Rules list
+порт · откуда · для чего	port · from · purpose
+ПРАВИЛА FIREWALL	FIREWALL RULES
+SSH — вход на сервер	SSH — server login
+нода — связь с панелью	node — link to the panel
+HTTP — выпуск сертификатов	HTTP — issuing certificates
+HTTPS — панель или Xray	HTTPS — panel or Xray
+сертификаты (TLS-ALPN)	certificates (TLS-ALPN)
+⚠ панель напрямую — лучше закрыть, она работает через nginx	⚠ the panel directly — better close it, it works through nginx
+⚠ база данных — закрой, снаружи она не нужна	⚠ database — close it, it's not needed from outside
+⚠ Redis — закрой, снаружи он не нужен	⚠ Redis — close it, it's not needed from outside
+слушает	listening:
+ufw не установлен — правил нет, все порты открыты. Включить: пункт 1 «Настроить одной кнопкой».	ufw is not installed — no rules, all ports are open. Turn it on: item 1 "One-click setup".
+Firewall выключен — открыты все порты. Сейчас снаружи слушают:	The firewall is off — all ports are open. Listening from outside right now:
+Включить и оставить нужное: пункт 1 «Настроить одной кнопкой».	Turn it on and keep what's needed: item 1 "One-click setup".
+Закрыть лишнее: пункт 3 «Закрыть порт».	Close what's not needed: item 3 "Close port".
+Откуда	From
+Для чего	Purpose
+отовсюду	anywhere
+запрещено	denied
+Нет разрешающих правил — снаружи закрыто всё.	No allow rules — everything is closed from outside.
+если её нет — установи: Панель → Установить панель	if there is none — install it: Panel → Install panel
+Сброс пароля панели	Panel password reset
+Установить панель	Install panel
+Remnawave + nginx или Caddy + HTTPS	Remnawave + nginx or Caddy + HTTPS
+Сменить домен ноды	Change node domain
+адрес в панели и у клиентов	address in the panel and for clients
+сброс через Rescue CLI	reset via Rescue CLI
+смена · домен ноды · откат	change · node domain · rollback
+установка · обновления · пароль	install · updates · password
+Установка панели: сертификат не выпущен	Panel installation: certificate not issued
+ВЕБ-СЕРВЕР	WEB SERVER
+сертификат через acme.sh, как в docs.rw	certificate via acme.sh, as in docs.rw
+сам выпускает и продлевает сертификат	issues and renews the certificate itself
+Выберите веб-сервер [1]	Choose a web server [1]
+Запускаю Caddy	Starting Caddy
+Caddy не запустился	Caddy did not start
+Жду, пока Caddy выпустит сертификат	Waiting for Caddy to issue the certificate
+✔ Сертификат выпущен	✔ Certificate issued
+⚠ Caddy пока не выпустил сертификат — обычно домен не указывает на сервер или закрыт порт 80/443.	⚠ Caddy hasn't issued the certificate yet — usually the domain doesn't point to the server or port 80/443 is closed.
+проверь A-запись домена и порты у хостера	check the domain's A record and the ports at your hosting provider
+логи Caddy: docker logs --tail 30 caddy	Caddy logs: docker logs --tail 30 caddy
+Caddy будет пробовать сам — перезапускать ничего не нужно	Caddy keeps trying by itself — no need to restart anything
+Открыл	Opened
+Установка панели: Панель → Установить панель. Remnawave по docs.rw, секреты и пароль базы создаются сами, домены панели и подписки, на выбор Nginx или Caddy, сертификат Let's Encrypt	Panel installation: Panel → Install panel. Remnawave per docs.rw, secrets and the database password are generated, panel and subscription domains, Nginx or Caddy to choose, a Let's Encrypt certificate
+Смена домена ноды: Домены → Сменить домен ноды. Меняет адрес ноды в панели и у клиентов (хосты, SNI) одной транзакцией, с бэкапом базы	Node domain change: Domains → Change node domain. Changes the node address in the panel and for clients (hosts, SNI) in one transaction, with a database backup
+Домен при установке ноды: RemnaPilot спросит его и проверит, что он указывает на ноду	Domain when installing a node: RemnaPilot asks for it and checks that it points to the node
+Список правил firewall: порт, откуда разрешён и для чего; предупреждает об открытых портах панели, базы и Redis	Firewall rules list: port, allowed from and purpose; warns about open panel, database and Redis ports
+Забыл пароль от панели: пункт в разделе «Панель» с пошаговой подсказкой для Rescue CLI	Forgot the panel password: an item in the Panel section with step-by-step Rescue CLI guidance
+Автопродление сертификатов открывает порт в firewall только на время продления (теперь и iptables) и останавливает nginx, только если он занимает этот порт — панель не падает при продлении. Старые правила продления обновляются сами	Certificate auto-renewal opens the firewall port only for the renewal (now iptables too) and stops nginx only if it holds that port — the panel stays up during renewal. Old renewal rules are upgraded automatically
+Нумерация полного списка меню сдвинулась: добавлены «Сменить домен ноды», «Установить панель» и «Забыл пароль от панели». Поиск по слову работает как раньше	Full menu list numbering shifted: "Change node domain", "Install panel" and "Forgot the panel password" were added. Word search works as before
 __RP_EN_END__

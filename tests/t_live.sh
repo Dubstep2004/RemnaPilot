@@ -99,7 +99,7 @@ def pump(t):
             try: out += os.read(fd, 65536)
             except OSError: return
 pump(4)
-os.write(fd, b"6\r"); pump(2.5); os.write(fd, b"0\r"); pump(2.5)
+os.write(fd, b"8\r"); pump(2.5); os.write(fd, b"0\r"); pump(2.5)
 out += b"\n<<BEFORE>>\n"
 open(state, "w").write("remnawave|Exited (1) 3 seconds ago|remnawave/backend:2.2.4\n"); pump(5)
 out += b"\n<<AFTER>>\n"

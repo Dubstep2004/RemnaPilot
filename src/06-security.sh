@@ -83,22 +83,35 @@ security_check() {
   echo "Бэкап старого .env лежит рядом: .env.bak-*"
 }
 
-reset_admin() {
-  local ct; ct=$(app_containers | head -1)
-  yel "Откроется Rescue CLI панели. «Reset superadmin» удалит текущего суперадмина —"
-  yel "после этого открой панель в браузере и зарегистрируй нового."
-  read -rp "Запустить? [y/N] " a; [[ "$a" =~ ^[Yy]$ ]] || return 0
+reset_admin() { # «забыл пароль от панели»: сброс суперадмина через официальный Rescue CLI
+  local ct a dom; ct=$(app_containers | head -1)
+  [[ -n "$ct" ]] || { fail "Панель не запущена"; todo "запусти: cd $RW_DIR && docker compose up -d"; return 1; }
+  [[ -t 0 ]] || { fail "Нужен терминал"; cause "Rescue CLI панели работает только в интерактивном окне SSH"; return 1; }
+  dom=$(detect_old)
+  echo "Пароль администратора панель хранит только в виде хеша — узнать его нельзя, можно только сбросить."
+  echo "Сброс удаляет учётную запись суперадмина. Пользователи, ноды, хосты и настройки остаются."
+  echo
+  bold "Что будет:"
+  echo "  1. Откроется Rescue CLI панели — выбери в нём сброс суперадмина (Reset superadmin) и подтверди."
+  echo "     Если вход по паролю был выключен (только Telegram или OAuth) — там же можно включить его снова."
+  echo "  2. Закрой Rescue CLI."
+  echo "  3. Сразу открой ${dom:+https://$dom}${dom:-панель} в браузере и зарегистрируй нового администратора."
+  yel "  Первый, кто откроет панель после сброса, станет администратором — не откладывай шаг 3."
+  echo
+  ask "Сбросить суперадмина? Это нельзя отменить [y/N]"; read -r a; [[ "$a" =~ ^[Yy]$ ]] || { echo "  Отменено."; return $RP_CANCEL; }
   docker exec -it "$ct" cli
+  echo
+  green "Готово. Теперь открой ${dom:+https://$dom}${dom:-панель} и зарегистрируй администратора."
 }
 
 security_menu() {
   while true; do
     screen "Безопасность"
     item 1 "Проверить и исправить секреты, пароль БД, открытые порты"
-    item 2 "Сбросить суперадмина / включить вход по паролю" "Rescue CLI"
+    item 2 "Забыл пароль от панели" "сброс суперадмина · Rescue CLI"
     hr; item 0 "Назад"
     ask; read -r c
-    case "$c" in 1) run_action "Безопасность: проверка" security_check; pause ;; 2) run_action "Сброс суперадмина" reset_admin; pause ;; 0|q) return ;; esac
+    case "$c" in 1) run_action "Безопасность: проверка" security_check; pause ;; 2) run_action "Сброс пароля панели" reset_admin; pause ;; 0|q) return ;; esac
   done
 }
 

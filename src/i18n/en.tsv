@@ -1648,3 +1648,153 @@ docker-compose не найден в	docker-compose not found in
 Справка rw --help на английском снова цветная; сообщение про домен за Cloudflare больше не противоречит вопросу	rw --help in English is colored again; the Cloudflare domain message no longer contradicts the question
 Ожидание ввода в меню работает и без perl	Menu input waiting works without perl too
 Новые версии Docker пишут про несуществующую версию образа иначе («failed to resolve reference … not found») — RemnaPilot снова называет причину	Newer Docker versions report a nonexistent image version differently ("failed to resolve reference … not found") — RemnaPilot names the cause again
+Готово. Теперь открой	Done. Now open
+и зарегистрируй администратора.	and register an administrator.
+Забыл пароль от панели	Forgot the panel password
+сброс суперадмина · Rescue CLI	superadmin reset · Rescue CLI
+Панель не запущена	The panel is not running
+запусти: cd	start it: cd
+Нужен терминал	A terminal is required
+Rescue CLI панели работает только в интерактивном окне SSH	the panel's Rescue CLI works only in an interactive SSH session
+Пароль администратора панель хранит только в виде хеша — узнать его нельзя, можно только сбросить.	The panel stores the admin password only as a hash — it can't be recovered, only reset.
+Сброс удаляет учётную запись суперадмина. Пользователи, ноды, хосты и настройки остаются.	The reset deletes the superadmin account. Users, nodes, hosts and settings stay.
+Что будет:	What happens:
+1. Откроется Rescue CLI панели — выбери в нём сброс суперадмина (Reset superadmin) и подтверди.	1. The panel's Rescue CLI opens — choose the superadmin reset (Reset superadmin) and confirm.
+Если вход по паролю был выключен (только Telegram или OAuth) — там же можно включить его снова.	If password login was turned off (Telegram or OAuth only), you can turn it back on there.
+2. Закрой Rescue CLI.	2. Close the Rescue CLI.
+3. Сразу открой	3. Right away open
+в браузере и зарегистрируй нового администратора.	in a browser and register a new administrator.
+Первый, кто откроет панель после сброса, станет администратором — не откладывай шаг 3.	Whoever opens the panel first after the reset becomes the administrator — don't put off step 3.
+Сбросить суперадмина? Это нельзя отменить [y/N]	Reset the superadmin? This cannot be undone [y/N]
+панель	the panel
+База панели не найдена	Panel database not found
+контейнер Postgres панели не запущен	the panel's Postgres container is not running
+Не прочитал список нод из базы	Could not read the node list from the database
+В панели ещё нет нод — сначала добавь ноду в панели (Ноды → +).	There are no nodes in the panel yet — add one in the panel first (Nodes → +).
+НОДЫ В ПАНЕЛИ	NODES IN THE PANEL
+Нода «	Node "
+»: адрес	": address
+; хостов с этим адресом:	; hosts with this address:
+Новый домен (или IP) ноды	New node domain (or IP)
+Адрес	Address
+уже занят другой нодой	is already used by another node
+в панели у каждой ноды свой адрес	each node in the panel has its own address
+не найден в DNS	is not in DNS
+, а нода сейчас на	, while the node is now on
+Если не поправить DNS, панель потеряет связь с нодой, а клиенты — подключение.	If DNS isn't fixed, the panel will lose the node and clients will lose the connection.
+Всё равно сменить? [y/N]	Change anyway? [y/N]
+Меняю адрес ноды и хостов	Changing the node and host addresses
+Перезапускаю панель, чтобы она подхватила адрес	Restarting the panel so it picks up the address
+⚠ Панель долго запускается — проверь: Панель → Логи	⚠ The panel is slow to start — check: Panel → Logs
+Смена домена ноды	Node domain change
+Смена домена ноды за	Node domain change in
+(хостов:	(hosts:
+Клиенты получат новый адрес при следующем обновлении подписки.	Clients get the new address on their next subscription update.
+Если у хоста свой TLS-сертификат на ноде (не Reality) — выпусти его для	If a host uses its own TLS certificate on the node (not Reality), issue it for
+Вернуть как было: База → Восстановить из дампа (бэкап *-node-domain.sql.gz).	To undo: Database → Restore from dump (backup *-node-domain.sql.gz).
+Адрес не изменён — база осталась прежней	Address not changed — the database is unchanged
+Домен ноды — адрес, который ты укажешь в панели (Ноды → Адрес) и в хостах для клиентов.	The node domain is the address you set in the panel (Nodes → Address) and in hosts for clients.
+Домен ноды (Enter — без домена, по IP):	Node domain (Enter — no domain, use the IP):
+» — не похоже на домен	" doesn't look like a domain
+⚠ Домен ноды	⚠ Node domain
+не найден в DNS — добавь A-запись на	is not in DNS — add an A record pointing to
+IP ноды	the node IP
+указывает на	points to
+, а нода на	, while the node is on
+— поправь A-запись	— fix the A record
+✔ Домен ноды	✔ Node domain
+указывает на ноду (	points to the node (
+В панели: Ноды → нода → Адрес:	In the panel: Nodes → node → Address:
+(и в хостах для клиентов).	(and in the hosts for clients).
+Поменять потом: Домены → Сменить домен ноды.	To change it later: Domains → Change node domain.
+» — не похоже на домен (пример: panel.example.com)	" doesn't look like a domain (example: panel.example.com)
+Панель уже установлена	The panel is already installed
+уже есть .env или контейнер remnawave	there is already a .env or a remnawave container
+сменить домены: Домены → Сменить домены	change the domains: Domains → Change domains
+обновить: Панель → Обновления	update: Panel → Updates
+Поставлю Remnawave по официальной инструкции docs.rw: панель, базу, nginx и сертификат Let's Encrypt.	I'll install Remnawave per the official docs.rw guide: the panel, database, nginx and a Let's Encrypt certificate.
+Нужно: домен с A-записью на этот сервер и свободные порты 80 и 443.	You need a domain with an A record pointing to this server and free ports 80 and 443.
+Домен панели (например panel.example.com)	Panel domain (e.g. panel.example.com)
+Ссылки подписки можно отдавать с домена панели или с отдельного домена.	Subscription links can be served from the panel domain or from a separate domain.
+Домен подписки (Enter — тот же, что у панели:	Subscription domain (Enter — same as the panel:
+Проверяю сервер: Docker, порты	Checking the server: Docker, ports
+Устанавливаю Docker (get.docker.com)...	Installing Docker (get.docker.com)...
+Docker установлен	Docker installed
+Не установлен openssl	openssl is not installed
+— для сертификата и nginx он нужен свободным	— it must be free for the certificate and nginx
+Продолжить всё равно? [y/N]	Continue anyway? [y/N]
+Скачиваю Remnawave и создаю секреты	Downloading Remnawave and creating secrets
+Файлы Remnawave не скачались	Remnawave files were not downloaded
+✔ Секреты и пароль базы созданы случайно (они в	✔ Secrets and the database password were generated randomly (they're in
+/.env, файл доступен только root)	/.env, readable by root only)
+Запускаю панель и базу	Starting the panel and database
+Панель не запустилась	The panel did not start
+✔ Панель и база работают	✔ The panel and database are running
+Запускаю nginx (пока с временным сертификатом)	Starting nginx (with a temporary certificate for now)
+Временный сертификат не создался	The temporary certificate was not created
+nginx не запустился	nginx did not start
+Открыл 443/tcp в ufw	Opened 443/tcp in ufw
+Открыл 443/tcp в firewalld	Opened 443/tcp in firewalld
+Выпускаю сертификат Let's Encrypt	Issuing a Let's Encrypt certificate
+⚠ Сертификат Let's Encrypt не выпущен — панель открывается, но браузер предупредит о небезопасном сертификате.	⚠ The Let's Encrypt certificate was not issued — the panel opens, but the browser will warn about an insecure certificate.
+выпусти его позже: Панель → Сертификаты → 2	issue it later: Panel → Certificates → 2
+Проверяю, что панель открывается	Checking that the panel opens
+отвечает (HTTP	responds (HTTP
+ответил HTTP	responded HTTP
+нет ответа	no response
+— проверь логи: Панель → Логи	— check the logs: Panel → Logs
+Установка панели	Panel installation
+Установка панели за	Panel installation in
+Открой панель в браузере и создай администратора — первый вход регистрирует его.	Open the panel in a browser and create an administrator — the first login registers it.
+Дальше: Ноды → Установка — поставить ноду; Сервер → Firewall — закрыть лишние порты.	Next: Nodes → Install — set up a node; Server → Firewall — close unneeded ports.
+Список правил	Rules list
+порт · откуда · для чего	port · from · purpose
+ПРАВИЛА FIREWALL	FIREWALL RULES
+SSH — вход на сервер	SSH — server login
+нода — связь с панелью	node — link to the panel
+HTTP — выпуск сертификатов	HTTP — issuing certificates
+HTTPS — панель или Xray	HTTPS — panel or Xray
+сертификаты (TLS-ALPN)	certificates (TLS-ALPN)
+⚠ панель напрямую — лучше закрыть, она работает через nginx	⚠ the panel directly — better close it, it works through nginx
+⚠ база данных — закрой, снаружи она не нужна	⚠ database — close it, it's not needed from outside
+⚠ Redis — закрой, снаружи он не нужен	⚠ Redis — close it, it's not needed from outside
+слушает	listening:
+ufw не установлен — правил нет, все порты открыты. Включить: пункт 1 «Настроить одной кнопкой».	ufw is not installed — no rules, all ports are open. Turn it on: item 1 "One-click setup".
+Firewall выключен — открыты все порты. Сейчас снаружи слушают:	The firewall is off — all ports are open. Listening from outside right now:
+Включить и оставить нужное: пункт 1 «Настроить одной кнопкой».	Turn it on and keep what's needed: item 1 "One-click setup".
+Закрыть лишнее: пункт 3 «Закрыть порт».	Close what's not needed: item 3 "Close port".
+Откуда	From
+Для чего	Purpose
+отовсюду	anywhere
+запрещено	denied
+Нет разрешающих правил — снаружи закрыто всё.	No allow rules — everything is closed from outside.
+если её нет — установи: Панель → Установить панель	if there is none — install it: Panel → Install panel
+Сброс пароля панели	Panel password reset
+Установить панель	Install panel
+Remnawave + nginx или Caddy + HTTPS	Remnawave + nginx or Caddy + HTTPS
+Сменить домен ноды	Change node domain
+адрес в панели и у клиентов	address in the panel and for clients
+сброс через Rescue CLI	reset via Rescue CLI
+смена · домен ноды · откат	change · node domain · rollback
+установка · обновления · пароль	install · updates · password
+Установка панели: сертификат не выпущен	Panel installation: certificate not issued
+ВЕБ-СЕРВЕР	WEB SERVER
+сертификат через acme.sh, как в docs.rw	certificate via acme.sh, as in docs.rw
+сам выпускает и продлевает сертификат	issues and renews the certificate itself
+Выберите веб-сервер [1]	Choose a web server [1]
+Запускаю Caddy	Starting Caddy
+Caddy не запустился	Caddy did not start
+Жду, пока Caddy выпустит сертификат	Waiting for Caddy to issue the certificate
+✔ Сертификат выпущен	✔ Certificate issued
+⚠ Caddy пока не выпустил сертификат — обычно домен не указывает на сервер или закрыт порт 80/443.	⚠ Caddy hasn't issued the certificate yet — usually the domain doesn't point to the server or port 80/443 is closed.
+проверь A-запись домена и порты у хостера	check the domain's A record and the ports at your hosting provider
+логи Caddy: docker logs --tail 30 caddy	Caddy logs: docker logs --tail 30 caddy
+Caddy будет пробовать сам — перезапускать ничего не нужно	Caddy keeps trying by itself — no need to restart anything
+Открыл	Opened
+Установка панели: Панель → Установить панель. Remnawave по docs.rw, секреты и пароль базы создаются сами, домены панели и подписки, на выбор Nginx или Caddy, сертификат Let's Encrypt	Panel installation: Panel → Install panel. Remnawave per docs.rw, secrets and the database password are generated, panel and subscription domains, Nginx or Caddy to choose, a Let's Encrypt certificate
+Смена домена ноды: Домены → Сменить домен ноды. Меняет адрес ноды в панели и у клиентов (хосты, SNI) одной транзакцией, с бэкапом базы	Node domain change: Domains → Change node domain. Changes the node address in the panel and for clients (hosts, SNI) in one transaction, with a database backup
+Домен при установке ноды: RemnaPilot спросит его и проверит, что он указывает на ноду	Domain when installing a node: RemnaPilot asks for it and checks that it points to the node
+Список правил firewall: порт, откуда разрешён и для чего; предупреждает об открытых портах панели, базы и Redis	Firewall rules list: port, allowed from and purpose; warns about open panel, database and Redis ports
+Забыл пароль от панели: пункт в разделе «Панель» с пошаговой подсказкой для Rescue CLI	Forgot the panel password: an item in the Panel section with step-by-step Rescue CLI guidance
+Автопродление сертификатов открывает порт в firewall только на время продления (теперь и iptables) и останавливает nginx, только если он занимает этот порт — панель не падает при продлении. Старые правила продления обновляются сами	Certificate auto-renewal opens the firewall port only for the renewal (now iptables too) and stops nginx only if it holds that port — the panel stays up during renewal. Old renewal rules are upgraded automatically
+Нумерация полного списка меню сдвинулась: добавлены «Сменить домен ноды», «Установить панель» и «Забыл пароль от панели». Поиск по слову работает как раньше	Full menu list numbering shifted: "Change node domain", "Install panel" and "Forgot the panel password" were added. Word search works as before

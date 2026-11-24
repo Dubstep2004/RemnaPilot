@@ -10,8 +10,8 @@ menu() { printf '%s\n' "$@" | PATH="$T/bin:$PATH" TERM=xterm-256color RP_NO_LIVE
 
 out=$(menu 0)
 check "избранного больше нет (старые настройки игнорируются)" '! grep -q "ИЗБРАННОЕ" <<< "$out"'
-out_has "все пункты на месте, обычная нумерация" "17  WARP на ноде" "$out"
-out_has "обычная нумерация: сертификаты — 9" "9  Сертификаты" "$out"
+out_has "все пункты на месте, обычная нумерация" "20  WARP на ноде" "$out"
+out_has "обычная нумерация: сертификаты — 11" "11  Сертификаты" "$out"
 check "нет подсказки о быстрых клавишах" '! grep -q "Быстро:" <<< "$out"'
 check "компактный режим: нет пустых строк перед разделами" '! grep -B1 "ДОМЕНЫ ─" <<< "$out" | grep -q "^$"'
 out=$(menu c 0); check "одна буква больше ничего не открывает" '! grep -q "◆ Сертификаты" <<< "$out"'
@@ -24,10 +24,10 @@ out=$(L=en menu cert 0 0); out_has "поиск по-английски" "◆ Cer
 
 # удаление: без YES ничего не удаляется
 rm -f /etc/rw/ui.conf; install -m 755 "$SCRIPT" /usr/local/bin/rw; echo "x" > /etc/cron.d/remnapilot-update
-out=$(menu 34 n no 0)
+out=$(menu 37 n no 0)
 check "без YES ничего не удалено" '[ -x /usr/local/bin/rw ] && [ -d /etc/rw ] && [ -f /etc/cron.d/remnapilot-update ]'
 echo dump > /opt/remnawave/backups/db-1.sql.gz
-out=$(menu 34 y YES)
+out=$(menu 37 y YES)
 out_has "удаление завершено" "RemnaPilot удалён" "$out"
 check "команда rw удалена" '[ ! -e /usr/local/bin/rw ]'
 check "настройки и расписания удалены" '[ ! -e /etc/rw ] && [ ! -e /etc/cron.d/remnapilot-update ]'
