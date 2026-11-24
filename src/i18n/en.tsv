@@ -1798,3 +1798,61 @@ Caddy будет пробовать сам — перезапускать нич
 Забыл пароль от панели: пункт в разделе «Панель» с пошаговой подсказкой для Rescue CLI	Forgot the panel password: an item in the Panel section with step-by-step Rescue CLI guidance
 Автопродление сертификатов открывает порт в firewall только на время продления (теперь и iptables) и останавливает nginx, только если он занимает этот порт — панель не падает при продлении. Старые правила продления обновляются сами	Certificate auto-renewal opens the firewall port only for the renewal (now iptables too) and stops nginx only if it holds that port — the panel stays up during renewal. Old renewal rules are upgraded automatically
 Нумерация полного списка меню сдвинулась: добавлены «Сменить домен ноды», «Установить панель» и «Забыл пароль от панели». Поиск по слову работает как раньше	Full menu list numbering shifted: "Change node domain", "Install panel" and "Forgot the panel password" were added. Word search works as before
+Убрать ноду из списка	Remove node from the list
+сама нода не удаляется	the node itself is not deleted
+Удалить ноду	Delete node
+контейнер и файлы — здесь или по SSH	container and files — here or via SSH
+Удаление ноды	Node deletion
+Удаление ноды за	Node deletion in
+КАКУЮ НОДУ УДАЛИТЬ	WHICH NODE TO DELETE
+Удаляю по одной ноде — выбери номер, а не «все».	I delete one node at a time — pick a number, not "all".
+Будет удалено на сервере «	Will be deleted on server "
+»: контейнер remnanode, его образ и каталог /opt/remnanode.	": the remnanode container, its image and the /opt/remnanode directory.
+Клиенты, подключённые через эту ноду, потеряют связь.	Clients connected through this node will lose the connection.
+Удалить ноду «	Delete node "
+Удаляю контейнер и файлы ноды	Deleting the node container and files
+На сервере «	On server "
+» ноды уже нет (/opt/remnanode не найден).	" there is no node anymore (/opt/remnanode not found).
+Нода не удалилась	The node was not deleted
+Убираю из списка RemnaPilot	Removing from the RemnaPilot list
+» удалена.	" deleted.
+В панели удали её тоже: Ноды → нода → Удалить — иначе она будет висеть офлайн.	Delete it in the panel too: Nodes → node → Delete — otherwise it will stay offline there.
+Правило firewall для порта	The firewall rule for port
+осталось — закрыть: Сервер → Firewall → Закрыть порт.	is still there — close it: Server → Firewall → Close port.
+— введи УДАЛИТЬ	— type DELETE
+УДАЛИТЬ	DELETE
+удалить	delete
+если она в другом месте: Прочее → Сменить каталог панели	if it's elsewhere: Other → Change panel directory
+Каталог панели «	Panel directory "
+» удалять опасно	" is dangerous to delete
+Будет удалено навсегда:	Will be deleted permanently:
+• контейнеры панели, базы, Redis и веб-сервера:	• panel, database, Redis and web server containers:
+• база данных: пользователи, ноды, хосты, настройки панели	• database: users, nodes, hosts, panel settings
+• каталог	• directory
+• сертификаты:	• certificates:
+Останется: ноды на других серверах, RemnaPilot, firewall и SSH.	Kept: nodes on other servers, RemnaPilot, firewall and SSH.
+Перед удалением сделаю последний бэкап — его можно будет развернуть на новой панели.	Before deleting I'll make a final backup — it can be restored on a new panel.
+Удалить панель	Delete panel
+Последний бэкап базы и настроек	Final backup of the database and settings
+⚠ Бэкап базы не получился	⚠ The database backup failed
+Удалить без бэкапа базы? Данные пропадут	Delete without a database backup? The data will be lost
+Останавливаю и удаляю контейнеры и данные	Stopping and deleting containers and data
+Удаляю сертификаты и их автопродление	Deleting certificates and their auto-renewal
+Удаляю каталог панели	Deleting the panel directory
+Автобэкап выключен — бэкапить больше нечего	Auto-backup turned off — nothing to back up anymore
+Удаление панели	Panel deletion
+Удаление панели за	Panel deletion in
+✔ Панель удалена.	✔ Panel deleted.
+Вернуть на этом или другом сервере: Панель → Установить панель,	To bring it back on this or another server: Panel → Install panel,
+затем распакуй архив в	then unpack the archive into
+/backups и выбери дамп: База → Восстановить из дампа.	/backups and pick the dump: Database → Restore from dump.
+контейнеры, база и каталог панели	containers, database and the panel directory
+Бэкап:	Backup:
+Обновить RemnaPilot	Update RemnaPilot
+доступна v	available v
+сейчас v	now v
+Обновление RemnaPilot	RemnaPilot update
+Удалить панель: Прочее → Удалить панель. Контейнеры, база, сертификаты и каталог панели — с последним бэкапом вне панели и подтверждением словом УДАЛИТЬ	Delete panel: Other → Delete panel. Containers, database, certificates and the panel directory — with a final backup outside the panel and confirmation by typing DELETE
+Удалить ноду: Ноды → Установка и обновление нод → Удалить ноду. На этом сервере или по SSH, с подтверждением словом УДАЛИТЬ	Delete node: Nodes → Install and update nodes → Delete node. On this server or via SSH, confirmed by typing DELETE
+Обновить RemnaPilot — пункт прямо в главном меню (раздел «Прочее»), рядом видно, вышла ли новая версия	Update RemnaPilot — an item right in the main menu (Other section), showing whether a new version is out
+«Удалить ноду из списка» переименован в «Убрать ноду из списка» — чтобы не путать с удалением самой ноды	"Delete node from list" renamed to "Remove node from the list" so it isn't confused with deleting the node itself

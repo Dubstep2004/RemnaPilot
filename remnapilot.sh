@@ -54,7 +54,7 @@ set -o pipefail
 export PATH="$PATH:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"   # cron даёт урезанный PATH
 RP_NAME="RemnaPilot"
 RP_CANCEL=10        # код «отменено пользователем»: не успех и не ошибка (журнал пишет «отменено»)
-RP_VERSION="2.6"
+RP_VERSION="2.7"
 CERT_METHOD="${CERT_METHOD:-}"
 STOPPED_CT=(); STOPPED_SVC=(); FW_OPENED=()
 
@@ -2001,9 +2001,10 @@ node_menu() {
     item 3 "Показать команду установки" "скопировать и вставить на сервере"
     item 4 "Список нод"
     item 5 "Добавить ноду в список"
-    item 6 "Удалить ноду из списка"
+    item 6 "Убрать ноду из списка" "сама нода не удаляется"
     item 7 "Настроить вход по SSH-ключу" "без паролей"
     item 8 "Обновить ноды по SSH"
+    item 9 "Удалить ноду" "контейнер и файлы — здесь или по SSH"
     hr; item 0 "Назад"
     ask; read -r c
     case "$c" in
@@ -2011,11 +2012,50 @@ node_menu() {
       3) node_oneliner; pause ;;       4) node_list_show; pause ;;
       5) node_add_menu; pause ;;       6) node_remove_menu; pause ;;
       7) node_ssh_key; pause ;;        8) run_action "Обновление нод по SSH" nodes_update; pause ;;
+      9) run_action "Удаление ноды" node_uninstall; pause ;;
       0|q) return ;;
     esac
   done
 }
 
+
+# ---------- удаление ноды ----------
+node_rm_script() {
+  cat <<'EOF'
+d=""; for x in /opt/remnanode /opt/remnawave-node; do [ -d "$x" ] && d="$x"; done
+[ -n "$d" ] || { echo NO_NODE_DIR; exit 3; }
+cd "$d" || exit 1
+c=docker-compose.yml; [ -f "$c" ] || c=compose.yml
+docker compose -f "$c" down --rmi all --remove-orphans 2>&1 | tail -3
+cd / && rm -rf "$d" && echo "REMOVED $d"
+EOF
+}
+
+node_uninstall() {
+  local t nm h p out np
+  pick_targets "КАКУЮ НОДУ УДАЛИТЬ" || { echo "  Отменено."; return $RP_CANCEL; }
+  (( ${#TARGETS[@]} == 1 )) || { yel "Удаляю по одной ноде — выбери номер, а не «все»."; return $RP_CANCEL; }
+  t="${TARGETS[0]}"; nm=$(target_name "$t")
+  [[ "$t" == local ]] && np=$(local_node_port 2>/dev/null)
+  red "Будет удалено на сервере «$nm»: контейнер remnanode, его образ и каталог /opt/remnanode."
+  echo "  Клиенты, подключённые через эту ноду, потеряют связь."
+  confirm_delete "Удалить ноду «$nm»" || { echo "  Отменено."; return $RP_CANCEL; }
+  steps 2
+  step "Удаляю контейнер и файлы ноды"
+  out=$(run_on "$t" "$(node_rm_script)" 2>&1)
+  if [[ "$out" == *NO_NODE_DIR* ]]; then yel "На сервере «$nm» ноды уже нет (/opt/remnanode не найден)."
+  elif [[ "$out" != *REMOVED* ]]; then fail "Нода не удалилась" "" ""; why_first "$out" ssh docker; steps_done; return 1; fi
+  step "Убираю из списка RemnaPilot"
+  if [[ "$t" != local ]]; then
+    IFS='|' read -r nm h p <<< "$t"
+    NM="$nm" H="$h" P="$p" perl -ni -e 'print unless $_ eq "$ENV{NM} $ENV{H} $ENV{P}\n"' "$NODES_FILE"
+  fi
+  steps_done "Удаление ноды"
+  green "✔ Нода «$nm» удалена."
+  echo "  В панели удали её тоже: Ноды → нода → Удалить — иначе она будет висеть офлайн."
+  [[ -n "$np" ]] && echo "  Правило firewall для порта $np осталось — закрыть: Сервер → Firewall → Закрыть порт."
+  return 0
+}
 
 # ---------- смена домена ноды ----------
 # Адрес ноды хранится в базе панели в двух местах: nodes.address — по нему панель подключается к ноде,
@@ -2332,6 +2372,65 @@ panel_install() {
   echo "  Открой панель в браузере и создай администратора — первый вход регистрирует его."
   echo "  Дальше: Ноды → Установка — поставить ноду; Сервер → Firewall — закрыть лишние порты."
   (( le )) || return 1
+}
+
+# ---------- удаление панели ----------
+confirm_delete() { # подсказка → 0, если человек ввёл УДАЛИТЬ (или DELETE)
+  local a; ask "$1 — введи УДАЛИТЬ"; read -r a
+  [[ "$a" == "УДАЛИТЬ" || "$a" == "удалить" || "$a" == "DELETE" || "$a" == "delete" ]]
+}
+
+panel_uninstall() {
+  local dir="$RW_DIR" c cs=() doms=() d acme bk tmp out
+  case "${dir%/}" in ""|/|/root|/opt|/home|/etc|/var|/usr) fail "Каталог панели «$dir» удалять опасно"; todo "Прочее → Сменить каталог панели"; return 1 ;; esac
+  [[ -f "$dir/.env" || -n "$(find_composes 2>/dev/null)" ]] || { fail "Панель не найдена в $dir"; todo "если она в другом месте: Прочее → Сменить каталог панели"; return 1; }
+  mapfile -t cs < <(find_composes | awk -v r="$dir/docker-compose.yml" '$0 != r' ; [[ -f "$dir/docker-compose.yml" ]] && echo "$dir/docker-compose.yml")
+  mapfile -t doms < <({ detect_old; all_proxy_domains 2>/dev/null; sub_host; } | grep -E '^[A-Za-z0-9.-]+\.[A-Za-z]{2,}$' | sort -u)
+  local names; names=$(for c in "${cs[@]}"; do (cd "$(dirname "$c")" && docker compose -f "$c" ps -a --format '{{.Name}}' 2>/dev/null); done | sort -u | tr '\n' ' ')
+  red "Будет удалено навсегда:"
+  echo "  • контейнеры панели, базы, Redis и веб-сервера: ${names:-—}"
+  echo "  • база данных: пользователи, ноды, хосты, настройки панели"
+  echo "  • каталог $dir"
+  (( ${#doms[@]} )) && echo "  • сертификаты: ${doms[*]}"
+  green "Останется: ноды на других серверах, RemnaPilot, firewall и SSH."
+  echo "  Перед удалением сделаю последний бэкап — его можно будет развернуть на новой панели."
+  echo
+  confirm_delete "Удалить панель" || { echo "  Отменено."; return $RP_CANCEL; }
+
+  steps 4
+  step "Последний бэкап базы и настроек"
+  bk="${RP_REMOVED_DIR:-/root}/remnawave-removed-$(date +%Y%m%d-%H%M%S).tar.gz"; tmp=$(mktemp -d)
+  if backup_db removed >/dev/null 2>&1; then cp -a "$(ls -1t "$dir"/backups/db-*-removed.sql.gz | head -1)" "$tmp/"
+  else
+    local why; why=$(why_short db "$BK_ERR"); yel "⚠ Бэкап базы не получился${why:+: $why}."
+    confirm_delete "Удалить без бэкапа базы? Данные пропадут" || { rm -rf "$tmp"; echo "  Отменено."; steps_done; return $RP_CANCEL; }
+  fi
+  for c in .env docker-compose.yml nginx/nginx.conf caddy/Caddyfile; do [[ -f "$dir/$c" ]] && cp -a "$dir/$c" "$tmp/${c//\//-}"; done
+  [[ -s "$NODES_FILE" ]] && cp -a "$NODES_FILE" "$tmp/"
+  tar -C "$tmp" -czf "$bk" . && chmod 600 "$bk" && green "✔ Бэкап: $bk ($(du -h "$bk" | cut -f1))"
+  rm -rf "$tmp"
+
+  step "Останавливаю и удаляю контейнеры и данные"
+  for c in "${cs[@]}"; do
+    out=$(cd "$(dirname "$c")" && docker compose -f "$c" down -v --rmi all --remove-orphans 2>&1) || log_tail "$out" 3
+  done
+
+  step "Удаляю сертификаты и их автопродление"
+  acme=$(acme_bin 2>/dev/null)
+  for d in "${doms[@]}"; do
+    [[ -n "$acme" ]] && "$acme" --remove -d "$d" >/dev/null 2>&1
+    rm -rf "$HOME/.acme.sh/$d" "$HOME/.acme.sh/${d}_ecc"
+    rm -f "$HOOK_DIR/$d"-*.sh "$HOOK_DIR/$d.state" "$HOOK_DIR/$d.fw"
+  done
+
+  step "Удаляю каталог панели"
+  rm -rf "${dir:?}"
+  if [[ "$(bk_get SCHED off)" != off ]]; then bk_set SCHED off; bk_install_cron; info "Автобэкап выключен — бэкапить больше нечего"; fi
+  steps_done "Удаление панели"
+  green "✔ Панель удалена."
+  echo "  Бэкап: $bk"
+  echo "  Вернуть на этом или другом сервере: Панель → Установить панель,"
+  echo "  затем распакуй архив в $dir/backups и выбери дамп: База → Восстановить из дампа."
 }
 # ---------- журнал ----------
 JOURNAL="/var/log/remnapilot.log"
@@ -4199,6 +4298,10 @@ theme_swatch() { # цветные блоки темы
 
 # ---------- версия ----------
 RP_CHANGELOG=(
+  "2.7|new|Удалить панель: Прочее → Удалить панель. Контейнеры, база, сертификаты и каталог панели — с последним бэкапом вне панели и подтверждением словом УДАЛИТЬ"
+  "2.7|new|Удалить ноду: Ноды → Установка и обновление нод → Удалить ноду. На этом сервере или по SSH, с подтверждением словом УДАЛИТЬ"
+  "2.7|new|Обновить RemnaPilot — пункт прямо в главном меню (раздел «Прочее»), рядом видно, вышла ли новая версия"
+  "2.7|change|«Удалить ноду из списка» переименован в «Убрать ноду из списка» — чтобы не путать с удалением самой ноды"
   "2.6|new|Установка панели: Панель → Установить панель. Remnawave по docs.rw, секреты и пароль базы создаются сами, домены панели и подписки, на выбор Nginx или Caddy, сертификат Let's Encrypt"
   "2.6|new|Смена домена ноды: Домены → Сменить домен ноды. Меняет адрес ноды в панели и у клиентов (хосты, SNI) одной транзакцией, с бэкапом базы"
   "2.6|new|Домен при установке ноды: RemnaPilot спросит его и проверит, что он указывает на ноду"
@@ -4966,6 +5069,8 @@ item_info() {
     36) echo "Установить панель|Remnawave + nginx или Caddy + HTTPS" ;;
     37) echo "Сменить домен ноды|адрес в панели и у клиентов" ;;
     38) echo "Забыл пароль от панели|сброс через Rescue CLI" ;;
+    39) echo "Удалить панель|контейнеры, база и каталог панели" ;;
+    40) echo "Обновить RemnaPilot|$(lv=$(cat /etc/rw/.latest_version 2>/dev/null); ver_newer "$RP_VERSION" "$lv" && echo "доступна v$lv" || echo "сейчас v$RP_VERSION")" ;;
   esac
 }
 
@@ -4976,7 +5081,7 @@ MENU_SECTIONS=(
   "Ноды|статус · geo · WARP|13 14 15 16"
   "Сервер|firewall · SSH · BBR · swap|17 18 19 20 21 22 23"
   "Проверки|IP · SNI для Reality|24 25"
-  "Прочее|оформление · Telegram · язык|33 34 26 27 28 29 30 35"
+  "Прочее|оформление · Telegram · язык|33 34 26 27 28 29 30 40 39 35"
 )
 
 menu_mode() { local m; m=$(cat /etc/rw/menu_mode 2>/dev/null); [[ "$m" == sections ]] && echo sections || echo flat; }
@@ -5041,6 +5146,8 @@ run_item() { # внутренний номер пункта → действие
     36) run_action "Установка панели" panel_install; pause ;;
     37) run_action "Смена домена ноды" node_domain_change; pause ;;
     38) run_action "Сброс пароля панели" reset_admin; pause ;;
+    39) screen "Удаление панели"; echo; run_action "Удаление панели" panel_uninstall; pause ;;
+    40) screen "Обновление RemnaPilot"; echo; self_update_menu; pause ;;
     28) install_cmd; pause ;;
     29) change_dir; pause ;;
     30) about_screen; pause ;;
@@ -7122,4 +7229,62 @@ Caddy будет пробовать сам — перезапускать нич
 Забыл пароль от панели: пункт в разделе «Панель» с пошаговой подсказкой для Rescue CLI	Forgot the panel password: an item in the Panel section with step-by-step Rescue CLI guidance
 Автопродление сертификатов открывает порт в firewall только на время продления (теперь и iptables) и останавливает nginx, только если он занимает этот порт — панель не падает при продлении. Старые правила продления обновляются сами	Certificate auto-renewal opens the firewall port only for the renewal (now iptables too) and stops nginx only if it holds that port — the panel stays up during renewal. Old renewal rules are upgraded automatically
 Нумерация полного списка меню сдвинулась: добавлены «Сменить домен ноды», «Установить панель» и «Забыл пароль от панели». Поиск по слову работает как раньше	Full menu list numbering shifted: "Change node domain", "Install panel" and "Forgot the panel password" were added. Word search works as before
+Убрать ноду из списка	Remove node from the list
+сама нода не удаляется	the node itself is not deleted
+Удалить ноду	Delete node
+контейнер и файлы — здесь или по SSH	container and files — here or via SSH
+Удаление ноды	Node deletion
+Удаление ноды за	Node deletion in
+КАКУЮ НОДУ УДАЛИТЬ	WHICH NODE TO DELETE
+Удаляю по одной ноде — выбери номер, а не «все».	I delete one node at a time — pick a number, not "all".
+Будет удалено на сервере «	Will be deleted on server "
+»: контейнер remnanode, его образ и каталог /opt/remnanode.	": the remnanode container, its image and the /opt/remnanode directory.
+Клиенты, подключённые через эту ноду, потеряют связь.	Clients connected through this node will lose the connection.
+Удалить ноду «	Delete node "
+Удаляю контейнер и файлы ноды	Deleting the node container and files
+На сервере «	On server "
+» ноды уже нет (/opt/remnanode не найден).	" there is no node anymore (/opt/remnanode not found).
+Нода не удалилась	The node was not deleted
+Убираю из списка RemnaPilot	Removing from the RemnaPilot list
+» удалена.	" deleted.
+В панели удали её тоже: Ноды → нода → Удалить — иначе она будет висеть офлайн.	Delete it in the panel too: Nodes → node → Delete — otherwise it will stay offline there.
+Правило firewall для порта	The firewall rule for port
+осталось — закрыть: Сервер → Firewall → Закрыть порт.	is still there — close it: Server → Firewall → Close port.
+— введи УДАЛИТЬ	— type DELETE
+УДАЛИТЬ	DELETE
+удалить	delete
+если она в другом месте: Прочее → Сменить каталог панели	if it's elsewhere: Other → Change panel directory
+Каталог панели «	Panel directory "
+» удалять опасно	" is dangerous to delete
+Будет удалено навсегда:	Will be deleted permanently:
+• контейнеры панели, базы, Redis и веб-сервера:	• panel, database, Redis and web server containers:
+• база данных: пользователи, ноды, хосты, настройки панели	• database: users, nodes, hosts, panel settings
+• каталог	• directory
+• сертификаты:	• certificates:
+Останется: ноды на других серверах, RemnaPilot, firewall и SSH.	Kept: nodes on other servers, RemnaPilot, firewall and SSH.
+Перед удалением сделаю последний бэкап — его можно будет развернуть на новой панели.	Before deleting I'll make a final backup — it can be restored on a new panel.
+Удалить панель	Delete panel
+Последний бэкап базы и настроек	Final backup of the database and settings
+⚠ Бэкап базы не получился	⚠ The database backup failed
+Удалить без бэкапа базы? Данные пропадут	Delete without a database backup? The data will be lost
+Останавливаю и удаляю контейнеры и данные	Stopping and deleting containers and data
+Удаляю сертификаты и их автопродление	Deleting certificates and their auto-renewal
+Удаляю каталог панели	Deleting the panel directory
+Автобэкап выключен — бэкапить больше нечего	Auto-backup turned off — nothing to back up anymore
+Удаление панели	Panel deletion
+Удаление панели за	Panel deletion in
+✔ Панель удалена.	✔ Panel deleted.
+Вернуть на этом или другом сервере: Панель → Установить панель,	To bring it back on this or another server: Panel → Install panel,
+затем распакуй архив в	then unpack the archive into
+/backups и выбери дамп: База → Восстановить из дампа.	/backups and pick the dump: Database → Restore from dump.
+контейнеры, база и каталог панели	containers, database and the panel directory
+Бэкап:	Backup:
+Обновить RemnaPilot	Update RemnaPilot
+доступна v	available v
+сейчас v	now v
+Обновление RemnaPilot	RemnaPilot update
+Удалить панель: Прочее → Удалить панель. Контейнеры, база, сертификаты и каталог панели — с последним бэкапом вне панели и подтверждением словом УДАЛИТЬ	Delete panel: Other → Delete panel. Containers, database, certificates and the panel directory — with a final backup outside the panel and confirmation by typing DELETE
+Удалить ноду: Ноды → Установка и обновление нод → Удалить ноду. На этом сервере или по SSH, с подтверждением словом УДАЛИТЬ	Delete node: Nodes → Install and update nodes → Delete node. On this server or via SSH, confirmed by typing DELETE
+Обновить RemnaPilot — пункт прямо в главном меню (раздел «Прочее»), рядом видно, вышла ли новая версия	Update RemnaPilot — an item right in the main menu (Other section), showing whether a new version is out
+«Удалить ноду из списка» переименован в «Убрать ноду из списка» — чтобы не путать с удалением самой ноды	"Delete node from list" renamed to "Remove node from the list" so it isn't confused with deleting the node itself
 __RP_EN_END__

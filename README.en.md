@@ -42,7 +42,20 @@ rw
 ---
 
 <!-- whats-new:start -->
-## 🆕 What's new in v2.6
+## 🆕 What's new in v2.7
+
+#### ✨ New
+
+- Delete panel: Other → Delete panel. Containers, database, certificates and the panel directory — with a final backup outside the panel and confirmation by typing DELETE
+- Delete node: Nodes → Install and update nodes → Delete node. On this server or via SSH, confirmed by typing DELETE
+- Update RemnaPilot — an item right in the main menu (Other section), showing whether a new version is out
+
+#### 🔄 Changed
+
+- "Delete node from list" renamed to "Remove node from the list" so it isn't confused with deleting the node itself
+
+<details>
+<summary><b>Previous version — v2.6</b></summary>
 
 #### ✨ New
 
@@ -59,18 +72,6 @@ rw
 #### 🔄 Changed
 
 - Full menu list numbering shifted: "Change node domain", "Install panel" and "Forgot the panel password" were added. Word search works as before
-
-<details>
-<summary><b>Previous version — v2.5.1</b></summary>
-
-#### 🐛 Fixed
-
-- Newer Docker versions report a nonexistent image version differently ("failed to resolve reference … not found") — RemnaPilot names the cause again
-- Almost any panel startup failure was explained as "the migration failed" with advice to roll back — every startup mentions migrations. Now only on a real migration failure
-- An unreachable Redis (Valkey) is no longer reported as an unreachable database
-- A cancelled action was logged as successful and the command exited with 0 — now it's "cancelled" with its own exit code 10
-- rw --help in English is colored again; the Cloudflare domain message no longer contradicts the question
-- Menu input waiting works without perl too
 
 </details>
 
@@ -131,6 +132,7 @@ rw
 - **Install the panel** from scratch: Nginx or Caddy, certificate, secrets
 - Install a node locally, via SSH or with one command — with a domain check
 - **Forgot the password** — reset with guidance
+- Delete the panel or a node — with a backup and confirmation
 - **All nodes status** on one screen
 - geoip / geosite, **WARP** for ChatGPT etc.
 
