@@ -37,7 +37,7 @@ done
 
 if [[ -n "${DO_HELP:-}" ]]; then        # справка не требует root и идёт до остальной инициализации
   apply_ui
-  if [[ "$RP_LANG" == en && -f "$RP_SELF" ]] && command -v perl >/dev/null; then rp_load_dict; show_help | rp_translate
+  if [[ "$RP_LANG" == en && -f "$RP_SELF" ]] && command -v perl >/dev/null; then rp_load_dict; [[ -t 1 ]] && RP_HELP_TTY=1; show_help | rp_translate
   else show_help; fi
   exit 0
 fi

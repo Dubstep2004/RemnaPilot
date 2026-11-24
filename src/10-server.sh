@@ -83,7 +83,7 @@ fw_setup() {
   ask "Дополнительные порты через пробел (например 8443/tcp 2053/udp) или Enter"; read -r extra
 
   echo; yel "SSH-порт(ы) $sshp останутся открытыми — доступ к серверу не потеряешь."
-  ask "Включить firewall? [y/N]"; read -r ans; [[ "$ans" =~ ^[Yy]$ ]] || { echo "  Отменено."; return 0; }
+  ask "Включить firewall? [y/N]"; read -r ans; [[ "$ans" =~ ^[Yy]$ ]] || { echo "  Отменено."; return $RP_CANCEL; }
 
   command -v ufw >/dev/null || { info "Устанавливаю ufw..."; pkg_install ufw || { fail "ufw не установился" apt "$PKG_LOG"; return 1; }; }
   sed -i 's/^IPV6=.*/IPV6=yes/' /etc/default/ufw 2>/dev/null

@@ -53,7 +53,8 @@ fi
 set -o pipefail
 export PATH="$PATH:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"   # cron даёт урезанный PATH
 RP_NAME="RemnaPilot"
-RP_VERSION="2.5"
+RP_CANCEL=10        # код «отменено пользователем»: не успех и не ошибка (журнал пишет «отменено»)
+RP_VERSION="2.5.1"
 CERT_METHOD="${CERT_METHOD:-}"
 STOPPED_CT=(); STOPPED_SVC=(); FW_OPENED=()
 
@@ -422,7 +423,7 @@ check_dns() { # $1 = domain
     yel "⚠ $1 не найден в DNS — сертификат не выпустится, панель по этому адресу не откроется."
     DNS_WARN=1; return 1
   elif [[ -n "$sip" && "$dip" != "$sip" ]]; then
-    yel "⚠ $1 -> $dip, IP сервера $sip (ок, если домен за Cloudflare)."
+    yel "⚠ $1 -> $dip, а IP этого сервера $sip — домен смотрит на другой сервер или за прокси Cloudflare."
     DNS_WARN=1; return 1
   else
     green "✓ DNS: $1 -> $dip"
@@ -657,7 +658,7 @@ why() { # вид (docker|container|apt|ssh|net|telegram|db), текст лога
       if grep -qiE 'toomanyrequests|rate limit' <<< "$t"; then
         cause "Docker Hub ограничил скачивание (лимит на число загрузок с одного IP)"
         todo "подожди 1–6 часов и повтори" "или войди в Docker Hub: docker login"
-      elif grep -qiE 'manifest (for .* )?(unknown|not found)|not found: manifest|repository does not exist' <<< "$t"; then
+      elif grep -qiE 'manifest (for .* )?(unknown|not found)|not found: manifest|repository does not exist|failed to resolve reference .*: not found' <<< "$t"; then
         cause "такой версии образа нет"
         todo "проверь тег image: в docker-compose.yml" "или выбери версию: Панель → Обновления → Закрепить версию панели"
       elif grep -qiE 'registry-1\.docker\.io|docker\.io|production\.cloudflare\.docker\.com|auth\.docker\.io' <<< "$t" \
@@ -682,7 +683,10 @@ why() { # вид (docker|container|apt|ssh|net|telegram|db), текст лога
       if grep -qiE 'password authentication failed|Authentication failed against database server|credentials for .* are not valid|P1000' <<< "$t"; then
         cause "пароль базы в .env не совпадает с паролем в Postgres"
         todo "Панель → Безопасность → 1 — сверит и предложит исправить"
-      elif grep -qiE "ECONNREFUSED[^ ]*:5432|Can't reach database|connect ECONNREFUSED|getaddrinfo .*(db|postgres)" <<< "$t"; then
+      elif grep -qiE 'ECONNREFUSED ?[^ ]*:6379|Redis.*(ECONNREFUSED|connection|getaddrinfo)|getaddrinfo .*(redis|valkey)' <<< "$t"; then
+        cause "панель не достучалась до Redis (Valkey) — он хранит кэш и очереди"
+        todo "проверь контейнер: docker ps -a | grep redis" "его логи: docker logs --tail 30 remnawave-redis"
+      elif grep -qiE "ECONNREFUSED ?[^ ]*:5432|Can't reach database|getaddrinfo .*(db|postgres)" <<< "$t"; then
         cause "панель не достучалась до базы данных"
         todo "проверь контейнер базы: docker ps -a | grep db" "его логи: docker logs --tail 30 remnawave-db"
       elif grep -qiE 'EADDRINUSE|address already in use' <<< "$t"; then
@@ -691,7 +695,8 @@ why() { # вид (docker|container|apt|ssh|net|telegram|db), текст лога
         todo "освободи порт или смени его в .env (APP_PORT, METRICS_PORT)"
       elif grep -qiE 'out of memory|OOMKilled|JavaScript heap|Killed' <<< "$t"; then
         cause "не хватило памяти"; todo "добавь swap: Сервер → Swap" "или возьми сервер с 2 ГБ памяти и больше"
-      elif grep -qiE 'migrat' <<< "$t" && grep -qiE 'fail|error' <<< "$t"; then
+      # строки про миграции есть в каждом запуске («No pending migrations») — нужен именно сбой миграции
+      elif grep -qiE 'P30(0[5-9]|1[0-9])|migrations? .*failed|failed to apply .*migration|migrate found failed' <<< "$t"; then
         cause "не прошла миграция базы на новую версию"
         todo "верни прошлую версию: Панель → Обновления → Откатить последнее обновление" "(бэкап базы сделан перед обновлением)"
       elif grep -qiE 'invalid environment|environment variable|must be (a|an|defined)|is required|ZodError|validation' <<< "$t"; then
@@ -1006,8 +1011,8 @@ restore_after_cert() {
 
 dns_confirm() { # подтверждение нужно, только если новый домен не указывает на этот сервер
   [[ -n "${DNS_WARN:-}" ]] || return 0
-  echo; yel "  Если домен не указывает на этот сервер, панель по новому адресу не откроется,"
-  yel "  пока не поправишь DNS (откатить: Домены → Откатить смену домена)."
+  echo; yel "  Если домен за прокси Cloudflare — всё в порядке, применяй."
+  yel "  Если нет — панель по новому адресу не откроется, пока не поправишь DNS (откатить: Домены → Откатить смену домена)."
   local ans; ask "Всё равно применить? [y/N]"; read -r ans; [[ "$ans" =~ ^[Yy]$ ]]
 }
 
@@ -1054,7 +1059,7 @@ change_domain() { # $1 new, $2 old (может быть пустым), $3 dry
   fi
 
   if [[ -z "${DOM_BATCH:-}" ]]; then
-    dns_confirm || { echo "  Отменено."; return 0; }
+    dns_confirm || { echo "  Отменено."; return $RP_CANCEL; }
     BK_DIR=""
   fi
   backup_files "" "${files[@]}"
@@ -1182,7 +1187,7 @@ change_sub_domain() { # $1 new, $2 dry
       keep=1; info "Старый домен $old_host останется рабочим — ссылки в приложениях клиентов не сломаются."
       echo "    Убрать его потом: Домены → Удалить старые домены."
     fi
-    dns_confirm || { echo "  Отменено."; return 0; }
+    dns_confirm || { echo "  Отменено."; return $RP_CANCEL; }
     BK_DIR=""
   fi
   backup_files "-sub" "${files[@]}"
@@ -1271,7 +1276,7 @@ change_domains() { # $1 = 1 — только предпросмотр
   [[ -n "$np" ]] && echo "   Панель:   $op → $np"
   [[ -n "$ns" ]] && echo "   Подписка: $os → $ns$( (( keep )) && echo "  (+ старый как алиас)")"
   (( keep )) && echo "   Старый домен подписки останется рабочим — ссылки клиентов не сломаются. Убрать: Домены → Удалить старые домены."
-  dns_confirm || { echo "  Отменено."; return 0; }
+  dns_confirm || { echo "  Отменено."; return $RP_CANCEL; }
 
   BK_DIR=""; export DOM_BATCH=1 SUB_KEEP="$keep"
   [[ -n "$np" ]] && { change_domain "$np" "$op" 0 >/dev/null || { unset DOM_BATCH; return 1; }; green "✔ Панель: $op → $np"; }
@@ -1391,7 +1396,7 @@ remove_domains() {
   section "БУДЕТ УДАЛЕНО"
   printf '   ✖ %s\n' "${sel[@]}"
   yel "Ссылки подписки и адреса на этих доменах перестанут открываться."
-  ask "Удалить? [y/N]"; read -r ans; [[ "$ans" =~ ^[Yy]$ ]] || { echo "  Отменено."; return 0; }
+  ask "Удалить? [y/N]"; read -r ans; [[ "$ans" =~ ^[Yy]$ ]] || { echo "  Отменено."; return $RP_CANCEL; }
 
   # какие сертификаты затронуты (запомнить до правки)
   for d in "${sel[@]}"; do cf=$(cert_paths_for "$d" 2>/dev/null); [[ -n "$cf" ]] && certs+=("$cf"); done
@@ -1438,7 +1443,7 @@ rollback() {
   for i in "${!bks[@]}"; do item $((i+1)) "$(basename "${bks[$i]}")" "$(date -r "${bks[$i]}" '+%d.%m %H:%M')"; done
   hr; item 0 "Отмена"
   ask "Номер"; read -r n
-  [[ "$n" =~ ^[0-9]+$ ]] && (( n >= 1 && n <= ${#bks[@]} )) || { echo "Отменено."; return 0; }
+  [[ "$n" =~ ^[0-9]+$ ]] && (( n >= 1 && n <= ${#bks[@]} )) || { echo "Отменено."; return $RP_CANCEL; }
   cp -a "${bks[$((n-1))]}/." "$RW_DIR/"
   green "✓ Файлы восстановлены из $(basename "${bks[$((n-1))]}")"
   echo "Пересоздаю контейнеры..."; stack_down; stack_up
@@ -1511,7 +1516,7 @@ restore_db() {
     read -rep "Путь к дампу (.sql или .sql.gz): " f
   elif [[ "$n" =~ ^[0-9]+$ ]] && (( n >= 1 && n <= ${#files[@]} )); then
     f="${files[$((n-1))]}"
-  else echo "Отменено."; return 0; fi
+  else echo "Отменено."; return $RP_CANCEL; fi
   fi
   [[ -f "$f" ]] || { err "файл не найден: $f"; return 1; }
 
@@ -1527,7 +1532,7 @@ restore_db() {
   db_info || { err "контейнер БД не запущен"; return 1; }
   red "ВНИМАНИЕ: текущие данные базы $DB_NAME будут заменены содержимым $(basename "$f")."
   read -rp "Для подтверждения введи YES: " ans
-  [[ "$ans" == "YES" ]] || { echo "Отменено."; return 0; }
+  [[ "$ans" == "YES" ]] || { echo "Отменено."; return $RP_CANCEL; }
 
   echo "Страховочный бэкап текущей базы..."
   backup_db before-restore || { read -rp "Бэкап не удался. Всё равно продолжить? [y/N] " ans; [[ "$ans" =~ ^[Yy]$ ]] || return 0; }
@@ -1992,7 +1997,8 @@ run_action() { # название, команда… — журнал + блок
   local name="$1" rc; shift
   jlog START "$name"
   with_lock "$name" "$@"; rc=$?
-  if (( rc )); then jlog FAIL "$name (код $rc)"; else jlog OK "$name"; fi
+  if (( rc == RP_CANCEL )); then jlog INFO "$name (отменено)"
+  elif (( rc )); then jlog FAIL "$name (код $rc)"; else jlog OK "$name"; fi
   return $rc
 }
 
@@ -2011,7 +2017,7 @@ journal_fmt() { # режим (all|fail|today), слово для поиска, �
       d = substr(ts, 1, 10); t = substr(ts, 12, 8)
       if (lvl == "START") { open[txt] = NR; sd[NR] = d; st[NR] = t; R[NR] = 0; D[NR] = d; T[NR] = t; L[NR] = "START"; X[NR] = txt; Mt[NR] = m; next }
       # результат действия закрывает его START: «Имя» или «Имя (код N)»
-      base = txt; sub(/ \(код [0-9]+\)$/, "", base)
+      base = txt; sub(/ \((код [0-9]+|отменено)\)$/, "", base)
       dur = ""
       if (base in open) { s0 = open[base]; delete open[base]; done[s0] = 1
         if (sd[s0] == d) { x = secs(t) - secs(st[s0]); if (x >= 60) dur = int(x / 60) " мин"; else if (x >= 10) dur = x " сек" } }
@@ -2041,6 +2047,7 @@ journal_fmt() { # режим (all|fail|today), слово для поиска, �
         if (L[i] == "OK")    { ic = "✔"; col = cok }
         if (L[i] == "FAIL")  { ic = "✖"; col = cerr }
         if (L[i] == "START") { ic = "⏸"; col = cmut; tail = " — прервано" }
+        if (L[i] == "INFO" && X[i] ~ / \(отменено\)$/) { ic = "–"; col = cmut }
         if (U[i] != "") tail = tail cmut " · " U[i] c0
         printf "   %s%s%s  %s%s %s%s%s\n", cmut, substr(T[i], 1, 5), c0, col, ic, X[i], c0, tail
       }
@@ -2165,7 +2172,7 @@ fw_setup() {
   ask "Дополнительные порты через пробел (например 8443/tcp 2053/udp) или Enter"; read -r extra
 
   echo; yel "SSH-порт(ы) $sshp останутся открытыми — доступ к серверу не потеряешь."
-  ask "Включить firewall? [y/N]"; read -r ans; [[ "$ans" =~ ^[Yy]$ ]] || { echo "  Отменено."; return 0; }
+  ask "Включить firewall? [y/N]"; read -r ans; [[ "$ans" =~ ^[Yy]$ ]] || { echo "  Отменено."; return $RP_CANCEL; }
 
   command -v ufw >/dev/null || { info "Устанавливаю ufw..."; pkg_install ufw || { fail "ufw не установился" apt "$PKG_LOG"; return 1; }; }
   sed -i 's/^IPV6=.*/IPV6=yes/' /etc/default/ufw 2>/dev/null
@@ -3761,6 +3768,12 @@ theme_swatch() { # цветные блоки темы
 
 # ---------- версия ----------
 RP_CHANGELOG=(
+  "2.5.1|fix|Новые версии Docker пишут про несуществующую версию образа иначе («failed to resolve reference … not found») — RemnaPilot снова называет причину"
+  "2.5.1|fix|Почти любой сбой запуска панели объяснялся как «не прошла миграция» с советом откатиться — строки про миграции есть в каждом запуске. Теперь это только при настоящем сбое миграции"
+  "2.5.1|fix|Недоступный Redis (Valkey) больше не выдаётся за недоступную базу данных"
+  "2.5.1|fix|Отменённое действие записывалось в журнал как успешное, а команда завершалась с кодом 0 — теперь «отменено» и отдельный код 10"
+  "2.5.1|fix|Справка rw --help на английском снова цветная; сообщение про домен за Cloudflare больше не противоречит вопросу"
+  "2.5.1|fix|Ожидание ввода в меню работает и без perl"
   "2.5|new|Справка rw --help: все команды по разделам с примерами, на русском и английском"
   "2.5|new|Тесты на настоящей Remnawave в GitHub Actions: установка по docs.rw, смена домена и откат, бэкап и восстановление, обновление и настоящие ошибки Docker. Без них релиз не выходит"
   "2.5|improve|Понятные ошибки: вместо «не удалось» — причина и что делать. Docker Hub недоступен или упёрся в лимит, нет места, нет такой версии, порт занят, пароль базы не совпадает, apt занят, SSH не пускает, нет связи с GitHub или Telegram"
@@ -4124,7 +4137,7 @@ update_panel() { # без вопросов; спросит, только есл�
   if backup_db pre-update; then echo "DUMP $(ls -1t "$RW_DIR"/backups/db-*-pre-update.sql.gz | head -1)" >> "$UPD_LOG"
   elif [[ -t 0 ]]; then
     yel "  Без бэкапа откатить базу после неудачного обновления не получится."
-    ask "Продолжить без бэкапа? [y/N]"; read -r ans; [[ "$ans" =~ ^[Yy]$ ]] || { steps_done; return 0; }
+    ask "Продолжить без бэкапа? [y/N]"; read -r ans; [[ "$ans" =~ ^[Yy]$ ]] || { echo "  Отменено."; steps_done; return $RP_CANCEL; }
   else red "✖ Бэкап базы не сделан — без него не обновляю"; steps_done; return 1; fi
 
   step "Скачиваю образы и пересоздаю контейнеры"
@@ -4425,7 +4438,7 @@ change_dir() {
 # ---------- справка rw --help ----------
 show_help() {
   local A="" B="" M="" Z=""
-  [[ -t 1 ]] && { A="$C_ACC"; B="$CB"; M="$C_MUT"; Z="$C0"; }
+  [[ -t 1 || -n "${RP_HELP_TTY:-}" ]] && { A="$C_ACC"; B="$CB"; M="$C_MUT"; Z="$C0"; }   # в EN справка идёт через фильтр перевода
   h_sec() { printf '\n%s%s%s\n' "$B" "$(T "$1")" "$Z"; }
   h_cmd() { printf '  %s%s%s\n      %s\n' "$A" "$1" "$Z" "$(T "$2")"; }
   h_ex()  { printf '  %s%s%s\n' "$M" "$(T "$1")" "$Z"; }
@@ -4645,7 +4658,8 @@ tty_wait() { # секунд → 0, если в терминале есть вв�
   if command -v perl >/dev/null; then
     perl -e 'my $r = ""; vec($r, 0, 1) = 1; exit(select($r, undef, undef, $ARGV[0]) > 0 ? 0 : 1)' "$1" <&0
   else
-    local i; for ((i = 0; i < $1 * 10; i++)); do read -t 0 2>/dev/null && return 0; sleep 0.1; done; return 1
+    local i n; n=$(awk -v s="$1" 'BEGIN { n = int(s * 10 + 0.5); print (n < 1 ? 1 : n) }')   # десятые доли секунды: bash не считает дроби
+    for ((i = 0; i < n; i++)); do read -t 0 2>/dev/null && return 0; sleep 0.1; done; read -t 0 2>/dev/null
   fi
 }
 
@@ -4780,7 +4794,7 @@ done
 
 if [[ -n "${DO_HELP:-}" ]]; then        # справка не требует root и идёт до остальной инициализации
   apply_ui
-  if [[ "$RP_LANG" == en && -f "$RP_SELF" ]] && command -v perl >/dev/null; then rp_load_dict; show_help | rp_translate
+  if [[ "$RP_LANG" == en && -f "$RP_SELF" ]] && command -v perl >/dev/null; then rp_load_dict; [[ -t 1 ]] && RP_HELP_TTY=1; show_help | rp_translate
   else show_help; fi
   exit 0
 fi
@@ -6498,4 +6512,18 @@ docker-compose не найден в	docker-compose not found in
 Часовой пояс мог ошибочно считаться несуществующим, а UTF-8 — не включаться на системах с большим числом локалей	A valid time zone could be reported as nonexistent, and UTF-8 not enabled on systems with many locales
 Предпросмотр смены домена подписки	Subscription domain change preview
 Предпросмотр смены домена	Domain change preview
+панель не достучалась до Redis (Valkey) — он хранит кэш и очереди	the panel could not reach Redis (Valkey) — it stores the cache and queues
+проверь контейнер: docker ps -a	check the container: docker ps -a
+его логи: docker logs --tail 30 remnawave-redis	its logs: docker logs --tail 30 remnawave-redis
+(отменено)	(cancelled)
+, а IP этого сервера	, while this server's IP is
+— домен смотрит на другой сервер или за прокси Cloudflare.	— the domain points to another server or is behind the Cloudflare proxy.
+Если домен за прокси Cloudflare — всё в порядке, применяй.	If the domain is behind the Cloudflare proxy, it's fine — apply.
+Если нет — панель по новому адресу не откроется, пока не поправишь DNS (откатить: Домены → Откатить смену домена).	Otherwise the panel won't open at the new address until you fix DNS (roll back: Domains → Roll back domain change).
+Почти любой сбой запуска панели объяснялся как «не прошла миграция» с советом откатиться — строки про миграции есть в каждом запуске. Теперь это только при настоящем сбое миграции	Almost any panel startup failure was explained as "the migration failed" with advice to roll back — every startup mentions migrations. Now only on a real migration failure
+Недоступный Redis (Valkey) больше не выдаётся за недоступную базу данных	An unreachable Redis (Valkey) is no longer reported as an unreachable database
+Отменённое действие записывалось в журнал как успешное, а команда завершалась с кодом 0 — теперь «отменено» и отдельный код 10	A cancelled action was logged as successful and the command exited with 0 — now it's "cancelled" with its own exit code 10
+Справка rw --help на английском снова цветная; сообщение про домен за Cloudflare больше не противоречит вопросу	rw --help in English is colored again; the Cloudflare domain message no longer contradicts the question
+Ожидание ввода в меню работает и без perl	Menu input waiting works without perl too
+Новые версии Docker пишут про несуществующую версию образа иначе («failed to resolve reference … not found») — RemnaPilot снова называет причину	Newer Docker versions report a nonexistent image version differently ("failed to resolve reference … not found") — RemnaPilot names the cause again
 __RP_EN_END__

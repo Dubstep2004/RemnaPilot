@@ -29,7 +29,7 @@ why() { # вид (docker|container|apt|ssh|net|telegram|db), текст лога
       if grep -qiE 'toomanyrequests|rate limit' <<< "$t"; then
         cause "Docker Hub ограничил скачивание (лимит на число загрузок с одного IP)"
         todo "подожди 1–6 часов и повтори" "или войди в Docker Hub: docker login"
-      elif grep -qiE 'manifest (for .* )?(unknown|not found)|not found: manifest|repository does not exist' <<< "$t"; then
+      elif grep -qiE 'manifest (for .* )?(unknown|not found)|not found: manifest|repository does not exist|failed to resolve reference .*: not found' <<< "$t"; then
         cause "такой версии образа нет"
         todo "проверь тег image: в docker-compose.yml" "или выбери версию: Панель → Обновления → Закрепить версию панели"
       elif grep -qiE 'registry-1\.docker\.io|docker\.io|production\.cloudflare\.docker\.com|auth\.docker\.io' <<< "$t" \
@@ -54,7 +54,10 @@ why() { # вид (docker|container|apt|ssh|net|telegram|db), текст лога
       if grep -qiE 'password authentication failed|Authentication failed against database server|credentials for .* are not valid|P1000' <<< "$t"; then
         cause "пароль базы в .env не совпадает с паролем в Postgres"
         todo "Панель → Безопасность → 1 — сверит и предложит исправить"
-      elif grep -qiE "ECONNREFUSED[^ ]*:5432|Can't reach database|connect ECONNREFUSED|getaddrinfo .*(db|postgres)" <<< "$t"; then
+      elif grep -qiE 'ECONNREFUSED ?[^ ]*:6379|Redis.*(ECONNREFUSED|connection|getaddrinfo)|getaddrinfo .*(redis|valkey)' <<< "$t"; then
+        cause "панель не достучалась до Redis (Valkey) — он хранит кэш и очереди"
+        todo "проверь контейнер: docker ps -a | grep redis" "его логи: docker logs --tail 30 remnawave-redis"
+      elif grep -qiE "ECONNREFUSED ?[^ ]*:5432|Can't reach database|getaddrinfo .*(db|postgres)" <<< "$t"; then
         cause "панель не достучалась до базы данных"
         todo "проверь контейнер базы: docker ps -a | grep db" "его логи: docker logs --tail 30 remnawave-db"
       elif grep -qiE 'EADDRINUSE|address already in use' <<< "$t"; then
@@ -63,7 +66,8 @@ why() { # вид (docker|container|apt|ssh|net|telegram|db), текст лога
         todo "освободи порт или смени его в .env (APP_PORT, METRICS_PORT)"
       elif grep -qiE 'out of memory|OOMKilled|JavaScript heap|Killed' <<< "$t"; then
         cause "не хватило памяти"; todo "добавь swap: Сервер → Swap" "или возьми сервер с 2 ГБ памяти и больше"
-      elif grep -qiE 'migrat' <<< "$t" && grep -qiE 'fail|error' <<< "$t"; then
+      # строки про миграции есть в каждом запуске («No pending migrations») — нужен именно сбой миграции
+      elif grep -qiE 'P30(0[5-9]|1[0-9])|migrations? .*failed|failed to apply .*migration|migrate found failed' <<< "$t"; then
         cause "не прошла миграция базы на новую версию"
         todo "верни прошлую версию: Панель → Обновления → Откатить последнее обновление" "(бэкап базы сделан перед обновлением)"
       elif grep -qiE 'invalid environment|environment variable|must be (a|an|defined)|is required|ZodError|validation' <<< "$t"; then
