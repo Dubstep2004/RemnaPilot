@@ -214,14 +214,9 @@ subpage_install() {
 
   step "Запускаю страницу подписки"
   out=$(cd "$(sp_dir)" && docker compose pull -q 2>&1 && docker compose up -d 2>&1) || { fail "Страница подписки не запустилась" docker "$out"; steps_done; return 1; }
-  local i code=000
-  for i in $(seq 1 30); do
-    code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 -H 'X-Forwarded-For: 127.0.0.1' -H 'X-Forwarded-Proto: https' http://127.0.0.1:3010/ 2>/dev/null)
-    [[ "$code" != 000 ]] && break
-    [[ "$(docker inspect -f '{{.State.Status}}' "$SP_CT" 2>/dev/null)" =~ ^(exited|dead)$ ]] && break
-    sleep 2
-  done
-  [[ "$code" != 000 ]] || { fail "Страница подписки не запустилась" container "$(docker logs --tail 40 "$SP_CT" 2>&1)"; steps_done; return 1; }
+  # у образа есть healthcheck (/internal/health) — ждём «healthy»
+  wait_healthy "$SP_CT" 90 && [[ "$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$SP_CT" 2>/dev/null)" =~ ^(healthy|)$ ]] \
+    || { fail "Страница подписки не запустилась" container "$(docker logs --tail 40 "$SP_CT" 2>&1)"; steps_done; return 1; }
   green "✔ Контейнер $SP_CT работает"
 
   step "Направляю домен $dom на страницу"
