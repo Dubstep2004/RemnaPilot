@@ -8,9 +8,9 @@ printf 'de-1 root@192.0.2.1 22\n' > /etc/rw/nodes.list
 touch "$HOME/.rw-nocmd"
 
 # полный список (по умолчанию): каждое подменю → назад; оформление; затем вид «разделы»
-seq_menu=$(printf '%s\n' 12 0  14 0  15 0  24 0  17 0  3 0  31 0 ''  32 0  25 0  26 0  36 0  37 0  38 0  39 0  33 0 \
-  4 0  20 0  21 0  22 0  28 0  35 0 \
-  40 1 3 2 5 0  41 0  42 0  46 ''  11 ''  40 6 0  1 0  7 0  0)
+seq_menu=$(printf '%s\n' 12 0  14 0  15 0  24 0  17 0  3 0  33 0 ''  34 0  25 0  26 0  38 0  39 0  40 0  41 0  35 0 \
+  4 0  20 0  21 0  22 0  28 0  30 0  37 0 \
+  42 1 3 2 5 0  43 0  44 0  48 ''  11 ''  42 6 0  1 0  7 0  0)
 for L in ru en; do
   rm -f /etc/rw/menu_mode /etc/rw/ui.conf
   out=$(printf '%s\n' "$seq_menu" | PATH="$T/bin:$PATH" TERM=xterm-256color RP_NO_LIVE=1 RP_LANG=$L timeout 120 script -qc "bash '$SCRIPT'" /dev/null 2>&1 | nocolor)
@@ -18,7 +18,7 @@ for L in ru en; do
   check "[$L] меню завершилось без зависания" '[ $rc -eq 0 ]'
   check "[$L] без ошибок bash" '! grep -qE "line [0-9]+:|command not found|syntax error|unbound variable|bad substitution" <<< "$out"'
   if [ $L = ru ]; then
-    out_has "[$L] полный список по умолчанию" "46  О программе и версии" "$out"
+    out_has "[$L] полный список по умолчанию" "48  О программе и версии" "$out"
     out_has "[$L] новые пункты в списке" "17  Автобэкап" "$out"
     out_has "[$L] тема применилась (Лес)" "Тема  Лес" "$out"
     out_has "[$L] номера-кружки" "⑥  Сменить домены" "$out"

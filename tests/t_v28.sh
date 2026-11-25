@@ -169,7 +169,7 @@ check "…и убран" '[ ! -s "$T/panels.list" ]'
 # ── меню: новые разделы ──
 o=$(run 'for x in "${MENU_SECTIONS[@]}"; do echo "${x%%|*}"; done | tr "\n" " "')
 out_has "разделы по-новому" "Установка Домены Панель Защита Ноды Сервер Прочее" "$o"
-o=$(run 'all_items | sort -n | uniq -d; echo "N=$(all_items | wc -l)"; for n in $(seq 41 50); do all_items | grep -qx $n || echo "MISS $n"; i=$(item_info $n); [ -n "${i%%|*}" ] || echo "NONAME $n"; done')
-out_has "49 пунктов в полном списке" "N=49" "$o"
+o=$(run 'all_items | sort -n | uniq -d; echo "N=$(all_items | wc -l)"; for n in $(seq 41 52); do all_items | grep -qx $n || echo "MISS $n"; i=$(item_info $n); [ -n "${i%%|*}" ] || echo "NONAME $n"; done')
+out_has "51 пункт в полном списке" "N=51" "$o"
 check "без повторов, все новые пункты на месте и с названием" '! grep -qE "^[0-9]+$|MISS|NONAME" <<< "$o"'
 finish

@@ -42,7 +42,19 @@ rw
 ---
 
 <!-- whats-new:start -->
-## 🆕 What's new in v2.8
+## 🆕 What's new in v2.9
+
+#### ✨ New
+
+- Ready Xray profiles: Nodes → Ready Xray profiles. VLESS + Reality, VLESS + XHTTP, Trojan, Hysteria2 and "all in one" (Reality + XHTTP + Hysteria2) — keys, ports and sniffing are right from the start; RemnaPilot adds inbounds to squads, switches nodes and creates client hosts
+- Hysteria2 on node: Nodes → Hysteria2 on node. Let's Encrypt certificate (certbot), NET_ADMIN, /dev/shm and the certificate in the node docker-compose, node restart after renewal, the UDP port in the firewall — what used to be done by hand
+
+#### 🔄 Changed
+
+- Menu: two new items in "Nodes", the numbers in "Server" and "Other" moved by 2
+
+<details>
+<summary><b>Previous version — v2.8</b></summary>
 
 #### ✨ New
 
@@ -64,19 +76,6 @@ rw
 #### 🔄 Changed
 
 - The menu is split into new sections: Install, Domains, Panel, Protection, Nodes, Server, Other. Numbers in the full list changed — word search works as before
-
-<details>
-<summary><b>Previous version — v2.7</b></summary>
-
-#### ✨ New
-
-- Delete panel: Other → Delete panel. Containers, database, certificates and the panel directory — with a final backup outside the panel and confirmation by typing DELETE
-- Delete node: Nodes → Install and update nodes → Delete node. On this server or via SSH, confirmed by typing DELETE
-- Update RemnaPilot — an item right in the main menu (Other section), showing whether a new version is out
-
-#### 🔄 Changed
-
-- "Delete node from list" renamed to "Remove node from the list" so it isn't confused with deleting the node itself
 
 </details>
 
@@ -161,7 +160,9 @@ rw
 <tr>
 <td valign="top">
 
-### 🚫 Nodes: disguise and blocking
+### 🚫 Nodes: protocols, disguise and blocking
+- **Ready Xray profiles**: Reality, XHTTP, Trojan, Hysteria2 and "all in one"
+- **Hysteria2 on node**: certificate, NET_ADMIN, UDP port — one button
 - **Selfsteal for Reality** — your own site on the node domain
 - **Torrent blocking** (Xray rule or Torrent Blocker)
 - **Ad and tracker blocking** for all clients
