@@ -54,7 +54,7 @@ set -o pipefail
 export PATH="$PATH:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"   # cron даёт урезанный PATH
 RP_NAME="RemnaPilot"
 RP_CANCEL=10        # код «отменено пользователем»: не успех и не ошибка (журнал пишет «отменено»)
-RP_VERSION="2.7"
+RP_VERSION="2.8"
 CERT_METHOD="${CERT_METHOD:-}"
 STOPPED_CT=(); STOPPED_SVC=(); FW_OPENED=()
 
@@ -682,7 +682,7 @@ why() { # вид (docker|container|apt|ssh|net|telegram|db), текст лога
     container)
       if grep -qiE 'password authentication failed|Authentication failed against database server|credentials for .* are not valid|P1000' <<< "$t"; then
         cause "пароль базы в .env не совпадает с паролем в Postgres"
-        todo "Панель → Безопасность → 1 — сверит и предложит исправить"
+        todo "Защита → Безопасность → 1 — сверит и предложит исправить"
       elif grep -qiE 'ECONNREFUSED ?[^ ]*:6379|Redis.*(ECONNREFUSED|connection|getaddrinfo)|getaddrinfo .*(redis|valkey)' <<< "$t"; then
         cause "панель не достучалась до Redis (Valkey) — он хранит кэш и очереди"
         todo "проверь контейнер: docker ps -a | grep redis" "его логи: docker logs --tail 30 remnawave-redis"
@@ -705,7 +705,7 @@ why() { # вид (docker|container|apt|ssh|net|telegram|db), текст лога
       else log_tail "$t" 8; return 1; fi ;;
     db)
       if grep -qiE 'password authentication failed|Authentication failed against database server|role .* does not exist' <<< "$t"; then
-        cause "логин или пароль базы в .env не подходят"; todo "Панель → Безопасность → 1"
+        cause "логин или пароль базы в .env не подходят"; todo "Защита → Безопасность → 1"
       elif grep -qiE 'database .* does not exist' <<< "$t"; then
         cause "в .env указана база, которой нет"; todo "проверь DATABASE_URL в $RW_DIR/.env"
       elif grep -qiE 'is not running|No such container|cannot exec' <<< "$t"; then
@@ -1558,11 +1558,13 @@ restore_db() {
 
   db_info || { err "контейнер БД не запущен"; return 1; }
   red "ВНИМАНИЕ: текущие данные базы $DB_NAME будут заменены содержимым $(basename "$f")."
-  read -rp "Для подтверждения введи YES: " ans
-  [[ "$ans" == "YES" ]] || { echo "Отменено."; return $RP_CANCEL; }
+  if [[ -z "${RESTORE_YES:-}" ]]; then
+    read -rp "Для подтверждения введи YES: " ans
+    [[ "$ans" == "YES" ]] || { echo "Отменено."; return $RP_CANCEL; }
+  fi
 
   echo "Страховочный бэкап текущей базы..."
-  backup_db before-restore || { read -rp "Бэкап не удался. Всё равно продолжить? [y/N] " ans; [[ "$ans" =~ ^[Yy]$ ]] || return 0; }
+  backup_db before-restore || { [[ -n "${RESTORE_YES:-}" ]] && ans=y || read -rp "Бэкап не удался. Всё равно продолжить? [y/N] " ans; [[ "$ans" =~ ^[Yy]$ ]] || return 0; }
 
   mapfile -t cts < <(app_containers)
   echo "Останавливаю панель: ${cts[*]}"
@@ -1582,7 +1584,7 @@ restore_db() {
   fi
 
   env_bk="${f%.sql.gz}"; env_bk="${env_bk%.sql}.env"
-  if (( rc == 0 )) && [[ -f "$env_bk" ]] && ! cmp -s "$env_bk" "$RW_DIR/.env"; then
+  if (( rc == 0 )) && [[ -z "${RESTORE_YES:-}" ]] && [[ -f "$env_bk" ]] && ! cmp -s "$env_bk" "$RW_DIR/.env"; then
     read -rp "Рядом есть .env из того же бэкапа. Восстановить и его? (нужно, если менялись JWT-секреты) [y/N] " ans
     if [[ "$ans" =~ ^[Yy]$ ]]; then
       cp -a "$RW_DIR/.env" "$RW_DIR/.env.before-restore"; cp -a "$env_bk" "$RW_DIR/.env"
@@ -1815,6 +1817,8 @@ services:
     image: remnawave/node:latest
     network_mode: host
     restart: always
+    cap_add:
+      - NET_ADMIN
     ulimits:
       nofile:
         soft: 1048576
@@ -1985,7 +1989,7 @@ EOS
       ok+=("$nm: $(echo "$out" | grep '^RESULT' | cut -d' ' -f2-)"); green "  ✓ $(echo "$out" | grep '^RESULT' | cut -d' ' -f2-)"
     else
       failed+=("$nm"); red "  ✗ не обновилась"
-      if grep -q NO_NODE_DIR <<< "$out"; then cause "на сервере нет ноды в /opt/remnanode"; todo "установи её: Ноды → Установка → 2"
+      if grep -q NO_NODE_DIR <<< "$out"; then cause "на сервере нет ноды в /opt/remnanode"; todo "установи её: Установка → Установка и обновление нод → 2"
       else why_first "$out" ssh docker; fi
     fi
   done
@@ -2053,7 +2057,7 @@ node_uninstall() {
   steps_done "Удаление ноды"
   green "✔ Нода «$nm» удалена."
   echo "  В панели удали её тоже: Ноды → нода → Удалить — иначе она будет висеть офлайн."
-  [[ -n "$np" ]] && echo "  Правило firewall для порта $np осталось — закрыть: Сервер → Firewall → Закрыть порт."
+  [[ -n "$np" ]] && echo "  Правило firewall для порта $np осталось — закрыть: Защита → Firewall → Закрыть порт."
   return 0
 }
 
@@ -2106,7 +2110,7 @@ node_domain_change() {
   green "✔ Нода «$name»: $old → $new (хостов: ${hosts:-0})"
   echo "  Клиенты получат новый адрес при следующем обновлении подписки."
   echo "  Если у хоста свой TLS-сертификат на ноде (не Reality) — выпусти его для $new."
-  echo "  Вернуть как было: База → Восстановить из дампа (бэкап *-node-domain.sql.gz)."
+  echo "  Вернуть как было: Панель → Восстановить из дампа (бэкап *-node-domain.sql.gz)."
 }
 # ---------- установка панели ----------
 # По официальной инструкции docs.rw: /opt/remnawave — docker-compose.yml и .env панели,
@@ -2370,7 +2374,7 @@ panel_install() {
   green "Панель:   https://$panel"
   green "Подписка: https://$sub_env/…"
   echo "  Открой панель в браузере и создай администратора — первый вход регистрирует его."
-  echo "  Дальше: Ноды → Установка — поставить ноду; Сервер → Firewall — закрыть лишние порты."
+  echo "  Дальше: Установка → Установка и обновление нод — поставить ноду; Защита → Firewall — закрыть лишние порты."
   (( le )) || return 1
 }
 
@@ -2429,8 +2433,704 @@ panel_uninstall() {
   steps_done "Удаление панели"
   green "✔ Панель удалена."
   echo "  Бэкап: $bk"
-  echo "  Вернуть на этом или другом сервере: Панель → Установить панель,"
-  echo "  затем распакуй архив в $dir/backups и выбери дамп: База → Восстановить из дампа."
+  echo "  Вернуть на этом или другом сервере: Установка → Установить панель,"
+  echo "  затем распакуй архив в $dir/backups и выбери дамп: Панель → Восстановить из дампа."
+}
+# ---------- API панели ----------
+# RemnaPilot ходит в API панели напрямую (127.0.0.1:3000) с заголовками, как от reverse proxy.
+# Токен хранится в /etc/rw/api.token (только root). Его можно вставить из панели
+# (Настройки → API-токены) или RemnaPilot создаст его сам по логину и паролю админа.
+API_CONF="/etc/rw/api.token"
+
+api_url() {
+  local p; p=$(grep -oE '127\.0\.0\.1:[0-9]+:' "$RW_DIR/docker-compose.yml" 2>/dev/null | head -1 | cut -d: -f2)
+  echo "${RP_API_URL:-http://127.0.0.1:${p:-3000}}"
+}
+
+api() { # метод путь [json] → API_OUT (тело), API_CODE; 0 при 2xx. Токен — из API_TOKEN (если задан) или из файла
+  local tok out m="$1" p="$2" d="${3:-}"
+  if [[ -n "${API_TOKEN+x}" ]]; then tok="$API_TOKEN"; else tok=$(cat "$API_CONF" 2>/dev/null); fi
+  local a=(-s -m 25 -X "$m" -H "X-Forwarded-For: 127.0.0.1" -H "X-Forwarded-Proto: https" -H "Content-Type: application/json" -w $'\n%{http_code}')
+  [[ -n "$d" ]] && a+=(--data-binary @-)
+  # токен — заголовком из файла-канала: в списке процессов (ps) его не видно
+  out=$(printf '%s' "$d" | curl "${a[@]}" -H @<([[ -n "$tok" ]] && printf 'Authorization: Bearer %s\n' "$tok") "$(api_url)$p" 2>&1)
+  API_CODE="${out##*$'\n'}"; API_OUT="${out%$'\n'*}"
+  [[ "$API_CODE" =~ ^2 ]]
+}
+
+need_py() { command -v python3 >/dev/null || pkg_install python3 || { fail "Не установлен python3" apt "$PKG_LOG"; return 1; }; }
+
+jget() { # выражение над j (разобранный JSON из stdin) → строка или JSON
+  python3 -c 'import json,sys
+j=json.load(sys.stdin); r=eval(sys.argv[1])
+print(r if isinstance(r,str) else ("" if r is None else json.dumps(r, ensure_ascii=False)))' "$1" 2>/dev/null
+}
+
+api_msg() { # понятная строка ошибки API
+  local m; m=$(jget 'j.get("message") or j.get("error") or ""' <<< "$API_OUT")
+  case "$API_CODE" in
+    000) echo "панель не отвечает на $(api_url) — она запущена?" ;;
+    401) echo "API-токен не подходит или истёк${m:+ ($m)}" ;;
+    403) echo "доступ запрещён${m:+ ($m)}" ;;
+    404) echo "в этой версии панели нет нужного API — обнови панель${m:+ ($m)}" ;;
+    *)   echo "HTTP $API_CODE${m:+: $m}" ;;
+  esac
+}
+
+api_ready() { # проверить или получить доступ к API; 0 — можно работать
+  need_py || return 1
+  if [[ -s "$API_CONF" ]] && api GET /api/keygen; then return 0; fi
+  if [[ "$API_CODE" == 000 ]]; then fail "Панель не отвечает"; cause "$(api_msg)"; todo "проверь: Панель → Настройки и контейнеры"; return 1; fi
+  [[ -s "$API_CONF" ]] && yel "⚠ Сохранённый API-токен не подходит ($(api_msg)) — нужен новый."
+  echo "RemnaPilot нужен доступ к API панели. Два способа:"
+  echo "  • вставь API-токен (в панели: Настройки → API-токены → Создать)"
+  echo "  • или нажми Enter — войду логином и паролем админа и создам токен сам (пароль нигде не сохраняется)"
+  local t u pw body jwt
+  ask "API-токен"; read -rs t; echo
+  if [[ -z "$t" ]]; then
+    ask "Логин админа панели"; read -r u; [[ -n "$u" ]] || { echo "  Отменено."; return $RP_CANCEL; }
+    ask "Пароль"; read -rs pw; echo
+    body=$(U="$u" P="$pw" python3 -c 'import json,os; print(json.dumps({"username":os.environ["U"],"password":os.environ["P"]}))')
+    API_TOKEN="" api POST /api/auth/login "$body" || { fail "Не вошёл в панель"; cause "$( [[ "$API_CODE" =~ ^(400|401|403)$ ]] && echo "неверный логин или пароль" || api_msg)"; return 1; }
+    jwt=$(jget 'j["response"]["accessToken"]' <<< "$API_OUT")
+    API_TOKEN="$jwt" api POST /api/tokens '{"name":"RemnaPilot","expiresInDays":3650}' \
+      || API_TOKEN="$jwt" api POST /api/tokens '{"tokenName":"RemnaPilot","tokenDescription":"RemnaPilot"}' \
+      || { fail "Токен не создался"; cause "$(api_msg)"; todo "создай его в панели: Настройки → API-токены и вставь сюда"; return 1; }
+    t=$(jget 'j["response"]["token"]' <<< "$API_OUT")
+  fi
+  API_TOKEN="$t" api GET /api/keygen || { fail "Токен не подошёл"; cause "$(api_msg)"; return 1; }
+  mkdir -p /etc/rw; ( umask 077; printf '%s\n' "$t" > "$API_CONF" ); chmod 600 "$API_CONF"
+  green "✔ Доступ к API сохранён ($API_CONF, читает только root)"
+}
+
+# ---------- правка конфигов nginx / Caddy панели ----------
+caddy_ct() { docker ps -a --format '{{.Names}}\t{{.Image}}' 2>/dev/null | awk -F'\t' '$2 ~ /caddy/ && $1 !~ /selfsteal/ {print $1; exit}'; }
+
+proxy_find() { # PROXY_KIND (nginx|caddy) и PROXY_FILE — конфиг, где описан домен панели
+  local f panel; panel=$(detect_old); PROXY_KIND=""; PROXY_FILE=""
+  [[ -n "$panel" ]] || return 1
+  while IFS= read -r f; do
+    case "$f" in
+      *Caddyfile) D="$panel" perl -ne 'BEGIN{$d=quotemeta $ENV{D}} $h=1 if /^[^#{]*(?<![\w.-])$d(?![\w-])[^#]*\{/; END{exit !$h}' "$f" && { PROXY_KIND=caddy; PROXY_FILE="$f"; return 0; } ;;
+      *.conf)     D="$panel" perl -ne 'BEGIN{$d=quotemeta $ENV{D}} $h=1 if /^\s*server_name[^;#]*(?<![\w.-])$d(?![\w-])/; END{exit !$h}' "$f" && { PROXY_KIND=nginx; PROXY_FILE="$f"; return 0; } ;;
+    esac
+  done < <(proxy_confs)
+  return 1
+}
+
+need_proxy() {
+  proxy_find && return 0
+  fail "Не нашёл конфиг nginx или Caddy панели"; cause "в $RW_DIR нет конфига с доменом $(detect_old)"
+  todo "эта функция работает с nginx или Caddy, которые стоят по инструкции docs.rw (или установлены RemnaPilot)"; return 1
+}
+
+block_edit() { # файл домен 'perl-код над $_' — правит блок сервера/сайта домена, inode файла сохраняется
+  local f="$1" new; new=$(D="$2" P="$3" perl -e '
+    my $d = quotemeta $ENV{D}; my ($depth, $buf, $out) = (0, "", "");
+    sub flush { my $hit = $buf =~ /\A[^\n{]*(?<![\w.-])$d(?![\w-])[^\n]*\{/ || $buf =~ /^\s*server_name[^;]*(?<![\w.-])$d(?![\w-])/m;
+                if ($hit) { local $_ = $buf; eval $ENV{P}; die $@ if $@; $buf = $_ } $out .= $buf; $buf = "" }
+    while (my $l = <STDIN>) {
+      (my $s = $l) =~ s/#.*//; my $o = () = $s =~ /\{/g; my $c = () = $s =~ /\}/g;
+      if ($depth == 0 && !$o) { $out .= $l; next }
+      $buf .= $l; $depth += $o - $c;
+      if ($depth <= 0) { $depth = 0; flush() }
+    }
+    $out .= $buf; print $out;' < "$f") || return 1
+  [[ "$new" == "$(cat "$f")" ]] && return 1
+  printf '%s\n' "$new" > "$f"
+}
+
+http_edit() { # файл маркер текст — блок верхнего уровня (http) между «# маркер begin/end»; пустой текст — убрать
+  local f="$1" new; new=$(M="$2" X="$3" perl -0777 -e '
+    my $t = <STDIN>; my $m = quotemeta $ENV{M};
+    $t =~ s/^[ \t]*# $m begin\n.*?^[ \t]*# $m end\n//gms;
+    if ($ENV{X} ne "") {
+      my $b = "# $ENV{M} begin\n$ENV{X}\n# $ENV{M} end\n";
+      if ($t =~ /^\s*http\s*\{[^\n]*\n/m) { $t =~ s/^(\s*http\s*\{[^\n]*\n)/$1$b/m }
+      elsif ($t =~ /\A((?:#[^\n]*\n)+)/) { my $h = $1; substr($t, 0, length $h) = "$h$b" }
+      else { $t = $b . $t }
+    }
+    print $t;' < "$f") || return 1
+  [[ "$new" == "$(cat "$f")" ]] && return 1
+  printf '%s\n' "$new" > "$f"
+}
+
+proxy_reload() { # проверить конфиг и применить без перезапуска; 1 — ошибка в конфиге (текст в PROXY_LOG)
+  local c
+  if [[ "$PROXY_KIND" == nginx ]]; then c=$(nginx_ct)
+    PROXY_LOG=$(docker exec "$c" nginx -t 2>&1) || return 1
+    docker exec "$c" nginx -s reload >/dev/null 2>&1 || docker restart "$c" >/dev/null 2>&1
+  else c=$(caddy_ct); c="${c:-caddy}"
+    PROXY_LOG=$(docker exec "$c" caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile 2>&1) || return 1
+    docker exec "$c" caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1 || docker restart "$c" >/dev/null 2>&1
+  fi
+  sleep 1; return 0
+}
+
+proxy_apply() { # копия_до_правки — применить; при ошибке вернуть как было
+  if proxy_reload; then return 0; fi
+  cat "$1" > "$PROXY_FILE"; proxy_reload >/dev/null 2>&1
+  fail "Веб-сервер не принял новый конфиг — вернул как было"; log_tail "$PROXY_LOG" 6; return 1
+}
+
+proxy_backup() { local b; b="$RW_DIR/backups/$(basename "$PROXY_FILE").$1-$(date +%Y%m%d-%H%M%S)"; mkdir -p "$RW_DIR/backups"; cp -a "$PROXY_FILE" "$b"; echo "$b"; }
+
+panel_code() { # [куки] → HTTP-код главной страницы панели (запрос с этого сервера)
+  local p; p=$(detect_old)
+  curl -sk -o /dev/null -w '%{http_code}' --max-time 10 ${1:+-H "Cookie: $1"} --resolve "$p:443:127.0.0.1" "https://$p/" 2>/dev/null
+}
+
+# ---------- страница подписки ----------
+SP_CT="remnawave-subscription-page"
+sp_dir() { echo "$RW_DIR/subscription"; }
+
+sp_compose() {
+  cat <<EOF
+# Создано RemnaPilot по docs.rw (Subscription page → bundled)
+services:
+  $SP_CT:
+    image: remnawave/subscription-page:latest
+    container_name: $SP_CT
+    hostname: $SP_CT
+    restart: always
+    env_file:
+      - .env
+    ports:
+      - '127.0.0.1:3010:3010'
+    networks:
+      - remnawave-network
+
+networks:
+  remnawave-network:
+    name: remnawave-network
+    driver: bridge
+    external: true
+EOF
+}
+
+sp_installed() { [[ -f "$(sp_dir)/docker-compose.yml" ]]; }
+
+sp_status() {
+  local st; st=$(docker inspect -f '{{.State.Status}}' "$SP_CT" 2>/dev/null)
+  box_top
+  if sp_installed; then
+    box_line "$(dot "$([[ "$st" == running ]] && echo ok || echo err)") $(padr "Страница" 10)${C0}${CB}https://$(sub_host)${C0}"
+    box_line "  $(padr "Контейнер" 10)${C0}${st:-не найден}"
+  else
+    box_line "$(dot warn) $(padr "Страница" 10)${C0}не установлена"
+    box_line "  $(padr "Подписка" 10)https://$(sub_current)"
+  fi
+  box_bottom
+}
+
+subpage_install() {
+  need_panel || return 1; need_proxy || return 1
+  local panel cur dom new_block=0 d tok out bk c k host_c host_k doms
+  panel=$(detect_old); cur=$(sub_host)
+  echo "Страница подписки — красивая страница для клиентов: ссылки для приложений, QR-код, инструкции."
+  echo "Ставлю по docs.rw рядом с панелью; ссылки подписки клиентов остаются прежними."
+  if [[ -n "$cur" && "$cur" != "$panel" ]]; then
+    pi_ask_domain "Домен страницы подписки [$cur]" dom 1 || return $RP_CANCEL
+    dom="${dom:-$cur}"
+  else
+    echo "  Сейчас подписка отдаётся с домена панели ($panel/api/sub). Странице нужен свой домен."
+    pi_ask_domain "Домен страницы подписки (например sub.example.com)" dom || { echo "  Отменено."; return $RP_CANCEL; }
+  fi
+  [[ "$dom" == "$panel" ]] && { fail "Это домен панели"; todo "страница подписки работает только на своём домене или поддомене"; return 1; }
+  [[ "$dom" != "$cur" ]] && new_block=1
+  if (( new_block )); then
+    D="$dom" perl -ne 'BEGIN{$d=quotemeta $ENV{D}} $h=1 if /(?<![\w.-])$d(?![\w-])/; END{exit !$h}' "$PROXY_FILE" && new_block=0
+    DNS_WARN=""; check_dns "$dom"; dns_confirm || { echo "  Отменено."; return $RP_CANCEL; }
+  fi
+  api_ready || return $?
+  tok=$(cat "$API_CONF")
+
+  steps 4
+  step "Создаю $(sp_dir)"
+  mkdir -p "$(sp_dir)"; sp_compose > "$(sp_dir)/docker-compose.yml"
+  ( umask 077; printf 'APP_PORT=3010\nREMNAWAVE_PANEL_URL=http://remnawave:3000\nREMNAWAVE_API_TOKEN=%s\nCUSTOM_SUB_PREFIX=\nMARZBAN_LEGACY_LINK_ENABLED=false\nTRUST_PROXY=1\n' "$tok" > "$(sp_dir)/.env" )
+
+  step "Запускаю страницу подписки"
+  out=$(cd "$(sp_dir)" && docker compose pull -q 2>&1 && docker compose up -d 2>&1) || { fail "Страница подписки не запустилась" docker "$out"; steps_done; return 1; }
+  wait_healthy "$SP_CT" 60 || { fail "Страница подписки не запустилась" container "$(docker logs --tail 40 "$SP_CT" 2>&1)"; steps_done; return 1; }
+  green "✔ Контейнер $SP_CT работает"
+
+  step "Направляю домен $dom на страницу"
+  bk=$(proxy_backup subpage)
+  if [[ "$PROXY_KIND" == nginx ]]; then
+    if (( new_block )); then
+      IFS=$'\t' read -r c k _ < <(nginx_blocks | awk -F'\t' -v d="$panel" '{n=" "$3" "; if (index(n," "d" ")) {print; exit}}')
+      local blk; blk=$(echo; pi_server "$dom" "http://$SP_CT:3010" | sed "s|/etc/nginx/ssl/fullchain.pem|${c:-/etc/nginx/ssl/fullchain.pem}|; s|/etc/nginx/ssl/privkey.key|${k:-/etc/nginx/ssl/privkey.key}|")
+      # новый server перед «server_name _» (default), иначе в конец
+      out=$(B="$blk" perl -0777 -pe 's/(\nserver\s*\{\s*\n\s*listen 443 ssl default_server)/$ENV{B}$1/ or $_ .= $ENV{B}' "$PROXY_FILE"); printf '%s\n' "$out" > "$PROXY_FILE"
+    else
+      ! nginx_blocks | awk -F'\t' -v d="$dom" -v p="$panel" '{n=" "$3" "; if (index(n," "d" ") && index(n," "p" ")) f=1} END{exit !f}' \
+        || { fail "Домен подписки в одном блоке nginx с панелью"; todo "раздели их: Домены → Сменить домены"; steps_done; return 1; }
+      block_edit "$PROXY_FILE" "$dom" 's{proxy_pass\s+[^;]+;}{proxy_pass http://'"$SP_CT"':3010;}g; s{^\s*rewrite\s+[^\n]*api/sub[^\n]*\n}{}mg'
+    fi
+  else
+    if (( new_block )); then
+      printf '\nhttps://%s {\n    encode gzip zstd\n    reverse_proxy * http://%s:3010\n}\n' "$dom" "$SP_CT" >> "$PROXY_FILE"
+    else
+      block_edit "$PROXY_FILE" "$dom" 's{^\s*rewrite\s+\*\s+/api/sub\{uri\}\s*\n}{}mg; s{reverse_proxy\s+(\*\s+)?\S+}{reverse_proxy * http://'"$SP_CT"':3010}g'
+    fi
+  fi
+  proxy_apply "$bk" || { steps_done; return 1; }
+  green "✔ $dom → страница подписки (копия конфига: $bk)"
+
+  step "Сертификат и адрес подписки в панели"
+  if (( new_block )) && [[ "$PROXY_KIND" == nginx ]]; then
+    if host_c=$(host_path "$c") && host_k=$(host_path "$k"); then
+      doms=$(nginx_blocks | awk -F'\t' -v c="$c" '$1==c {print $3}' | tr ' ' '\n' | grep -v '^\*\|^_$' | awk 'NF && !s[$0]++' | tr '\n' ' ')
+      CERT_FULL="$host_c" CERT_KEY="$host_k" CERT_EXTRA="$doms" issue_cert "$panel" \
+        || { yel "⚠ Сертификат для $dom не выпущен — страница откроется с предупреждением браузера."; todo "выпусти позже: Панель → Сертификаты"; }
+    fi
+  fi
+  if [[ "$(sub_current)" != "$dom" ]]; then
+    env_set SUB_PUBLIC_DOMAIN "$dom"
+    out=$(cd "$RW_DIR" && docker compose up -d 2>&1) || log_tail "$out" 3
+    wait_healthy remnawave 120 >/dev/null
+    info "Адрес подписки в панели: $dom (старые ссылки $panel/api/sub/… продолжают работать)"
+  fi
+  steps_done "Страница подписки"
+  echo; green "Страница подписки: https://$dom/<shortUuid>"
+  echo "  Оформление (приложения, тексты): в панели → Страница подписки."
+}
+
+subpage_remove() {
+  sp_installed || { echo "  Страница подписки не установлена."; return 0; }
+  need_proxy || return 1
+  local dom bk out; dom=$(sub_host)
+  echo "Уберу страницу подписки. Домен $dom останется и будет отдавать подписку напрямую из панели — ссылки клиентов не сломаются."
+  ask "Убрать страницу подписки? [y/N]"; read -r out; [[ "$out" =~ ^[YyДд]$ ]] || { echo "  Отменено."; return $RP_CANCEL; }
+  bk=$(proxy_backup subpage-off)
+  if [[ "$PROXY_KIND" == nginx ]]; then
+    block_edit "$PROXY_FILE" "$dom" 's{proxy_pass\s+http://'"$SP_CT"':3010;}{proxy_pass http://remnawave/api/sub/;}g'
+  else
+    block_edit "$PROXY_FILE" "$dom" 's{(\n\s*)reverse_proxy\s+\*\s+http://'"$SP_CT"':3010}{$1rewrite * /api/sub{uri}$1reverse_proxy * http://remnawave:3000}g'
+  fi
+  proxy_apply "$bk" || return 1
+  out=$(cd "$(sp_dir)" && docker compose down --rmi all 2>&1) || log_tail "$out" 3
+  rm -rf "$(sp_dir)"
+  green "✔ Страница подписки убрана; https://$dom/<shortUuid> отдаёт подписку из панели"
+}
+
+subpage_menu() {
+  local c
+  while true; do
+    screen "Страница подписки"; echo; sp_status
+    section "ДЕЙСТВИЯ"
+    item 1 "$(sp_installed && echo "Переустановить или сменить домен" || echo "Установить страницу подписки")" "remnawave/subscription-page"
+    sp_installed && item 2 "Убрать страницу подписки" "подписка снова отдаётся панелью"
+    hr; item 0 "Назад"
+    ask; read -r c; echo
+    case "$c" in
+      1) run_action "Страница подписки" subpage_install; pause ;;
+      2) sp_installed && { run_action "Страница подписки: убрать" subpage_remove; pause; } ;;
+      0|q|"") return ;;
+    esac
+  done
+}
+
+# ---------- переустановка панели с сохранением данных ----------
+panel_reinstall() {
+  need_panel || return 1
+  local dir="$RW_DIR" f out keep main="$RW_DIR/docker-compose.yml" a
+  [[ -f "$main" ]] || main=$(compose_of "$dir") || { fail "Нет docker-compose.yml панели в $dir"; return 1; }
+  echo "Переустановка: свежие образы и контейнеры, база создаётся заново и заполняется из бэкапа."
+  echo "Помогает, когда панель сломалась после обновления, ручных правок или сбоя диска."
+  green "Сохранится: пользователи, ноды, хосты, настройки (из бэкапа), .env, домены, сертификаты, nginx/Caddy."
+  ask "Переустановить панель? [y/N]"; read -r a; [[ "$a" =~ ^[YyДд]$ ]] || { echo "  Отменено."; return $RP_CANCEL; }
+
+  steps 5
+  step "Бэкап базы и настроек"
+  backup_db reinstall >/dev/null 2>&1 || { fail "Бэкап базы не получился — без него переустанавливать нельзя" db "$BK_ERR"; steps_done; return 1; }
+  f=$(ls -1t "$dir"/backups/db-*-reinstall.sql.gz 2>/dev/null | head -1)
+  [[ -s "$f" ]] || { fail "Бэкап базы пустой"; steps_done; return 1; }
+  keep="$dir/backups/reinstall-$(date +%Y%m%d-%H%M%S)"; mkdir -p "$keep"
+  cp -a "$dir/.env" "$main" "$keep/"
+  green "✔ Бэкап: $f"
+
+  step "Удаляю контейнеры, образы и старую базу"
+  stack_down >/dev/null 2>&1
+  out=$(cd "$dir" && docker compose -f "$main" down -v --rmi all --remove-orphans 2>&1) || log_tail "$out" 3
+
+  step "Ставлю свежие образы и запускаю"
+  out=$(cd "$dir" && docker compose -f "$main" pull 2>&1 && docker compose -f "$main" up -d 2>&1) \
+    || { fail "Панель не запустилась" docker "$out"; todo "бэкап на месте: $f" "восстановить: Панель → Восстановить из дампа"; steps_done; return 1; }
+  wait_healthy remnawave 180 || { fail "Панель не запустилась" container "$(docker logs --tail 60 remnawave 2>&1)"; todo "бэкап на месте: $f"; steps_done; return 1; }
+
+  step "Возвращаю данные из бэкапа"
+  RESTORE_FILE="$f" RESTORE_YES=1 restore_db >/dev/null 2>&1 \
+    || { fail "Данные не вернулись из бэкапа"; todo "повтори вручную: Панель → Восстановить из дампа → ${f##*/}"; steps_done; return 1; }
+
+  step "Запускаю веб-сервер и проверяю"
+  stack_up >/dev/null 2>&1
+  wait_healthy remnawave 120 || { fail "Панель не запустилась после восстановления" container "$(docker logs --tail 60 remnawave 2>&1)"; steps_done; return 1; }
+  local code; code=$(panel_code)
+  steps_done "Переустановка панели"
+  green "✔ Панель переустановлена, данные на месте"
+  [[ "$code" =~ ^[234] ]] && echo "  https://$(detect_old) отвечает (HTTP $code)"
+  echo "  Копия .env и compose до переустановки: $keep"
+}
+
+# ---------- закрыть вход в панель ----------
+ACCESS_CONF="/etc/rw/access.conf"
+acc_get() { grep -m1 "^$1=" "$ACCESS_CONF" 2>/dev/null | cut -d= -f2-; }
+acc_set() { mkdir -p /etc/rw; touch "$ACCESS_CONF"; chmod 600 "$ACCESS_CONF"; perl -i -ne "print unless /^\Q$1\E=/" "$ACCESS_CONF"; [[ -n "$2" ]] && echo "$1=$2" >> "$ACCESS_CONF"; return 0; }
+acc_on() { [[ -n "$(acc_get IPS)$(acc_get KEY)" ]]; }
+
+acc_name() {
+  local i k; i=$(acc_get IPS); k=$(acc_get KEY)
+  if [[ -n "$i" && -n "$k" ]]; then echo "только мои IP и секретная ссылка"
+  elif [[ -n "$i" ]]; then echo "только IP: $i"
+  elif [[ -n "$k" ]]; then echo "по секретной ссылке"
+  else echo "открыт для всех"; fi
+}
+
+valid_ip() { [[ "$1" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}(/[0-9]{1,2})?$ || "$1" =~ ^[0-9A-Fa-f:]*:[0-9A-Fa-f:]+(/[0-9]{1,3})?$ ]]; }
+
+acc_nginx_http() { # $1 IP, $2 ключ
+  local ip
+  printf 'geo $rp_ip_ok {\n    default 0;\n'; for ip in $1; do printf '    %s 1;\n' "$ip"; done; printf '}\n'
+  printf 'map $cookie_rp_key $rp_key_ok {\n    default 0;\n'; [[ -n "$2" ]] && printf '    "%s" 1;\n' "$2"; printf '}'
+}
+
+acc_nginx_srv() { # $1 ключ
+  printf '    # rp-access begin\n    set $rp_pass "$rp_ip_ok$rp_key_ok";\n    if ($uri ~ "^/api/sub/") { set $rp_pass "1"; }\n'
+  [[ -n "$1" ]] && printf '    if ($uri = "/%s") { set $rp_pass "1"; }\n' "$1"
+  printf '    if ($rp_pass !~ "1") { return 404; }\n'
+  [[ -n "$1" ]] && printf '    location = /%s {\n        add_header Set-Cookie "rp_key=%s; Path=/; Max-Age=31536000; Secure; HttpOnly; SameSite=Lax" always;\n        return 302 /;\n    }\n' "$1" "$1"
+  printf '    # rp-access end\n'
+}
+
+acc_caddy_srv() { # $1 IP, $2 ключ
+  printf '    # rp-access begin\n'
+  [[ -n "$2" ]] && printf '    @rp_key path /%s\n    handle @rp_key {\n        header Set-Cookie "rp_key=%s; Path=/; Max-Age=31536000; Secure; HttpOnly; SameSite=Lax"\n        redir / 302\n    }\n' "$2" "$2"
+  printf '    @rp_deny {\n'
+  [[ -n "$1" ]] && printf '        not remote_ip %s\n' "$1"
+  [[ -n "$2" ]] && printf '        not header_regexp Cookie (^|;\\s*)rp_key=%s(;|$)\n        not path /%s\n' "$2" "$2"
+  printf '        not path /api/sub/*\n    }\n    respond @rp_deny 404\n    # rp-access end\n'
+}
+
+acc_apply() { # записать текущие настройки в конфиг веб-сервера
+  need_proxy || return 1
+  local ips key bk panel; ips=$(acc_get IPS); key=$(acc_get KEY); panel=$(detect_old)
+  bk=$(proxy_backup access)
+  if [[ "$PROXY_KIND" == nginx ]]; then
+    if acc_on; then http_edit "$PROXY_FILE" rp-access-http "$(acc_nginx_http "$ips" "$key")"; else http_edit "$PROXY_FILE" rp-access-http ""; fi
+    S="$(acc_on && acc_nginx_srv "$key")" block_edit "$PROXY_FILE" "$panel" \
+      's/^[ \t]*# rp-access begin\n.*?^[ \t]*# rp-access end\n//gms; s/^(\s*server_name[^;]*;[^\n]*\n)/$1$ENV{S}\n/m if $ENV{S} ne ""'
+  else
+    S="$(acc_on && acc_caddy_srv "$ips" "$key")" block_edit "$PROXY_FILE" "$panel" \
+      's/^[ \t]*# rp-access begin\n.*?^[ \t]*# rp-access end\n//gms; s/\A([^\n]*\{[^\n]*\n)/$1$ENV{S}\n/ if $ENV{S} ne ""'
+  fi
+  proxy_apply "$bk" || return 1
+  local c0 c1; c0=$(panel_code)
+  if acc_on; then
+    if [[ "$c0" == 404 ]]; then green "✔ Вход в панель закрыт: $(acc_name)"
+    else yel "⚠ Панель всё ещё открывается с этого сервера (HTTP ${c0:-нет ответа}) — проверь конфиг: $PROXY_FILE"; fi
+    if [[ -n "$key" ]]; then
+      c1=$(panel_code "rp_key=$key")
+      [[ "$c1" != 404 ]] && green "✔ По секретной ссылке пускает (HTTP $c1)"
+      echo; bold "  Секретная ссылка: https://$panel/$key"
+      echo "  Открой её один раз в браузере — дальше панель открывается как обычно (запомнится на год)."
+      echo "  Сохрани ссылку в надёжном месте: без неё и без своих IP войти в панель нельзя."
+    fi
+    echo "  Подписка клиентов работает как раньше. Остальные видят «404 Not Found»."
+  else green "✔ Вход в панель открыт для всех (HTTP $c0)"; fi
+  echo "  Копия конфига до изменения: $bk"
+}
+
+acc_ips_ask() {
+  local me ips ip; me="${SSH_CLIENT%% *}"
+  echo "Панель будет открываться только с этих IP (через пробел; можно подсеть, например 203.0.113.0/24)."
+  [[ -n "$me" ]] && echo "  Твой IP сейчас: $me"
+  echo "  Если IP домашнего интернета меняется — включи ещё и секретную ссылку, чтобы не потерять вход."
+  ask "IP${me:+ [$me]}"; read -r ips; ips="${ips:-$me}"; ips=$(echo "$ips" | tr ',;' '  ' | xargs)
+  [[ -n "$ips" ]] || { echo "  Отменено."; return $RP_CANCEL; }
+  for ip in $ips; do valid_ip "$ip" || { fail "«$ip» — не похоже на IP"; return 1; }; done
+  acc_set IPS "$ips"; acc_apply
+}
+
+acc_key_new() {
+  local k; k=$(openssl rand -hex 16)
+  [[ -n "$(acc_get KEY)" ]] && yel "Старая секретная ссылка перестанет работать (у кого она уже открыта — тоже)."
+  acc_set KEY "$k"; acc_apply
+}
+
+acc_off() { acc_set IPS ""; acc_set KEY ""; acc_apply; }
+
+access_menu() {
+  local c
+  need_panel || { pause; return; }
+  while true; do
+    screen "Закрыть вход в панель"; echo
+    box_top; box_line "$(dot "$(acc_on && echo ok || echo warn)") $(padr "Вход" 10)${C0}$(acc_name)"; box_bottom
+    echo "  Посторонние увидят «404 Not Found» вместо страницы входа. Подписка клиентов не трогается."
+    section "ДЕЙСТВИЯ"
+    item 1 "Только мои IP" "$( [[ -n "$(acc_get IPS)" ]] && echo "сейчас: $(acc_get IPS)")"
+    item 2 "$( [[ -n "$(acc_get KEY)" ]] && echo "Новая секретная ссылка" || echo "Секретная ссылка")" "вход только после её открытия"
+    [[ -n "$(acc_get KEY)" ]] && item 3 "Показать секретную ссылку"
+    acc_on && item 4 "Открыть вход для всех" "выключить защиту"
+    hr; item 0 "Назад"
+    ask; read -r c; echo
+    case "$c" in
+      1) run_action "Вход в панель: только IP" acc_ips_ask; pause ;;
+      2) run_action "Вход в панель: секретная ссылка" acc_key_new; pause ;;
+      3) [[ -n "$(acc_get KEY)" ]] && { bold "  https://$(detect_old)/$(acc_get KEY)"; pause; } ;;
+      4) acc_on && { run_action "Вход в панель: открыть" acc_off; pause; } ;;
+      0|q|"") return ;;
+    esac
+  done
+}
+
+# ---------- защита от перебора пароля панели ----------
+BF_LOG_DIR="/var/log/remnawave-panel"
+F2B_JAIL="/etc/fail2ban/jail.d/remnawave-panel.local"
+F2B_FILTER="/etc/fail2ban/filter.d/remnawave-panel.conf"
+bf_on() { [[ -f "$F2B_JAIL" ]] || grep -qs 'rp-bf begin' "$PROXY_FILE" 2>/dev/null; }
+
+bf_logpath() { # путь лога входов на хосте
+  if [[ "$PROXY_KIND" == nginx ]]; then echo "$BF_LOG_DIR/auth.log"
+  else local m; m=$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Source}}{{end}}{{end}}' "$(caddy_ct)" 2>/dev/null); [[ -n "$m" ]] && echo "$m/rp-access.log"; fi
+}
+
+bf_nginx_mount() { # подключить каталог логов в compose nginx → 0, если подключён
+  local ng cf out; ng=$(nginx_ct)
+  docker inspect -f '{{range .Mounts}}{{.Destination}} {{end}}' "$ng" 2>/dev/null | grep -qw /var/log/rp && return 0
+  cf=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project.config_files"}}' "$ng" 2>/dev/null | cut -d, -f1)
+  [[ -f "$cf" ]] || return 1
+  grep -q "$BF_LOG_DIR:/var/log/rp" "$cf" || {
+    cp -a "$cf" "$cf.bak-bf"
+    L="      - $BF_LOG_DIR:/var/log/rp" perl -0777 -i -pe 's/^([ \t]*)(- [^\n]*:\/etc\/nginx\/[^\n]*\n)/$1$2$1- '"$BF_LOG_DIR"':\/var\/log\/rp\n/m or exit 1' "$cf" || return 1
+  }
+  mkdir -p "$BF_LOG_DIR"
+  out=$(cd "$(dirname "$cf")" && docker compose -f "$cf" up -d 2>&1) || { cp -a "$cf.bak-bf" "$cf"; log_tail "$out" 3; return 1; }
+  wait_healthy "$ng" 30
+}
+
+bf_enable() {
+  need_panel || return 1; need_proxy || return 1
+  local bk panel tgt lp f2b=1 out; panel=$(detect_old)
+  steps 3
+  step "Ограничение попыток входа в $PROXY_KIND"
+  bk=$(proxy_backup bruteforce)
+  if [[ "$PROXY_KIND" == nginx ]]; then
+    bf_nginx_mount || { f2b=0; yel "⚠ Не смог подключить каталог логов к nginx — будет только ограничение частоты, без бана"; }
+    tgt=$(D="$panel" perl -0777 -ne 'BEGIN{$d=quotemeta $ENV{D}} while (/server\s*\{(.*?)\n\}/gs) { my $b=$1; if ($b =~ /server_name[^;]*(?<![\w.-])$d(?![\w-])/ && $b =~ /location\s+\/\s*\{[^}]*?proxy_pass\s+([^;]+);/s) { print $1; last } }' "$PROXY_FILE")
+    tgt="${tgt:-http://remnawave}"
+    http_edit "$PROXY_FILE" rp-bf-http "$(printf 'limit_req_zone $binary_remote_addr zone=rp_login:10m rate=10r/m;\nlog_format rp_auth '"'"'$remote_addr [$time_local] "$request" $status'"'"';')"
+    S="$(printf '    # rp-bf begin\n    location = /api/auth/login {\n        limit_req zone=rp_login burst=10 nodelay;\n        limit_req_status 429;\n%s        proxy_http_version 1.1;\n        proxy_pass %s;\n        proxy_set_header Host $host;\n        proxy_set_header X-Real-IP $remote_addr;\n        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n        proxy_set_header X-Forwarded-Proto $scheme;\n        proxy_set_header X-Forwarded-Host $host;\n        proxy_set_header X-Forwarded-Port $server_port;\n    }\n    # rp-bf end\n' "$( (( f2b )) && printf '        access_log /var/log/rp/auth.log rp_auth;\n')" "${tgt%/}")" \
+      block_edit "$PROXY_FILE" "$panel" 's/^[ \t]*# rp-bf begin\n.*?^[ \t]*# rp-bf end\n//gms; s/^(\s*server_name[^;]*;[^\n]*\n)/$1$ENV{S}\n/m'
+  else
+    S="$(printf '    # rp-bf begin\n    log {\n        output file /data/rp-access.log {\n            roll_size 10MiB\n            roll_keep 3\n        }\n    }\n    # rp-bf end\n')" \
+      block_edit "$PROXY_FILE" "$panel" 's/^[ \t]*# rp-bf begin\n.*?^[ \t]*# rp-bf end\n//gms; s/\A([^\n]*\{[^\n]*\n)/$1$ENV{S}\n/'
+  fi
+  proxy_apply "$bk" || { steps_done; return 1; }
+  [[ "$PROXY_KIND" == nginx ]] && green "✔ Не больше 10 попыток входа в минуту с одного IP (лишние получают 429)"
+
+  step "fail2ban: бан за перебор"
+  lp=$(bf_logpath)
+  if (( f2b )) && [[ -n "$lp" ]]; then
+    command -v fail2ban-client >/dev/null || { pkg_install fail2ban || { fail "fail2ban не установился" apt "$PKG_LOG"; steps_done; return 1; }; }
+    mkdir -p "$(dirname "$lp")"; touch "$lp"
+    if [[ "$PROXY_KIND" == nginx ]]; then
+      printf '[Definition]\nfailregex = ^<HOST> \\[[^]]+\\] "POST /api/auth/login[^"]*" (400|401|403|429)\nignoreregex =\n' > "$F2B_FILTER"
+    else
+      printf '[Definition]\nfailregex = "client_ip":"<HOST>".*"method":"POST".*"uri":"/api/auth/login[^"]*".*"status":(400|401|403|429)\\b\nignoreregex =\ndatepattern = "ts":{EPOCH}\n' > "$F2B_FILTER"
+    fi
+    cat > "$F2B_JAIL" <<EOF
+# RemnaPilot: перебор пароля панели Remnawave. Бан в цепочке DOCKER-USER — панель работает в Docker.
+[remnawave-panel]
+enabled  = true
+filter   = remnawave-panel
+logpath  = $lp
+backend  = auto
+maxretry = 5
+findtime = 10m
+bantime  = 1h
+bantime.increment = true
+ignoreip = 127.0.0.1/8 ::1 172.16.0.0/12
+action   = iptables-allports[name=remnawave-panel, chain=DOCKER-USER]
+EOF
+    systemctl enable fail2ban >/dev/null 2>&1; systemctl restart fail2ban 2>/dev/null || service fail2ban restart >/dev/null 2>&1
+    local i; for i in 1 2 3 4 5; do fail2ban-client status remnawave-panel >/dev/null 2>&1 && break; sleep 2; done
+    if fail2ban-client status remnawave-panel >/dev/null 2>&1; then green "✔ 5 неверных паролей за 10 минут → бан IP на час (повторно — дольше)"
+    else fail "fail2ban не запустил защиту панели"; log_tail "$(journalctl -u fail2ban -n 15 --no-pager 2>/dev/null; fail2ban-client -t 2>&1)" 6; steps_done; return 1; fi
+  fi
+
+  step "Проверяю"
+  steps_done "Защита от перебора"
+  echo "  Разбанить IP: fail2ban-client set remnawave-panel unbanip 1.2.3.4"
+}
+
+bf_disable() {
+  need_proxy || return 1
+  local bk panel; panel=$(detect_old); bk=$(proxy_backup bruteforce-off)
+  if [[ "$PROXY_KIND" == nginx ]]; then http_edit "$PROXY_FILE" rp-bf-http ""; fi
+  block_edit "$PROXY_FILE" "$panel" 's/^[ \t]*# rp-bf begin\n.*?^[ \t]*# rp-bf end\n//gms'
+  proxy_apply "$bk" || return 1
+  rm -f "$F2B_JAIL" "$F2B_FILTER"
+  command -v fail2ban-client >/dev/null && fail2ban-client reload >/dev/null 2>&1
+  green "✔ Защита от перебора выключена (забаненные IP разбанены)"
+}
+
+bf_status() {
+  local b f
+  box_top
+  if bf_on; then
+    b=$(fail2ban-client status remnawave-panel 2>/dev/null | awk -F: '/Currently banned/ {gsub(/ /,"",$2); print $2}')
+    f=$(fail2ban-client status remnawave-panel 2>/dev/null | awk -F: '/Total failed/ {gsub(/ /,"",$2); print $2}')
+    box_line "$(dot ok) $(padr "Защита" 10)${C0}включена"
+    [[ -n "$b" ]] && box_line "  $(padr "Забанено" 10)${C0}${b} IP сейчас · ошибок входа: ${f:-0}"
+  else box_line "$(dot warn) $(padr "Защита" 10)${C0}выключена"; fi
+  box_bottom
+}
+
+bf_menu() {
+  local c
+  need_panel || { pause; return; }
+  while true; do
+    proxy_find >/dev/null 2>&1
+    screen "Защита от перебора пароля"; echo; bf_status
+    echo "  Бан IP после 5 неверных паролей к панели (fail2ban) и не больше 10 попыток в минуту (nginx)."
+    section "ДЕЙСТВИЯ"
+    item 1 "$(bf_on && echo "Включить заново" || echo "Включить")"
+    bf_on && item 2 "Выключить"
+    hr; item 0 "Назад"
+    ask; read -r c; echo
+    case "$c" in
+      1) run_action "Защита от перебора: включить" bf_enable; pause ;;
+      2) bf_on && { run_action "Защита от перебора: выключить" bf_disable; pause; } ;;
+      0|q|"") return ;;
+    esac
+  done
+}
+
+# ---------- мультипанель: другие серверы с панелью ----------
+PANELS_FILE="/etc/rw/panels.list"   # имя user@host порт_ssh
+
+mp_ssh() { # цель «имя|user@host|порт», команда → по SSH (без вопросов пароля)
+  local nm h p; IFS='|' read -r nm h p <<< "$1"
+  ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 -p "$p" "$h" "$2"
+}
+
+mp_sudo() { [[ "$(cut -d'|' -f2 <<< "$1" | cut -d@ -f1)" == root ]] && echo "" || echo "sudo -n "; }
+
+mp_list() {
+  [[ -s "$PANELS_FILE" ]] || { echo "  Список пуст — добавь сервер панели (пункт 2)."; return 1; }
+  local nm h p st i=0
+  while read -r nm h p; do
+    [[ -n "$nm" ]] || continue; i=$((i+1))
+    st=$(mp_ssh "$nm|$h|$p" "$(mp_sudo "$nm|$h|$p")sh -c 'docker inspect -f \"{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}}\" remnawave 2>/dev/null || echo none; grep -m1 ^FRONT_END_DOMAIN= /opt/remnawave/.env 2>/dev/null | cut -d= -f2; command -v rw >/dev/null && rw --version 2>/dev/null | head -1'" 2>/dev/null </dev/null)
+    local s1 dom rv; s1=$(sed -n 1p <<< "$st"); dom=$(sed -n 2p <<< "$st" | tr -d '"'); rv=$(sed -n 3p <<< "$st" | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)
+    case "$s1" in
+      "running healthy"|"running ") printf '  %2d) %s %-16s %-22s %s\n' "$i" "$(dot ok)" "$nm" "${dom:-$h}" "${rv:+RemnaPilot v$rv}" ;;
+      none) printf '  %2d) %s %-16s %-22s %s\n' "$i" "$(dot warn)" "$nm" "$h" "$(T "панели нет")" ;;
+      "")   printf '  %2d) %s %-16s %-22s %s\n' "$i" "$(dot err)" "$nm" "$h" "$(T "нет связи по SSH")" ;;
+      *)    printf '  %2d) %s %-16s %-22s %s\n' "$i" "$(dot err)" "$nm" "${dom:-$h}" "$s1" ;;
+    esac
+  done < "$PANELS_FILE"
+}
+
+mp_add() {
+  local name host port out
+  ask "Сервер панели (user@IP, по умолчанию root@)"; read -r host; [[ -n "$host" ]] || { echo "  Отменено."; return $RP_CANCEL; }
+  [[ "$host" == *@* ]] || host="root@$host"
+  ask "SSH-порт [22]"; read -r port; port="${port:-22}"
+  [[ "$port" =~ ^[0-9]+$ ]] || { fail "Некорректный порт: $port"; return 1; }
+  ask "Имя [${host#*@}]"; read -r name; name="${name:-${host#*@}}"; name="${name// /_}"
+  mkdir -p /etc/rw; touch "$PANELS_FILE"; chmod 600 "$PANELS_FILE"
+  grep -qE "^[^ ]+ $host $port$" "$PANELS_FILE" && { yel "Уже в списке."; return 0; }
+  echo "$name $host $port" >> "$PANELS_FILE"; green "✔ Добавлен: $name ($host:$port)"
+  if ! out=$(mp_ssh "$name|$host|$port" true 2>&1 </dev/null); then
+    yel "⚠ Без пароля по SSH не пускает — RemnaPilot нужен вход по ключу."
+    local key="$HOME/.ssh/id_ed25519"
+    [[ -f "$key" ]] || ssh-keygen -t ed25519 -N "" -f "$key" -q
+    ask "Скопировать ключ на сервер сейчас (спросит пароль SSH один раз)? [Y/n]"; read -r out
+    [[ "$out" =~ ^[NnНн]$ ]] || ssh-copy-id -i "$key.pub" -p "$port" -o StrictHostKeyChecking=accept-new "$host"
+  fi
+}
+
+mp_remove() {
+  mp_pick "Убрать из списка" || return $RP_CANCEL
+  local nm h p; IFS='|' read -r nm h p <<< "$MP_T"
+  H="$h" P="$p" perl -i -ne 'print unless /^\S+ \Q$ENV{H}\E \Q$ENV{P}\E$/' "$PANELS_FILE"
+  green "✔ $nm убран из списка (на самом сервере ничего не менялось)"
+}
+
+mp_pick() { # заголовок → MP_T
+  [[ -s "$PANELS_FILE" ]] || { echo "  Список пуст."; return 1; }
+  local lines=() i c; mapfile -t lines < <(grep -v '^\s*$' "$PANELS_FILE")
+  section "$1"
+  for i in "${!lines[@]}"; do read -r nm h p <<< "${lines[$i]}"; item $((i+1)) "$nm" "$h"; done
+  hr; item 0 "Отмена"; ask; read -r c
+  [[ "$c" =~ ^[0-9]+$ ]] && (( c >= 1 && c <= ${#lines[@]} )) || return 1
+  read -r nm h p <<< "${lines[$((c-1))]}"; MP_T="$nm|$h|$p"
+}
+
+mp_ensure_rw() { # поставить RemnaPilot на сервер, если его там нет или он старее
+  local v sudo; sudo=$(mp_sudo "$1")
+  v=$(mp_ssh "$1" "command -v rw >/dev/null && rw --version 2>/dev/null | head -1" </dev/null 2>/dev/null | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)
+  if [[ -z "$v" ]] || ver_newer "$v" "$RP_VERSION"; then
+    info "Ставлю RemnaPilot v$RP_VERSION на ${1%%|*}..."
+    mp_ssh "$1" "${sudo}sh -c 'cat > /usr/local/bin/rw.new && chmod 755 /usr/local/bin/rw.new && mv /usr/local/bin/rw.new /usr/local/bin/rw'" < "$RP_SELF" \
+      || { fail "Не получилось поставить RemnaPilot на ${1%%|*}" ssh ""; return 1; }
+  fi
+}
+
+mp_open() {
+  mp_pick "Открыть RemnaPilot на сервере" || return $RP_CANCEL
+  mp_ensure_rw "$MP_T" || return 1
+  local nm h p; IFS='|' read -r nm h p <<< "$MP_T"
+  info "Открываю меню на $nm — выход из него вернёт сюда."
+  ssh -t -o StrictHostKeyChecking=accept-new -p "$p" "$h" "$(mp_sudo "$MP_T")rw${RP_LANG:+ --lang $RP_LANG}"
+  return 0
+}
+
+mp_all() { # заголовок, аргументы rw — выполнить на всех серверах из списка
+  [[ -s "$PANELS_FILE" ]] || { echo "  Список пуст."; return 1; }
+  local nm h p t rc bad=0 out
+  while read -r nm h p; do
+    [[ -n "$nm" ]] || continue; t="$nm|$h|$p"
+    section "$nm"
+    mp_ensure_rw "$t" </dev/null || { bad=$((bad+1)); continue; }
+    out=$(mp_ssh "$t" "$(mp_sudo "$t")rw $2" </dev/null 2>&1); rc=$?
+    printf '%s\n' "$out" | sed -E 's/\x1b\[[0-9;]*[A-Za-z]//g' | grep -v '^\s*$' | tail -8 | sed 's/^/   /'
+    if (( rc == 0 )); then green "✔ $nm"; else red "✖ $nm"; why_first "$out" ssh; bad=$((bad+1)); fi
+  done < <(grep -v '^\s*$' "$PANELS_FILE")
+  echo; (( bad )) && { yel "⚠ $1: не получилось на $bad сервер(ах)"; return 1; }
+  green "✔ $1: готово на всех серверах"
+}
+
+multi_menu() {
+  local c
+  while true; do
+    screen "Мультипанель"; echo
+    echo "  Другие серверы с панелью Remnawave — управление отсюда по SSH."
+    echo; mp_list
+    section "ДЕЙСТВИЯ"
+    item 1 "Обновить статус"
+    item 2 "Добавить сервер панели"
+    item 3 "Убрать из списка"
+    item 4 "Открыть RemnaPilot на сервере" "его меню по SSH"
+    item 5 "Бэкап всех панелей" "rw --backup на каждом"
+    item 6 "Обновить все панели" "с бэкапом перед обновлением"
+    item 7 "Проверить обновления на всех"
+    hr; item 0 "Назад"
+    ask; read -r c; echo
+    case "$c" in
+      1) ;;
+      2) mp_add; pause ;;
+      3) mp_remove; pause ;;
+      4) mp_open; pause ;;
+      5) run_action "Мультипанель: бэкап" mp_all "Бэкап" "--backup"; pause ;;
+      6) run_action "Мультипанель: обновление" mp_all "Обновление" "--update"; pause ;;
+      7) mp_all "Проверка обновлений" "--check-updates"; pause ;;
+      0|q|"") return ;;
+    esac
+  done
 }
 # ---------- журнал ----------
 JOURNAL="/var/log/remnapilot.log"
@@ -3274,10 +3974,11 @@ TARGETS=()
 pick_targets() { # $1 = заголовок; заполняет TARGETS: "local" или "имя|user@host|порт"
   local lines=() i n c have_local=0
   node_dir >/dev/null 2>&1 && have_local=1
+  [[ -n "${PT_LOCAL:-}" ]] && have_local=1               # для настроек сервера (IPv6, selfsteal) нода здесь не обязательна
   [[ -s "$NODES_FILE" ]] && mapfile -t lines < "$NODES_FILE"
   TARGETS=()
   if (( ! have_local && ${#lines[@]} == 0 )); then
-    yel "Нод нет: ни на этом сервере, ни в списке (Ноды → Установка и обновление нод → Добавить ноду в список)."; return 1
+    yel "Нод нет: ни на этом сервере, ни в списке (Установка → Установка и обновление нод → Добавить ноду в список)."; return 1
   fi
   section "${1:-ГДЕ}"
   n=0
@@ -3456,7 +4157,7 @@ nodes_status() {
   local lines=() tmp i nm h p f st ver load cpus mem disk up d col
   [[ -s "$NODES_FILE" ]] && mapfile -t lines < "$NODES_FILE"
   node_dir >/dev/null 2>&1 && lines=("$(hostname)|local|-" "${lines[@]}")
-  (( ${#lines[@]} )) || { yel "Нод нет (Ноды → Установка и обновление нод → Добавить ноду в список)."; return 0; }
+  (( ${#lines[@]} )) || { yel "Нод нет (Установка → Установка и обновление нод → Добавить ноду в список)."; return 0; }
   tmp=$(mktemp -d)
   info "Опрашиваю ${#lines[@]} нод..."
   local pids=()
@@ -3485,7 +4186,7 @@ nodes_status() {
     fi
     echo
     if [[ ! -s "$f" ]]; then
-      if grep -qiE 'denied|permission' "$tmp/$i.err" 2>/dev/null; then printf '  %s %s%s%s  %sнет SSH-ключа — Ноды → Установка → 7%s\n' "$(dot err)" "$CB" "$nm" "$C0" "$C_ERR" "$C0"
+      if grep -qiE 'denied|permission' "$tmp/$i.err" 2>/dev/null; then printf '  %s %s%s%s  %sнет SSH-ключа — Установка → Установка и обновление нод → 7%s\n' "$(dot err)" "$CB" "$nm" "$C0" "$C_ERR" "$C0"
       else printf '  %s %s%s%s  %sнедоступна%s\n' "$(dot err)" "$CB" "$nm" "$C0" "$C_ERR" "$C0"; fi
       continue
     fi
@@ -3498,6 +4199,516 @@ nodes_status() {
   rm -rf "$tmp"
 }
 
+# ---------- панель и нода на одном сервере ----------
+# Нода ставится рядом с панелью (network_mode: host), панель подключается к ней через шлюз
+# docker-сети remnawave-network — порт ноды не нужно открывать наружу.
+net_gw() { docker network inspect remnawave-network -f '{{range .IPAM.Config}}{{.'"$1"'}} {{end}}' 2>/dev/null | awk '{print $1}'; }
+
+panel_node_local() {
+  need_panel || return 1
+  if node_dir >/dev/null 2>&1; then fail "Нода на этом сервере уже стоит ($(node_dir))"; todo "обновить: Панель → Обновления" "удалить: Установка → Установка и обновление нод → Удалить ноду"; return 1; fi
+  local port gw sub key profs n pick puuid pname ports inb name body uuid i st web443 log
+  gw=$(net_gw Gateway); sub=$(net_gw Subnet)
+  [[ -n "$gw" ]] || { fail "Не нашёл docker-сеть remnawave-network"; cause "панель запущена не по инструкции docs.rw"; return 1; }
+  api_ready || return $?
+  echo "Поставлю ноду на этот сервер и сразу добавлю её в панель. Панель подключится к ней изнутри (через $gw)."
+  ask "Порт ноды (NODE_PORT) [2222]"; read -r port; port="${port:-2222}"
+  [[ "$port" =~ ^[0-9]+$ ]] && (( port > 0 && port < 65536 )) || { fail "Некорректный порт: $port"; return 1; }
+  port_busy "$port" && { fail "Порт $port занят: $(port_owner "$port")"; todo "выбери другой порт"; return 1; }
+
+  api GET /api/config-profiles || { fail "Не получил профили конфигурации" ; cause "$(api_msg)"; return 1; }
+  profs=$(jget '"\n".join(p["uuid"]+"\t"+p["name"]+"\t"+",".join(i["uuid"] for i in p.get("inbounds",[]))+"\t"+" ".join(str(i.get("port")) for i in p.get("inbounds",[])) for p in j["response"]["configProfiles"])' <<< "$API_OUT")
+  [[ -n "$profs" ]] || { fail "В панели нет профиля конфигурации"; todo "создай его в панели: Конфиг-профили → +" "и запусти этот пункт ещё раз"; return 1; }
+  n=$(wc -l <<< "$profs")
+  if (( n > 1 )); then
+    section "ПРОФИЛЬ КОНФИГУРАЦИИ"
+    i=0; while IFS=$'\t' read -r _ name _ _; do i=$((i+1)); item $i "$name"; done <<< "$profs"
+    ask "Профиль [1]"; read -r pick; pick="${pick:-1}"
+    [[ "$pick" =~ ^[0-9]+$ ]] && (( pick >= 1 && pick <= n )) || { echo "  Отменено."; return $RP_CANCEL; }
+  else pick=1; fi
+  IFS=$'\t' read -r puuid pname inb ports <<< "$(sed -n "${pick}p" <<< "$profs")"
+  web443=$(port_busy 443 && port_owner 443)
+  [[ " $ports " == *" 443 "* && -n "$web443" ]] && yel "⚠ В профиле «$pname» есть inbound на порту 443, а его занимает веб-сервер панели ($web443) — этот inbound не запустится. Смени ему порт или используй Selfsteal (Ноды → Selfsteal для Reality)."
+
+  steps 4
+  step "Ставлю ноду"
+  api GET /api/keygen; key=$(jget 'j["response"].get("secretKey") or j["response"].get("pubKey")' <<< "$API_OUT")
+  [[ -n "$key" ]] || { fail "Панель не отдала SECRET_KEY"; cause "$(api_msg)"; steps_done; return 1; }
+  log=$(node_script "$port" "$key" "$sub" | bash 2>&1) || { fail "Нода не установилась" docker "$log"; steps_done; return 1; }
+  wait_healthy remnanode 30 || { fail "Нода не запустилась" container "$(docker logs --tail 40 remnanode 2>&1)"; steps_done; return 1; }
+  green "✔ Нода работает (порт $port, доступ только из docker-сети $sub)"
+
+  step "Добавляю ноду в панель"
+  name="$(hostname -s | cut -c1-24)"; (( ${#name} >= 3 )) || name="local-node"; name="$name-local"; name="${name:0:30}"
+  body=$(N="$name" A="$gw" P="$port" U="$puuid" I="$inb" python3 -c 'import json,os
+print(json.dumps({"name":os.environ["N"],"address":os.environ["A"],"port":int(os.environ["P"]),"countryCode":"XX",
+ "configProfile":{"activeConfigProfileUuid":os.environ["U"],"activeInbounds":[x for x in os.environ["I"].split(",") if x]}}))')
+  api POST /api/nodes "$body" || { fail "Нода не добавилась в панель"; cause "$(api_msg)"; todo "добавь вручную: панель → Ноды → + , адрес $gw, порт $port"; steps_done; return 1; }
+  uuid=$(jget 'j["response"]["uuid"]' <<< "$API_OUT")
+  green "✔ В панели: «$name» ($gw:$port), профиль «$pname»"
+
+  step "Жду, пока панель подключится к ноде"
+  for i in $(seq 1 20); do
+    api GET "/api/nodes/$uuid" && st=$(jget 'j["response"]["isConnected"]' <<< "$API_OUT")
+    [[ "$st" == true ]] && break; sleep 3
+  done
+  if [[ "$st" == true ]]; then green "✔ Нода онлайн"
+  else st=$(jget 'j["response"].get("lastStatusMessage") or ""' <<< "$API_OUT"); yel "⚠ Панель пока не подключилась к ноде: $st"; todo "логи ноды: docker logs --tail 30 remnanode"; fi
+  steps_done "Нода на сервере панели"
+  echo "  Хосты для клиентов укажи с публичным адресом сервера (домен или IP), не $gw."
+}
+
+# ---------- правила Xray во всех профилях: торренты, реклама ----------
+XR_PY='
+import json,sys
+act,kind=sys.argv[1],sys.argv[2]
+tag={"torrent":"rp-torrent","ads":"rp-ads"}[kind]
+out=[]; sniff=0
+for p in json.load(sys.stdin)["response"]["configProfiles"]:
+    cfg=p.get("config") or {}
+    if not isinstance(cfg,dict): continue
+    rules=cfg.setdefault("routing",{}).setdefault("rules",[])
+    had=any(r.get("ruleTag")==tag for r in rules)
+    if act=="status":
+        out.append(("1" if had else "0")+"\t"+p["name"]); continue
+    rules[:]=[r for r in rules if r.get("ruleTag")!=tag]
+    if act=="on":
+        obs=cfg.setdefault("outbounds",[])
+        bl=next((o["tag"] for o in obs if o.get("protocol")=="blackhole" and o.get("tag")),None)
+        if not bl:
+            bl="rp-block" if any(o.get("tag")=="BLOCK" for o in obs) else "BLOCK"
+            obs.append({"tag":bl,"protocol":"blackhole"})
+        r={"type":"field","ruleTag":tag,"outboundTag":bl}
+        if kind=="torrent": r["protocol"]=["bittorrent"]
+        else: r["domain"]=["geosite:category-ads-all"]
+        rules.insert(0,r)
+        for ib in cfg.get("inbounds",[]):
+            s=ib.get("sniffing")
+            if not isinstance(s,dict) or not s.get("enabled"):
+                ib["sniffing"]={"enabled":True,"destOverride":["http","tls","quic"]}; sniff+=1
+            else:
+                d=s.setdefault("destOverride",[])
+                for x in ("http","tls"):
+                    if x not in d: d.append(x); sniff+=1
+    elif not had: continue
+    out.append(json.dumps({"uuid":p["uuid"],"config":cfg},ensure_ascii=False))
+if act!="status": out.append("#sniff\t%d"%sniff)
+print("\n".join(out))
+'
+
+xr_status() { # вид → «вкл в N из M профилей»
+  api GET /api/config-profiles 2>/dev/null || { echo "?"; return; }
+  python3 -c "$XR_PY" status "$1" <<< "$API_OUT" 2>/dev/null | awk -F'\t' '{n++; o+=$1} END{print o+0 "/" n+0}'
+}
+
+xr_toggle() { # on|off вид
+  api_ready || return $?
+  api GET /api/config-profiles || { fail "Не получил профили конфигурации"; cause "$(api_msg)"; return 1; }
+  local lines l ok=0 bad=0 sn=0
+  lines=$(python3 -c "$XR_PY" "$1" "$2" <<< "$API_OUT") || { fail "Не разобрал профили конфигурации"; return 1; }
+  while IFS= read -r l; do
+    [[ -n "$l" ]] || continue
+    [[ "$l" == "#sniff"* ]] && { sn="${l#*$'\t'}"; continue; }
+    if api PATCH /api/config-profiles "$l"; then ok=$((ok+1)); else bad=$((bad+1)); fail "Профиль не обновился"; cause "$(api_msg)"; fi
+  done <<< "$lines"
+  (( ok + bad )) || { echo "  Менять нечего — в профилях этого правила нет."; return 0; }
+  (( ok )) && green "✔ Обновлено профилей: $ok — панель сама перезапустит Xray на нодах"
+  [[ "$1" == on ]] && (( sn )) && info "Включил распознавание трафика (sniffing) у inbound: без него Xray не видит торренты и домены"
+  (( bad == 0 ))
+}
+
+# ---------- Torrent Blocker (плагин ноды, панель 2.7+) ----------
+TB_PY='
+import json,sys
+mode,plug=sys.argv[1],sys.argv[2]
+j=json.load(sys.stdin)["response"]
+if mode=="find":
+    print(next((p["uuid"] for p in j["nodePlugins"] if p["name"]=="RemnaPilot"),""))
+elif mode=="cfg":
+    c=j.get("pluginConfig") or {}
+    on=sys.argv[3]=="on"
+    tb=c.get("torrentBlocker") or {"blockDuration":3600,"ignoreLists":{"ip":[]}}
+    tb["enabled"]=on; tb.setdefault("blockDuration",3600); tb.setdefault("ignoreLists",{"ip":[]})
+    c["torrentBlocker"]=tb
+    print(json.dumps({"uuid":plug,"pluginConfig":c}))
+elif mode=="nodes":
+    for n in j:
+        a=n.get("activePluginUuid")
+        print(n["uuid"]+"\t"+("free" if not a else ("ours" if a==plug else "other"))+"\t"+n["name"])
+'
+
+node_cap_script() {
+  cat <<'EOF'
+d=""; for x in /opt/remnanode /opt/remnawave-node; do [ -f "$x/docker-compose.yml" ] && { d=$x; break; }; done
+[ -n "$d" ] || { echo "RP:NOCOMPOSE"; exit 3; }
+cd "$d"
+k=$(uname -r | awk -F. '{print $1*100+$2}'); [ "$k" -ge 507 ] || echo "RP:OLDKERNEL $(uname -r)"
+grep -q NET_ADMIN docker-compose.yml && { echo "RP:CAP_OK"; exit 0; }
+cp docker-compose.yml docker-compose.yml.bak-cap
+perl -0777 -i -pe 's/^([ \t]*)(image:[ \t]*\S*remnawave\/node\S*[^\n]*\n)/$1$2$1cap_add:\n$1  - NET_ADMIN\n/m or exit 1' docker-compose.yml || { echo "RP:NOIMAGE"; exit 4; }
+docker compose up -d >/dev/null 2>&1 && echo "RP:CAP_ADDED" || { cp docker-compose.yml.bak-cap docker-compose.yml; echo "RP:UPFAIL"; exit 5; }
+EOF
+}
+
+tb_plugin() { # on|off
+  api_ready || return $?
+  api GET /api/node-plugins || { fail "Torrent Blocker недоступен"; cause "$( [[ "$API_CODE" == 404 ]] && echo "плагины нод появились в Remnawave 2.7 — обнови панель и ноды" || api_msg)"; return 1; }
+  local plug cfg l nu st nm others=() t out
+  plug=$(python3 -c "$TB_PY" find "" <<< "$API_OUT")
+  if [[ -z "$plug" ]]; then
+    [[ "$1" == off ]] && { echo "  Плагина RemnaPilot нет — выключать нечего."; return 0; }
+    api POST /api/node-plugins '{"name":"RemnaPilot"}' || { fail "Плагин не создался"; cause "$(api_msg)"; return 1; }
+    plug=$(jget 'j["response"]["uuid"]' <<< "$API_OUT")
+  fi
+  api GET "/api/node-plugins/$plug" || { fail "Плагин не читается"; cause "$(api_msg)"; return 1; }
+  cfg=$(python3 -c "$TB_PY" cfg "$plug" "$1" <<< "$API_OUT")
+  api PATCH /api/node-plugins "$cfg" || { fail "Плагин не обновился"; cause "$(api_msg)"; return 1; }
+  if [[ "$1" == off ]]; then green "✔ Torrent Blocker выключен (плагин «RemnaPilot»)"; return 0; fi
+  green "✔ Torrent Blocker включён в плагине «RemnaPilot»: IP с торрентом блокируется на 1 час"
+  api GET /api/nodes || { fail "Не получил список нод"; cause "$(api_msg)"; return 1; }
+  while IFS=$'\t' read -r nu st nm; do
+    [[ -n "$nu" ]] || continue
+    case "$st" in
+      free) api PATCH /api/nodes "{\"uuid\":\"$nu\",\"activePluginUuid\":\"$plug\"}" && green "✔ Нода «$nm»: плагин подключён" || yel "⚠ Нода «$nm»: $(api_msg)" ;;
+      other) others+=("$nm") ;;
+    esac
+  done < <(python3 -c "$TB_PY" nodes "$plug" <<< "$API_OUT")
+  (( ${#others[@]} )) && yel "⚠ У нод ${others[*]} свой плагин — включи Torrent Blocker в нём (панель → Плагины нод)."
+  section "NET_ADMIN ДЛЯ НОД"
+  echo "  Нодам нужно право NET_ADMIN, чтобы блокировать IP (nftables). Добавлю его в docker-compose нод."
+  local targets=(); node_dir >/dev/null 2>&1 && targets+=(local)
+  [[ -s "$NODES_FILE" ]] && while read -r nm h p; do [[ -n "$nm" ]] && targets+=("$nm|$h|$p"); done < "$NODES_FILE"
+  (( ${#targets[@]} )) || { echo "  Нод в RemnaPilot нет — добавь NET_ADMIN вручную: cap_add: [NET_ADMIN] в docker-compose ноды."; return 0; }
+  for t in "${targets[@]}"; do
+    out=$(run_on "$t" "$(node_cap_script)" 2>&1 </dev/null)
+    case "$out" in
+      *RP:CAP_ADDED*) green "✔ $(target_name "$t"): NET_ADMIN добавлен, нода перезапущена" ;;
+      *RP:CAP_OK*)    green "✔ $(target_name "$t"): NET_ADMIN уже есть" ;;
+      *RP:NOCOMPOSE*) yel "⚠ $(target_name "$t"): не нашёл docker-compose ноды" ;;
+      *)              yel "⚠ $(target_name "$t"): не получилось"; why_first "$out" ssh docker ;;
+    esac
+    [[ "$out" == *RP:OLDKERNEL* ]] && yel "  ядро ${out##*RP:OLDKERNEL } — Torrent Blocker нужен Linux 5.7+"
+  done
+}
+
+tb_state() { # вкл|выкл|нет — состояние Torrent Blocker в плагине RemnaPilot
+  api GET /api/node-plugins 2>/dev/null || { echo "нет"; return; }
+  local plug; plug=$(python3 -c "$TB_PY" find "" <<< "$API_OUT" 2>/dev/null)
+  [[ -n "$plug" ]] && api GET "/api/node-plugins/$plug" && [[ "$(jget '(j["response"].get("pluginConfig") or {}).get("torrentBlocker",{}).get("enabled")' <<< "$API_OUT")" == true ]] && echo "вкл" || echo "выкл"
+}
+
+block_state_line() { # подпись, «N/M»
+  local n="${2%/*}" m="${2#*/}"
+  if [[ "$2" == "?" ]]; then box_line "$(dot warn) $(padr "$1" 16)${C0}нет доступа к API"
+  elif (( n > 0 )); then box_line "$(dot ok) $(padr "$1" 16)${C0}включено ($n из $m профилей)"
+  else box_line "$(dot warn) $(padr "$1" 16)${C0}выключено"; fi
+}
+
+torrent_menu() {
+  local c
+  need_panel || { pause; return; }
+  [[ -s "$API_CONF" ]] || { api_ready || { pause; return; }; }
+  while true; do
+    screen "Блокировка торрентов"; echo
+    box_top; block_state_line "Правило Xray" "$(xr_status torrent)"
+    box_line "$(dot "$([[ "$(tb_state)" == вкл ]] && echo ok || echo warn)") $(padr "Torrent Blocker" 16)$(tb_state)"; box_bottom
+    echo "  Правило Xray — торрент-трафик не уходит дальше ноды (работает в любой версии)."
+    echo "  Torrent Blocker — плагин ноды: ещё и блокирует IP пользователя на час (Remnawave 2.7+)."
+    section "ДЕЙСТВИЯ"
+    item 1 "Включить правило Xray" "во всех профилях конфигурации"
+    item 2 "Выключить правило Xray"
+    item 3 "Включить Torrent Blocker" "плагин + NET_ADMIN нодам"
+    item 4 "Выключить Torrent Blocker"
+    hr; item 0 "Назад"
+    ask; read -r c; echo
+    case "$c" in
+      1) run_action "Торренты: правило Xray" xr_toggle on torrent; pause ;;
+      2) run_action "Торренты: правило Xray выкл" xr_toggle off torrent; pause ;;
+      3) run_action "Торренты: Torrent Blocker" tb_plugin on; pause ;;
+      4) run_action "Торренты: Torrent Blocker выкл" tb_plugin off; pause ;;
+      0|q|"") return ;;
+    esac
+  done
+}
+
+ads_menu() {
+  local c
+  need_panel || { pause; return; }
+  [[ -s "$API_CONF" ]] || { api_ready || { pause; return; }; }
+  while true; do
+    screen "Блокировка рекламы и трекеров"; echo
+    box_top; block_state_line "Реклама/трекеры" "$(xr_status ads)"; box_bottom
+    echo "  Xray на нодах не пускает к рекламным и следящим доменам (список geosite:category-ads-all)."
+    echo "  Для всех клиентов сразу, в приложениях ничего настраивать не нужно."
+    section "ДЕЙСТВИЯ"
+    item 1 "Включить" "во всех профилях конфигурации"
+    item 2 "Выключить"
+    hr; item 0 "Назад"
+    ask; read -r c; echo
+    case "$c" in
+      1) run_action "Реклама: блокировка" xr_toggle on ads; pause ;;
+      2) run_action "Реклама: блокировка выкл" xr_toggle off ads; pause ;;
+      0|q|"") return ;;
+    esac
+  done
+}
+
+# ---------- Selfsteal для Reality ----------
+# На ноде Caddy отдаёт настоящий сайт с сертификатом на домен ноды (только на 127.0.0.1),
+# а Reality маскируется под него: target 127.0.0.1:порт, serverNames — домен ноды.
+SS_DIR="/opt/selfsteal"
+
+selfsteal_script() { # домен, порт
+  cat <<EOF
+command -v docker >/dev/null 2>&1 || { echo "RP:NODOCKER"; exit 3; }
+if [ ! -f $SS_DIR/Caddyfile ] && ss -ltnH 'sport = :80' | grep -q .; then echo "RP:BUSY80 \$(ss -ltnpH 'sport = :80' | grep -o '"[^"]*"' | head -1)"; exit 4; fi
+if [ ! -f $SS_DIR/Caddyfile ] && ss -ltnH 'sport = :$2' | grep -q .; then echo "RP:BUSYPORT"; exit 4; fi
+mkdir -p $SS_DIR/html && cd $SS_DIR
+cat > Caddyfile <<'CF'
+# Создано RemnaPilot: сайт для маскировки Reality (selfsteal). Слушает только 127.0.0.1:$2.
+{
+    https_port $2
+    auto_https disable_redirects
+}
+
+http://$1 {
+    bind 0.0.0.0
+    redir https://{host}{uri} permanent
+}
+
+https://$1 {
+    bind 127.0.0.1
+    root * /srv
+    file_server
+    header -Server
+}
+CF
+[ -f html/index.html ] || cat > html/index.html <<'HTML'
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>$1</title>
+<style>body{margin:0;min-height:100vh;display:grid;place-items:center;font:16px/1.6 system-ui,sans-serif;background:#f6f6f4;color:#222}
+main{max-width:34rem;padding:2rem;text-align:center}h1{font-weight:600;margin:0 0 .5rem}p{color:#666;margin:0}</style></head>
+<body><main><h1>$1</h1><p>We are working on something new. Please check back soon.</p></main></body></html>
+HTML
+cat > docker-compose.yml <<'YML'
+services:
+  selfsteal:
+    image: caddy:2.9
+    container_name: selfsteal
+    hostname: selfsteal
+    restart: always
+    network_mode: host
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./html:/srv:ro
+      - selfsteal-data:/data
+
+volumes:
+  selfsteal-data:
+    name: selfsteal-data
+YML
+if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q '^Status: active'; then ufw allow 80/tcp >/dev/null && echo "RP:UFW80"; fi
+docker compose up -d 2>&1 | tail -3
+sleep 3
+docker exec selfsteal caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1 && echo "RP:VALID" || echo "RP:INVALID"
+for i in \$(seq 1 20); do
+  curl -s -o /dev/null --max-time 4 --resolve "$1:$2:127.0.0.1" "https://$1:$2/" && { echo "RP:CERT"; break; }
+  sleep 3
+done
+docker ps --filter name=^selfsteal\$ --format 'RP:STATUS {{.Status}}'
+EOF
+}
+
+selfsteal_rm_script() { echo "cd $SS_DIR 2>/dev/null && docker compose down -v --rmi all >/dev/null 2>&1; rm -rf $SS_DIR; echo RP:REMOVED"; }
+
+reality_snippet() { # домен, порт
+  cat <<EOF
+  "realitySettings": {
+    "show": false,
+    "xver": 0,
+    "target": "127.0.0.1:$2",
+    "serverNames": ["$1"],
+    "privateKey": "…оставь свой…",
+    "shortIds": ["…оставь свои…"]
+  }
+EOF
+}
+
+RL_PY='
+import json,sys
+mode=sys.argv[1]
+j=json.load(sys.stdin)["response"]["configProfiles"]
+if mode=="list":
+    for p in j:
+        for ib in (p.get("config") or {}).get("inbounds",[]):
+            if (ib.get("streamSettings") or {}).get("security")=="reality":
+                print(p["uuid"]+"\t"+ib.get("tag","")+"\t"+p["name"]+"\t"+str(ib.get("port","")))
+else:
+    pu,tag,dom,port=sys.argv[2:6]
+    for p in j:
+        if p["uuid"]!=pu: continue
+        cfg=p["config"]
+        for ib in cfg.get("inbounds",[]):
+            if ib.get("tag")==tag:
+                rs=ib["streamSettings"].setdefault("realitySettings",{})
+                key="dest" if "dest" in rs and "target" not in rs else "target"
+                rs[key]="127.0.0.1:"+port; rs["serverNames"]=[dom]; rs["xver"]=0
+        print(json.dumps({"uuid":pu,"config":cfg},ensure_ascii=False))
+'
+
+reality_apply() { # домен, порт — прописать selfsteal в inbound Reality через API
+  api_ready || return $?
+  api GET /api/config-profiles || { fail "Не получил профили"; cause "$(api_msg)"; return 1; }
+  local lines n pick pu tag pn pp body
+  lines=$(python3 -c "$RL_PY" list <<< "$API_OUT")
+  [[ -n "$lines" ]] || { yel "⚠ В профилях нет inbound с Reality — пропиши настройки вручную."; return 1; }
+  n=$(wc -l <<< "$lines")
+  section "INBOUND REALITY"
+  local i=0; while IFS=$'\t' read -r _ tag pn pp; do i=$((i+1)); item $i "$tag" "профиль «$pn», порт $pp"; done <<< "$lines"
+  hr; item 0 "Не менять"
+  ask "Куда прописать selfsteal [1]"; read -r pick; pick="${pick:-1}"
+  [[ "$pick" =~ ^[0-9]+$ ]] && (( pick >= 1 && pick <= n )) || { echo "  Не меняю профиль."; return 0; }
+  IFS=$'\t' read -r pu tag pn pp <<< "$(sed -n "${pick}p" <<< "$lines")"
+  body=$(python3 -c "$RL_PY" set "$pu" "$tag" "$1" "$2" <<< "$API_OUT")
+  api PATCH /api/config-profiles "$body" || { fail "Профиль не обновился"; cause "$(api_msg)"; return 1; }
+  green "✔ Inbound «$tag»: target 127.0.0.1:$2, serverNames $1 — панель перезапустит Xray на нодах"
+  echo "  В хостах для клиентов SNI тоже должен быть $1."
+}
+
+selfsteal_install() {
+  local dom port out t
+  PT_LOCAL=1 pick_targets "КУДА СТАВИТЬ SELFSTEAL (на сервер с нодой)" || { echo "  Отменено."; return $RP_CANCEL; }
+  (( ${#TARGETS[@]} == 1 )) || { fail "Selfsteal ставится на одну ноду за раз"; return 1; }
+  t="${TARGETS[0]}"
+  echo "Нужен домен ноды с A-записью на её IP и свободный порт 80 (Caddy получает по нему сертификат)."
+  pi_ask_domain "Домен ноды (например de.example.com)" dom || { echo "  Отменено."; return $RP_CANCEL; }
+  ask "Внутренний порт сайта [9443]"; read -r port; port="${port:-9443}"
+  [[ "$port" =~ ^[0-9]+$ ]] && (( port > 1024 && port < 65536 )) || { fail "Некорректный порт: $port"; return 1; }
+  [[ "$t" == local ]] && node_domain_check "$dom" "$(curl -4 -s --max-time 5 https://ifconfig.me)" || node_domain_check "$dom" "$(ip_of "$(cut -d'|' -f2 <<< "$t" | cut -d@ -f2)")"
+
+  steps 3
+  local tn; tn=$(target_name "$t")
+  step "Ставлю Caddy с сайтом на $tn"
+  out=$(run_on "$t" "$(selfsteal_script "$dom" "$port")" 2>&1)
+  case "$out" in
+    *RP:NODOCKER*) fail "На сервере нет Docker"; todo "сначала поставь ноду: Установка → Установка и обновление нод"; steps_done; return 1 ;;
+    *RP:BUSY80*)   fail "Порт 80 занят: ${out##*RP:BUSY80 }"; cause "Caddy нужен порт 80, чтобы получить сертификат"; todo "освободи порт 80 на ноде"; steps_done; return 1 ;;
+    *RP:BUSYPORT*) fail "Порт $port занят"; todo "выбери другой внутренний порт"; steps_done; return 1 ;;
+  esac
+  [[ "$out" == *RP:VALID* ]] || { fail "Caddy не запустился" docker "$out"; steps_done; return 1; }
+  [[ "$out" == *RP:UFW80* ]] && info "Открыл 80/tcp в ufw — нужен Caddy для продления сертификата"
+  green "✔ Caddy работает: https://$dom → 127.0.0.1:$port"
+
+  step "Проверяю сертификат"
+  if [[ "$out" == *RP:CERT* ]]; then green "✔ Сертификат Let's Encrypt выпущен"
+  else yel "⚠ Сертификат пока не выпущен — обычно A-запись не указывает на ноду или порт 80 закрыт у хостера."
+       todo "Caddy будет пробовать сам; логи: docker logs --tail 30 selfsteal"; fi
+
+  step "Настройки Reality"
+  if [[ -f "$RW_DIR/.env" ]] && docker ps --format '{{.Names}}' 2>/dev/null | grep -qx remnawave; then
+    reality_apply "$dom" "$port" || { echo; bold "  Пропиши в inbound Reality (панель → Конфиг-профили):"; reality_snippet "$dom" "$port"; }
+  else
+    echo; bold "  Пропиши в inbound Reality (панель → Конфиг-профили):"; reality_snippet "$dom" "$port"
+  fi
+  steps_done "Selfsteal"
+}
+
+selfsteal_remove() {
+  PT_LOCAL=1 pick_targets "ГДЕ УБРАТЬ SELFSTEAL" || { echo "  Отменено."; return $RP_CANCEL; }
+  local t out
+  for t in "${TARGETS[@]}"; do
+    out=$(run_on "$t" "$(selfsteal_rm_script)" 2>&1)
+    [[ "$out" == *RP:REMOVED* ]] && green "✔ $(target_name "$t"): selfsteal удалён" || { yel "⚠ $(target_name "$t"): не получилось"; why_first "$out" ssh; }
+  done
+  yel "  Не забудь вернуть в inbound Reality прежний target и serverNames."
+}
+
+selfsteal_menu() {
+  local c st
+  while true; do
+    screen "Selfsteal для Reality"; echo
+    st=$(docker ps -a --filter name=^selfsteal$ --format '{{.Status}}' 2>/dev/null)
+    box_top
+    if [[ -n "$st" ]]; then box_line "$(dot ok) $(padr "Этот сервер" 12)$(grep -m1 -oE '^https://[^ ]+' "$SS_DIR/Caddyfile" 2>/dev/null | sed 's|https://||') · $st"
+    else box_line "$(dot warn) $(padr "Этот сервер" 12)${C0}не установлен"; fi
+    box_bottom
+    echo "  Reality маскируется под твой собственный сайт на домене ноды, а не под чужой."
+    echo "  Сайт с настоящим сертификатом, его не заблокировать «за компанию» с чужим SNI."
+    section "ДЕЙСТВИЯ"
+    item 1 "Установить selfsteal" "здесь или на ноде по SSH"
+    item 2 "Удалить selfsteal"
+    hr; item 0 "Назад"
+    ask; read -r c; echo
+    case "$c" in
+      1) run_action "Selfsteal: установка" selfsteal_install; pause ;;
+      2) run_action "Selfsteal: удаление" selfsteal_remove; pause ;;
+      0|q|"") return ;;
+    esac
+  done
+}
+
+# ---------- IPv6 ----------
+IPV6_CONF="/etc/sysctl.d/99-remnapilot-ipv6.conf"
+
+ipv6_script() { # off|on
+  cat <<EOF
+c="\${SSH_CONNECTION%% *}"
+if [ "$1" = off ]; then
+  case "\$c" in *:*) case "\$c" in ::ffff:*) ;; *) echo "RP:SSH6 \$c"; exit 3 ;; esac ;; esac
+  printf 'net.ipv6.conf.all.disable_ipv6 = 1\nnet.ipv6.conf.default.disable_ipv6 = 1\nnet.ipv6.conf.lo.disable_ipv6 = 0\n' > $IPV6_CONF
+  sysctl -q -p $IPV6_CONF >/dev/null 2>&1
+else
+  rm -f $IPV6_CONF
+  sysctl -q -w net.ipv6.conf.all.disable_ipv6=0 net.ipv6.conf.default.disable_ipv6=0 >/dev/null 2>&1
+  for i in /proc/sys/net/ipv6/conf/*/disable_ipv6; do echo 0 > "\$i" 2>/dev/null; done
+fi
+echo "RP:STATE \$(cat /proc/sys/net/ipv6/conf/all/disable_ipv6 2>/dev/null) \$(ip -6 addr show scope global 2>/dev/null | grep -c inet6)"
+EOF
+}
+
+ipv6_line() { # 0/1 disable, число адресов
+  if [[ "$1" == 1 ]]; then echo "${C_WARN}выключен${C0}"
+  elif (( ${2:-0} > 0 )); then echo "${C_OK}включён${C0} · адресов: $2"
+  else echo "включён · ${C_MUT}внешнего адреса IPv6 нет${C0}"; fi
+}
+
+ipv6_set() { # off|on
+  local h="ГДЕ ВЫКЛЮЧИТЬ IPV6"; [[ "$1" == on ]] && h="ГДЕ ВКЛЮЧИТЬ IPV6"
+  PT_LOCAL=1 pick_targets "$h" || { echo "  Отменено."; return $RP_CANCEL; }
+  local t out bad=0 s
+  for t in "${TARGETS[@]}"; do
+    out=$(run_on "$t" "$(ipv6_script "$1")" 2>&1 </dev/null)
+    case "$out" in
+      *RP:SSH6*)  fail "$(target_name "$t"): ты подключён по IPv6 (${out##*RP:SSH6 }) — выключение оборвёт SSH"; todo "подключись по IPv4 и повтори"; bad=1 ;;
+      *RP:STATE*) s=${out##*RP:STATE }; green "✔ $(target_name "$t"): IPv6 $(ipv6_line ${s% *} ${s#* })" ;;
+      *)          fail "$(target_name "$t"): не получилось"; why_first "$out" ssh; bad=1 ;;
+    esac
+  done
+  [[ "$1" == on ]] && echo "  Внешний адрес IPv6 вернётся сам через минуту-две (или после перезагрузки)."
+  [[ "$1" == off ]] && echo "  Настройка сохраняется после перезагрузки ($IPV6_CONF)."
+  return $bad
+}
+
+ipv6_menu() {
+  local c d a
+  while true; do
+    screen "IPv6"; echo
+    d=$(cat /proc/sys/net/ipv6/conf/all/disable_ipv6 2>/dev/null); a=$(ip -6 addr show scope global 2>/dev/null | grep -c inet6)
+    box_top; box_line "$(dot "$([[ "$d" == 1 ]] && echo warn || echo ok)") $(padr "Этот сервер" 12)$(ipv6_line "$d" "$a")"; box_bottom
+    echo "  Выключи IPv6, если у хостера он кривой: клиенты зависают, сайты определяют не ту страну."
+    section "ДЕЙСТВИЯ"
+    item 1 "Выключить IPv6" "здесь или на нодах по SSH"
+    item 2 "Включить IPv6"
+    hr; item 0 "Назад"
+    ask; read -r c; echo
+    case "$c" in
+      1) run_action "IPv6: выключить" ipv6_set off; pause ;;
+      2) run_action "IPv6: включить" ipv6_set on; pause ;;
+      0|q|"") return ;;
+    esac
+  done
+}
 # ---------- проверка IP ----------
 ch_api() { curl -fsS --max-time 15 -H 'Accept: application/json' "https://check-host.net/$1" 2>/dev/null; }
 
@@ -4043,7 +5254,7 @@ bk_run() { # бэкап по расписанию: дамп + .env + списо�
            rm -f "$enc" ;;
       off) tg_file "$arc" "💾 $(hostname): бэкап Remnawave $(date '+%d.%m %H:%M'), $sz" && tgst=", отправлен в Telegram" || { rc=1; tgst=", в Telegram не отправился$(tg_why)"; } ;;
       *)   # пароль не задан — архив с секретами в открытом виде не отправляем
-           tg_text "💾 $(hostname): бэкап сделан ($sz), но в Telegram не отправлен — задай пароль шифрования: rw → База → Автобэкап → Шифрование"
+           tg_text "💾 $(hostname): бэкап сделан ($sz), но в Telegram не отправлен — задай пароль шифрования: rw → Панель → Автобэкап → Шифрование"
            tgst=", в Telegram не отправлен — задай пароль шифрования" ;;
     esac
   fi
@@ -4298,6 +5509,18 @@ theme_swatch() { # цветные блоки темы
 
 # ---------- версия ----------
 RP_CHANGELOG=(
+  "2.8|new|Панель и нода на одном сервере: Установка → Панель и нода на одном сервере. Нода ставится рядом с панелью и сразу добавляется в неё, порт ноды наружу не открывается"
+  "2.8|new|Страница подписки: Установка → Страница подписки. remnawave/subscription-page на своём домене, с сертификатом; ссылки клиентов прежние"
+  "2.8|new|Переустановить панель: свежие образы и контейнеры, база заново из бэкапа — пользователи, ноды и настройки сохраняются"
+  "2.8|new|Закрыть вход в панель: Защита → Закрыть вход в панель. Только свои IP или секретная ссылка, остальным — 404. Подписка клиентов работает"
+  "2.8|new|Защита от перебора пароля панели: fail2ban банит IP после 5 неверных паролей, nginx пускает не больше 10 попыток в минуту"
+  "2.8|new|Selfsteal для Reality: Ноды → Selfsteal. Свой сайт с сертификатом на домене ноды, RemnaPilot сам пропишет его в inbound Reality"
+  "2.8|new|Блокировка торрентов: правило Xray во всех профилях или плагин Torrent Blocker (бан IP на час) с NET_ADMIN для нод"
+  "2.8|new|Блокировка рекламы и трекеров: Xray на нодах не пускает к рекламным доменам (geosite:category-ads-all)"
+  "2.8|new|IPv6: Сервер → IPv6 — выключить или включить здесь и на нодах по SSH, с защитой от обрыва SSH по IPv6"
+  "2.8|new|Мультипанель: Панель → Мультипанель. Статус других серверов с панелью, их меню по SSH, бэкап и обновление всех сразу"
+  "2.8|change|Меню разложено по новым разделам: Установка, Домены, Панель, Защита, Ноды, Сервер, Прочее. Номера в полном списке поменялись — поиск по слову работает как раньше"
+  "2.8|improve|Новые ноды ставятся с правом NET_ADMIN — нужно плагинам нод (Torrent Blocker и др.)"
   "2.7|new|Удалить панель: Прочее → Удалить панель. Контейнеры, база, сертификаты и каталог панели — с последним бэкапом вне панели и подтверждением словом УДАЛИТЬ"
   "2.7|new|Удалить ноду: Ноды → Установка и обновление нод → Удалить ноду. На этом сервере или по SSH, с подтверждением словом УДАЛИТЬ"
   "2.7|new|Обновить RemnaPilot — пункт прямо в главном меню (раздел «Прочее»), рядом видно, вышла ли новая версия"
@@ -4582,7 +5805,7 @@ need_compose() { # все действия используют «docker compose
 
 need_panel() {
   [[ -f "$RW_DIR/.env" ]] || { fail "Панель не найдена в $RW_DIR"; cause "нет файла $RW_DIR/.env"
-                               todo "если панель в другом месте: Прочее → Сменить каталог панели" "если её нет — установи: Панель → Установить панель"; return 1; }
+                               todo "если панель в другом месте: Прочее → Сменить каталог панели" "если её нет — установи: Установка → Установить панель"; return 1; }
   command -v docker >/dev/null || { fail "Не установлен Docker"; todo "установи: curl -fsSL https://get.docker.com | sh"; return 1; }
   need_compose || return 1
   command -v perl   >/dev/null || { fail "Не установлен perl"; todo "apt install perl"; return 1; }
@@ -5071,16 +6294,26 @@ item_info() {
     38) echo "Забыл пароль от панели|сброс через Rescue CLI" ;;
     39) echo "Удалить панель|контейнеры, база и каталог панели" ;;
     40) echo "Обновить RemnaPilot|$(lv=$(cat /etc/rw/.latest_version 2>/dev/null); ver_newer "$RP_VERSION" "$lv" && echo "доступна v$lv" || echo "сейчас v$RP_VERSION")" ;;
+    41) echo "Панель и нода на одном сервере|нода рядом с панелью, сразу в панели" ;;
+    42) echo "Страница подписки|$(sp_installed && echo "установлена" || echo "ссылки и QR для клиентов")" ;;
+    43) echo "Переустановить панель|данные сохранятся" ;;
+    44) echo "Мультипанель|другие серверы с панелью" ;;
+    45) echo "Закрыть вход в панель|$(acc_name)" ;;
+    46) echo "Защита от перебора пароля|fail2ban для входа в панель" ;;
+    47) echo "Selfsteal для Reality|свой сайт для маскировки" ;;
+    48) echo "Блокировка торрентов|" ;;
+    49) echo "Блокировка рекламы и трекеров|" ;;
+    50) echo "IPv6|$( [[ "$(cat /proc/sys/net/ipv6/conf/all/disable_ipv6 2>/dev/null)" == 1 ]] && echo выключен || echo включён)" ;;
   esac
 }
 
 MENU_SECTIONS=(
+  "Установка|панель · нода · страница подписки|36 41 13 42 43"
   "Домены|смена · домен ноды · откат|1 37 2 3 4"
-  "Панель|установка · обновления · пароль|36 5 6 7 8 9 10 38"
-  "База|бэкап · автобэкап · восстановление|11 32 12"
-  "Ноды|статус · geo · WARP|13 14 15 16"
-  "Сервер|firewall · SSH · BBR · swap|17 18 19 20 21 22 23"
-  "Проверки|IP · SNI для Reality|24 25"
+  "Панель|настройки · обновления · база|5 6 7 8 9 11 32 12 23 44"
+  "Защита|вход в панель · пароль · firewall · SSH|45 46 38 10 17 18"
+  "Ноды|статус · selfsteal · блокировки|14 47 48 49 15 16 25 24"
+  "Сервер|IPv6 · BBR · swap · время|50 19 20 21 22"
   "Прочее|оформление · Telegram · язык|33 34 26 27 28 29 30 40 39 35"
 )
 
@@ -5099,15 +6332,16 @@ print_item() { # номер_на_экране внутренний_номер
 run_item() { # внутренний номер пункта → действие
   local ch="$1"
   case "$ch" in
-    1|2|3|4|5|7|9|10|11|12|23|37|38) need_panel || { pause; return 1; } ;;
+    1|2|3|4|5|7|9|10|11|12|23|37|38|41|43) need_panel || { pause; return 1; } ;;
   esac
   case "$ch" in
-    1|2|3|4|5|7|11|12|14|23|24|28|29|36|37|38) screen "$(case $ch in
+    1|2|3|4|5|7|11|12|14|23|24|28|29|36|37|38|41|43) screen "$(case $ch in
         1) echo "Смена доменов";; 2) echo "Удаление доменов";; 3) echo "Предпросмотр смены доменов";; 4) echo "Откат смены домена";;
         5) echo "Настройки и контейнеры";; 7) echo "Пересоздание контейнеров";;
         11) echo "Бэкап базы";; 12) echo "Восстановление базы";; 14) echo "Статус всех нод";;
         23) echo "Перенос панели";; 24) echo "Проверка IP сервера";; 28) echo "Команда rw";; 29) echo "Каталог панели";;
         36) echo "Установка панели";; 37) echo "Смена домена ноды";; 38) echo "Забыл пароль от панели";;
+        41) echo "Панель и нода на одном сервере";; 43) echo "Переустановка панели";;
       esac)"; echo ;;
   esac
   case "$ch" in
@@ -5148,6 +6382,16 @@ run_item() { # внутренний номер пункта → действие
     38) run_action "Сброс пароля панели" reset_admin; pause ;;
     39) screen "Удаление панели"; echo; run_action "Удаление панели" panel_uninstall; pause ;;
     40) screen "Обновление RemnaPilot"; echo; self_update_menu; pause ;;
+    41) run_action "Нода на сервере панели" panel_node_local; pause ;;
+    42) subpage_menu ;;
+    43) run_action "Переустановка панели" panel_reinstall; pause ;;
+    44) multi_menu ;;
+    45) access_menu ;;
+    46) bf_menu ;;
+    47) selfsteal_menu ;;
+    48) torrent_menu ;;
+    49) ads_menu ;;
+    50) ipv6_menu ;;
     28) install_cmd; pause ;;
     29) change_dir; pause ;;
     30) about_screen; pause ;;
@@ -7287,4 +8531,339 @@ Caddy будет пробовать сам — перезапускать нич
 Удалить ноду: Ноды → Установка и обновление нод → Удалить ноду. На этом сервере или по SSH, с подтверждением словом УДАЛИТЬ	Delete node: Nodes → Install and update nodes → Delete node. On this server or via SSH, confirmed by typing DELETE
 Обновить RemnaPilot — пункт прямо в главном меню (раздел «Прочее»), рядом видно, вышла ли новая версия	Update RemnaPilot — an item right in the main menu (Other section), showing whether a new version is out
 «Удалить ноду из списка» переименован в «Убрать ноду из списка» — чтобы не путать с удалением самой ноды	"Delete node from list" renamed to "Remove node from the list" so it isn't confused with deleting the node itself
+Защита → Безопасность → 1	Protection → Security → 1
+осталось — закрыть: Защита → Firewall → Закрыть порт.	left open — close: Protection → Firewall → Close port.
+Вернуть как было: Панель → Восстановить из дампа (бэкап *-node-domain.sql.gz).	Undo: Panel → Restore from dump (backup *-node-domain.sql.gz).
+Дальше: Установка → Установка и обновление нод — поставить ноду; Защита → Firewall — закрыть лишние порты.	Next: Install → Node install and update — install a node; Protection → Firewall — close unneeded ports.
+Вернуть на этом или другом сервере: Установка → Установить панель,	Restore on this or another server: Install → Install panel,
+/backups и выбери дамп: Панель → Восстановить из дампа.	/backups and pick the dump: Panel → Restore from dump.
+Веб-сервер не принял новый конфиг — вернул как было	The web server rejected the new config — restored the previous one
+не установлена	not installed
+Страница подписки — красивая страница для клиентов: ссылки для приложений, QR-код, инструкции.	Subscription page — a nice page for clients: app links, QR code, instructions.
+Ставлю по docs.rw рядом с панелью; ссылки подписки клиентов остаются прежними.	Installing per docs.rw next to the panel; clients' subscription links stay the same.
+Домен страницы подписки [	Subscription page domain [
+Сейчас подписка отдаётся с домена панели (	The subscription is now served from the panel domain (
+/api/sub). Странице нужен свой домен.	/api/sub). The page needs its own domain.
+Домен страницы подписки (например sub.example.com)	Subscription page domain (e.g. sub.example.com)
+Это домен панели	This is the panel domain
+страница подписки работает только на своём домене или поддомене	the subscription page works only on its own domain or subdomain
+Создаю	Creating
+Запускаю страницу подписки	Starting the subscription page
+Страница подписки не запустилась	The subscription page did not start
+✔ Контейнер	✔ Container
+Направляю домен	Pointing domain
+на страницу	to the page
+Не установлен python3	python3 is not installed
+Домен подписки в одном блоке nginx с панелью	The subscription domain is in the same nginx block as the panel
+раздели их: Домены → Сменить домены	split them: Domains → Change domains
+→ страница подписки (копия конфига:	→ subscription page (config copy:
+Сертификат и адрес подписки в панели	Certificate and subscription address in the panel
+не выпущен — страница откроется с предупреждением браузера.	was not issued — the page will open with a browser warning.
+выпусти позже: Панель → Сертификаты	issue it later: Panel → Certificates
+Адрес подписки в панели:	Subscription address in the panel:
+(старые ссылки	(old links
+/api/sub/… продолжают работать)	/api/sub/… keep working)
+Страница подписки	Subscription page
+Страница подписки: https://	Subscription page: https://
+Оформление (приложения, тексты): в панели → Страница подписки.	Look (apps, texts): in the panel → Subscription page.
+Страница подписки не установлена.	The subscription page is not installed.
+Уберу страницу подписки. Домен	I'll remove the subscription page. Domain
+останется и будет отдавать подписку напрямую из панели — ссылки клиентов не сломаются.	will stay and serve the subscription directly from the panel — clients' links won't break.
+✔ Страница подписки убрана; https://	✔ Subscription page removed; https://
+/<shortUuid> отдаёт подписку из панели	/<shortUuid> serves the subscription from the panel
+Убрать страницу подписки	Remove subscription page
+подписка снова отдаётся панелью	the subscription is served by the panel again
+Страница подписки: убрать	Subscription page: remove
+Нет docker-compose.yml панели в	No panel docker-compose.yml in
+Переустановка: свежие образы и контейнеры, база создаётся заново и заполняется из бэкапа.	Reinstall: fresh images and containers, the database is recreated and filled from a backup.
+Помогает, когда панель сломалась после обновления, ручных правок или сбоя диска.	Helps when the panel broke after an update, manual edits or a disk failure.
+Сохранится: пользователи, ноды, хосты, настройки (из бэкапа), .env, домены, сертификаты, nginx/Caddy.	Kept: users, nodes, hosts, settings (from the backup), .env, domains, certificates, nginx/Caddy.
+Бэкап базы и настроек	Backing up the database and settings
+Бэкап базы не получился — без него переустанавливать нельзя	The database backup failed — reinstalling without it is not allowed
+Бэкап базы пустой	The database backup is empty
+Удаляю контейнеры, образы и старую базу	Removing containers, images and the old database
+Ставлю свежие образы и запускаю	Pulling fresh images and starting
+бэкап на месте:	the backup is kept:
+восстановить: Панель → Восстановить из дампа	restore: Panel → Restore from dump
+Возвращаю данные из бэкапа	Restoring data from the backup
+Данные не вернулись из бэкапа	The data was not restored from the backup
+повтори вручную: Панель → Восстановить из дампа →	repeat manually: Panel → Restore from dump →
+Запускаю веб-сервер и проверяю	Starting the web server and checking
+Панель не запустилась после восстановления	The panel did not start after the restore
+Переустановка панели	Panel reinstall
+✔ Панель переустановлена, данные на месте	✔ Panel reinstalled, data is in place
+Копия .env и compose до переустановки:	Copy of .env and compose before the reinstall:
+панель не отвечает на	the panel does not respond at
+— она запущена?	— is it running?
+только мои IP и секретная ссылка	only my IPs and the secret link
+только IP:	only IP:
+по секретной ссылке	by secret link
+API-токен не подходит или истёк	the API token is invalid or expired
+открыт для всех	open to everyone
+доступ запрещён	access denied
+в этой версии панели нет нужного API — обнови панель	this panel version lacks the needed API — update the panel
+✔ Вход в панель закрыт:	✔ Panel login closed:
+⚠ Панель всё ещё открывается с этого сервера (HTTP	⚠ The panel still opens from this server (HTTP
+) — проверь конфиг:	) — check the config:
+✔ По секретной ссылке пускает (HTTP	✔ The secret link lets you in (HTTP
+Секретная ссылка: https://	Secret link: https://
+Открой её один раз в браузере — дальше панель открывается как обычно (запомнится на год).	Open it once in the browser — after that the panel opens as usual (remembered for a year).
+Сохрани ссылку в надёжном месте: без неё и без своих IP войти в панель нельзя.	Keep the link somewhere safe: without it and without your IPs you can't log in to the panel.
+Подписка клиентов работает как раньше. Остальные видят «404 Not Found».	Clients' subscriptions work as before. Everyone else sees "404 Not Found".
+✔ Вход в панель открыт для всех (HTTP	✔ Panel login is open to everyone (HTTP
+Копия конфига до изменения:	Config copy before the change:
+Панель будет открываться только с этих IP (через пробел; можно подсеть, например 203.0.113.0/24).	The panel will open only from these IPs (space-separated; a subnet is fine, e.g. 203.0.113.0/24).
+Твой IP сейчас:	Your IP now:
+Если IP домашнего интернета меняется — включи ещё и секретную ссылку, чтобы не потерять вход.	If your home internet IP changes, also turn on the secret link so you don't lose access.
+» — не похоже на IP	" doesn't look like an IP
+Старая секретная ссылка перестанет работать (у кого она уже открыта — тоже).	The old secret link will stop working (also for those who already opened it).
+Закрыть вход в панель	Close panel login
+Посторонние увидят «404 Not Found» вместо страницы входа. Подписка клиентов не трогается.	Strangers will see "404 Not Found" instead of the login page. Clients' subscriptions are not affected.
+Только мои IP	Only my IPs
+вход только после её открытия	login only after opening it
+Показать секретную ссылку	Show secret link
+Открыть вход для всех	Open login to everyone
+выключить защиту	turn protection off
+Вход в панель: только IP	Panel login: only IP
+Вход в панель: секретная ссылка	Panel login: secret link
+Вход в панель: открыть	Panel login: open
+Панель не отвечает	The panel does not respond
+проверь: Панель → Настройки и контейнеры	check: Panel → Settings and containers
+⚠ Сохранённый API-токен не подходит (	⚠ The saved API token doesn't work (
+) — нужен новый.	) — a new one is needed.
+RemnaPilot нужен доступ к API панели. Два способа:	RemnaPilot needs access to the panel API. Two ways:
+Ограничение попыток входа в	Limiting login attempts in
+• вставь API-токен (в панели: Настройки → API-токены → Создать)	• paste an API token (in the panel: Settings → API tokens → Create)
+⚠ Не смог подключить каталог логов к nginx — будет только ограничение частоты, без бана	⚠ Couldn't attach the log directory to nginx — only rate limiting, no bans
+• или нажми Enter — войду логином и паролем админа и создам токен сам (пароль нигде не сохраняется)	• or press Enter — I'll log in with the admin login and password and create a token myself (the password is not saved)
+✔ Не больше 10 попыток входа в минуту с одного IP (лишние получают 429)	✔ At most 10 login attempts per minute from one IP (extra ones get 429)
+fail2ban: бан за перебор	fail2ban: ban for brute force
+✔ 5 неверных паролей за 10 минут → бан IP на час (повторно — дольше)	✔ 5 wrong passwords in 10 minutes → IP banned for an hour (longer on repeat)
+fail2ban не запустил защиту панели	fail2ban did not start the panel protection
+Проверяю	Checking
+Защита от перебора	Brute-force protection
+Разбанить IP: fail2ban-client set remnawave-panel unbanip 1.2.3.4	Unban an IP: fail2ban-client set remnawave-panel unbanip 1.2.3.4
+Логин админа панели	Panel admin login
+✔ Защита от перебора выключена (забаненные IP разбанены)	✔ Brute-force protection turned off (banned IPs unbanned)
+включена	on
+IP сейчас · ошибок входа:	IPs now · login errors:
+выключена	off
+Защита от перебора пароля	Password brute-force protection
+Бан IP после 5 неверных паролей к панели (fail2ban) и не больше 10 попыток в минуту (nginx).	IP ban after 5 wrong panel passwords (fail2ban) and at most 10 attempts per minute (nginx).
+Защита от перебора: включить	Brute-force protection: enable
+Защита от перебора: выключить	Brute-force protection: disable
+Список пуст — добавь сервер панели (пункт 2).	The list is empty — add a panel server (item 2).
+Токен не создался	The token was not created
+создай его в панели: Настройки → API-токены и вставь сюда	create it in the panel: Settings → API tokens and paste it here
+Сервер панели (user@IP, по умолчанию root@)	Panel server (user@IP, root@ by default)
+Имя [	Name [
+✔ Добавлен:	✔ Added:
+⚠ Без пароля по SSH не пускает — RemnaPilot нужен вход по ключу.	⚠ SSH doesn't let in without a password — RemnaPilot needs key login.
+Скопировать ключ на сервер сейчас (спросит пароль SSH один раз)? [Y/n]	Copy the key to the server now (asks for the SSH password once)? [Y/n]
+Убрать из списка	Remove from list
+убран из списка (на самом сервере ничего не менялось)	removed from the list (nothing changed on the server itself)
+Токен не подошёл	The token didn't work
+Ставлю RemnaPilot v	Installing RemnaPilot v
+на	on
+Не получилось поставить RemnaPilot на	Couldn't install RemnaPilot on
+Открыть RemnaPilot на сервере	Open RemnaPilot on server
+Открываю меню на	Opening the menu on
+— выход из него вернёт сюда.	— exiting it returns here.
+✔ Доступ к API сохранён (	✔ API access saved (
+, читает только root)	, readable only by root)
+: не получилось на	: failed on
+сервер(ах)	server(s)
+: готово на всех серверах	: done on all servers
+Мультипанель	Multi-panel
+Другие серверы с панелью Remnawave — управление отсюда по SSH.	Other servers with a Remnawave panel — managed from here over SSH.
+Добавить сервер панели	Add panel server
+его меню по SSH	its menu over SSH
+Бэкап всех панелей	Back up all panels
+rw --backup на каждом	rw --backup on each
+Обновить все панели	Update all panels
+с бэкапом перед обновлением	with a backup before the update
+Проверить обновления на всех	Check updates on all
+Мультипанель: бэкап	Multi-panel: backup
+Мультипанель: обновление	Multi-panel: update
+Обновление	Update
+Проверка обновлений	Update check
+Не нашёл конфиг nginx или Caddy панели	Couldn't find the panel's nginx or Caddy config
+в	in
+нет конфига с доменом	no config with domain
+эта функция работает с nginx или Caddy, которые стоят по инструкции docs.rw (или установлены RemnaPilot)	this works with nginx or Caddy set up per docs.rw (or installed by RemnaPilot)
+Нод нет: ни на этом сервере, ни в списке (Установка → Установка и обновление нод → Добавить ноду в список).	No nodes: neither on this server nor in the list (Install → Node install and update → Add node to list).
+Нод нет (Установка → Установка и обновление нод → Добавить ноду в список).	No nodes (Install → Node install and update → Add node to list).
+Не разобрал профили конфигурации	Couldn't parse the config profiles
+Не нашёл docker-сеть remnawave-network	Couldn't find the docker network remnawave-network
+панель запущена не по инструкции docs.rw	the panel was not set up per docs.rw
+Профиль не обновился	The profile was not updated
+Менять нечего — в профилях этого правила нет.	Nothing to change — the profiles don't have this rule.
+✔ Обновлено профилей:	✔ Profiles updated:
+— панель сама перезапустит Xray на нодах	— the panel will restart Xray on the nodes itself
+Включил распознавание трафика (sniffing) у inbound: без него Xray не видит торренты и домены	Turned on traffic sniffing for inbounds: without it Xray can't see torrents and domains
+Поставлю ноду на этот сервер и сразу добавлю её в панель. Панель подключится к ней изнутри (через	I'll install a node on this server and add it to the panel right away. The panel will connect to it internally (via
+Torrent Blocker недоступен	Torrent Blocker is unavailable
+Плагина RemnaPilot нет — выключать нечего.	There is no RemnaPilot plugin — nothing to turn off.
+Плагин не создался	The plugin was not created
+выбери другой порт	pick another port
+Плагин не читается	The plugin can't be read
+Плагин не обновился	The plugin was not updated
+✔ Torrent Blocker выключен (плагин «RemnaPilot»)	✔ Torrent Blocker turned off (plugin "RemnaPilot")
+✔ Torrent Blocker включён в плагине «RemnaPilot»: IP с торрентом блокируется на 1 час	✔ Torrent Blocker turned on in plugin "RemnaPilot": an IP using torrents is blocked for 1 hour
+Не получил список нод	Couldn't get the node list
+»: плагин подключён	": plugin attached
+⚠ У нод	⚠ Nodes
+свой плагин — включи Torrent Blocker в нём (панель → Плагины нод).	have their own plugin — enable Torrent Blocker in it (panel → Node plugins).
+NET_ADMIN ДЛЯ НОД	NET_ADMIN FOR NODES
+Нодам нужно право NET_ADMIN, чтобы блокировать IP (nftables). Добавлю его в docker-compose нод.	Nodes need the NET_ADMIN right to block IPs (nftables). I'll add it to the nodes' docker-compose.
+Не получил профили конфигурации	Couldn't get the config profiles
+Нод в RemnaPilot нет — добавь NET_ADMIN вручную: cap_add: [NET_ADMIN] в docker-compose ноды.	RemnaPilot has no nodes — add NET_ADMIN manually: cap_add: [NET_ADMIN] in the node's docker-compose.
+): NET_ADMIN добавлен, нода перезапущена	): NET_ADMIN added, node restarted
+): NET_ADMIN уже есть	): NET_ADMIN already present
+): не нашёл docker-compose ноды	): node docker-compose not found
+): не получилось	): failed
+ядро	kernel
+— Torrent Blocker нужен Linux 5.7+	— Torrent Blocker needs Linux 5.7+
+вкл	on
+выкл	off
+В панели нет профиля конфигурации	The panel has no config profile
+создай его в панели: Конфиг-профили → +	create it in the panel: Config profiles → +
+и запусти этот пункт ещё раз	and run this item again
+нет доступа к API	no API access
+профилей)	profiles)
+Блокировка торрентов	Torrent blocking
+Правило Xray	Xray rule
+Правило Xray — торрент-трафик не уходит дальше ноды (работает в любой версии).	Xray rule — torrent traffic doesn't go past the node (works in any version).
+Torrent Blocker — плагин ноды: ещё и блокирует IP пользователя на час (Remnawave 2.7+).	Torrent Blocker — a node plugin: also blocks the user's IP for an hour (Remnawave 2.7+).
+Включить правило Xray	Enable Xray rule
+во всех профилях конфигурации	in all config profiles
+Выключить правило Xray	Disable Xray rule
+Включить Torrent Blocker	Enable Torrent Blocker
+плагин + NET_ADMIN нодам	plugin + NET_ADMIN for nodes
+Торренты: правило Xray	Torrents: Xray rule
+Торренты: правило Xray выкл	Torrents: Xray rule off
+Торренты: Torrent Blocker	Torrents: Torrent Blocker
+Торренты: Torrent Blocker выкл	Torrents: Torrent Blocker off
+ПРОФИЛЬ КОНФИГУРАЦИИ	CONFIG PROFILE
+Блокировка рекламы и трекеров	Ad and tracker blocking
+Реклама/трекеры	Ads/trackers
+Xray на нодах не пускает к рекламным и следящим доменам (список geosite:category-ads-all).	Xray on the nodes blocks ad and tracking domains (list geosite:category-ads-all).
+Для всех клиентов сразу, в приложениях ничего настраивать не нужно.	For all clients at once, nothing to set up in the apps.
+Включить	Enable
+Реклама: блокировка	Ads: blocking
+Реклама: блокировка выкл	Ads: blocking off
+Профиль [1]	Profile [1]
+⚠ В профиле «	⚠ Profile "
+» есть inbound на порту 443, а его занимает веб-сервер панели (	" has an inbound on port 443, but the panel web server uses it (
+) — этот inbound не запустится. Смени ему порт или используй Selfsteal (Ноды → Selfsteal для Reality).	) — this inbound won't start. Change its port or use Selfsteal (Nodes → Selfsteal for Reality).
+Ставлю ноду	Installing the node
+…оставь свой…	…keep yours…
+…оставь свои…	…keep yours…
+Панель не отдала SECRET_KEY	The panel did not return SECRET_KEY
+Нода не установилась	The node was not installed
+Не получил профили	Couldn't get the profiles
+⚠ В профилях нет inbound с Reality — пропиши настройки вручную.	⚠ The profiles have no Reality inbound — set it up manually.
+профиль «	profile "
+Не менять	Don't change
+Куда прописать selfsteal [1]	Where to set selfsteal [1]
+— панель перезапустит Xray на нодах	— the panel will restart Xray on the nodes
+В хостах для клиентов SNI тоже должен быть	The SNI in client hosts must be
+, доступ только из docker-сети	, access only from the docker network
+КУДА СТАВИТЬ SELFSTEAL (на сервер с нодой)	WHERE TO INSTALL SELFSTEAL (on a server with a node)
+Selfsteal ставится на одну ноду за раз	Selfsteal is installed on one node at a time
+Нужен домен ноды с A-записью на её IP и свободный порт 80 (Caddy получает по нему сертификат).	You need a node domain with an A record pointing to its IP and free port 80 (Caddy gets the certificate through it).
+Домен ноды (например de.example.com)	Node domain (e.g. de.example.com)
+Внутренний порт сайта [9443]	Internal site port [9443]
+Ставлю Caddy с сайтом на	Installing Caddy with a site on
+На сервере нет Docker	The server has no Docker
+сначала поставь ноду: Установка → Установка и обновление нод	install a node first: Install → Node install and update
+Caddy нужен порт 80, чтобы получить сертификат	Caddy needs port 80 to get a certificate
+освободи порт 80 на ноде	free port 80 on the node
+выбери другой внутренний порт	pick another internal port
+Открыл 80/tcp в ufw — нужен Caddy для продления сертификата	Opened 80/tcp in ufw — Caddy needs it to renew the certificate
+Добавляю ноду в панель	Adding the node to the panel
+Проверяю сертификат	Checking the certificate
+✔ Сертификат Let's Encrypt выпущен	✔ Let's Encrypt certificate issued
+⚠ Сертификат пока не выпущен — обычно A-запись не указывает на ноду или порт 80 закрыт у хостера.	⚠ The certificate is not issued yet — usually the A record doesn't point to the node or port 80 is closed at the host.
+Caddy будет пробовать сам; логи: docker logs --tail 30 selfsteal	Caddy will keep trying itself; logs: docker logs --tail 30 selfsteal
+Настройки Reality	Reality settings
+Пропиши в inbound Reality (панель → Конфиг-профили):	Set in the Reality inbound (panel → Config profiles):
+ГДЕ УБРАТЬ SELFSTEAL	WHERE TO REMOVE SELFSTEAL
+Не забудь вернуть в inbound Reality прежний target и serverNames.	Don't forget to restore the previous target and serverNames in the Reality inbound.
+Reality маскируется под твой собственный сайт на домене ноды, а не под чужой.	Reality disguises itself as your own site on the node domain, not someone else's.
+Сайт с настоящим сертификатом, его не заблокировать «за компанию» с чужим SNI.	A site with a real certificate can't be blocked "along with" someone else's SNI.
+Установить selfsteal	Install selfsteal
+здесь или на ноде по SSH	here or on a node over SSH
+Удалить selfsteal	Remove selfsteal
+Нода не добавилась в панель	The node was not added to the panel
+добавь вручную: панель → Ноды → + , адрес	add it manually: panel → Nodes → + , address
+✔ В панели: «	✔ In the panel: "
+), профиль «	), profile "
+· адресов:	· addresses:
+внешнего адреса IPv6 нет	no public IPv6 address
+ГДЕ ВЫКЛЮЧИТЬ IPV6	WHERE TO DISABLE IPV6
+ГДЕ ВКЛЮЧИТЬ IPV6	WHERE TO ENABLE IPV6
+): ты подключён по IPv6 (	): you are connected over IPv6 (
+) — выключение оборвёт SSH	) — disabling will cut SSH
+подключись по IPv4 и повтори	connect over IPv4 and repeat
+Внешний адрес IPv6 вернётся сам через минуту-две (или после перезагрузки).	The public IPv6 address will come back by itself in a minute or two (or after a reboot).
+Настройка сохраняется после перезагрузки (	The setting survives reboots (
+Жду, пока панель подключится к ноде	Waiting for the panel to connect to the node
+Выключи IPv6, если у хостера он кривой: клиенты зависают, сайты определяют не ту страну.	Disable IPv6 if your host's IPv6 is broken: clients hang, sites detect the wrong country.
+здесь или на нодах по SSH	here or on nodes over SSH
+Включить IPv6	Enable IPv6
+IPv6: выключить	IPv6: disable
+IPv6: включить	IPv6: enable
+✔ Нода онлайн	✔ Node online
+⚠ Панель пока не подключилась к ноде:	⚠ The panel hasn't connected to the node yet:
+логи ноды: docker logs --tail 30 remnanode	node logs: docker logs --tail 30 remnanode
+Нода на сервере панели	Node on the panel server
+Хосты для клиентов укажи с публичным адресом сервера (домен или IP), не	Set the client hosts to the server's public address (domain or IP), not
+Нода на этом сервере уже стоит (	A node is already installed on this server (
+удалить: Установка → Установка и обновление нод → Удалить ноду	remove: Install → Node install and update → Remove node
+), но в Telegram не отправлен — задай пароль шифрования: rw → Панель → Автобэкап → Шифрование	), but not sent to Telegram — set an encryption password: rw → Panel → Auto-backup → Encryption
+если её нет — установи: Установка → Установить панель	if there is none, install it: Install → Install panel
+Панель и нода на одном сервере	Panel and node on one server
+нода рядом с панелью, сразу в панели	node next to the panel, added to it right away
+Переустановить панель	Reinstall panel
+данные сохранятся	data is kept
+другие серверы с панелью	other servers with a panel
+fail2ban для входа в панель	fail2ban for panel login
+свой сайт для маскировки	your own site for disguise
+Установка	Install
+панель · нода · страница подписки	panel · node · subscription page
+настройки · обновления · база	settings · updates · database
+Защита	Protection
+вход в панель · пароль · firewall · SSH	panel login · password · firewall · SSH
+статус · selfsteal · блокировки	status · selfsteal · blocking
+IPv6 · BBR · swap · время	IPv6 · BBR · swap · time
+Защита → Безопасность → 1 — сверит и предложит исправить	Protection → Security → 1 — compares them and offers a fix
+Панель и нода на одном сервере: Установка → Панель и нода на одном сервере. Нода ставится рядом с панелью и сразу добавляется в неё, порт ноды наружу не открывается	Panel and node on one server: Install → Panel and node on one server. The node is installed next to the panel and added to it right away; the node port is not opened to the outside
+Страница подписки: Установка → Страница подписки. remnawave/subscription-page на своём домене, с сертификатом; ссылки клиентов прежние	Subscription page: Install → Subscription page. remnawave/subscription-page on its own domain, with a certificate; clients' links stay the same
+Переустановить панель: свежие образы и контейнеры, база заново из бэкапа — пользователи, ноды и настройки сохраняются	Reinstall panel: fresh images and containers, the database recreated from a backup — users, nodes and settings are kept
+Закрыть вход в панель: Защита → Закрыть вход в панель. Только свои IP или секретная ссылка, остальным — 404. Подписка клиентов работает	Close panel login: Protection → Close panel login. Only your IPs or a secret link, everyone else gets 404. Clients' subscriptions keep working
+Защита от перебора пароля панели: fail2ban банит IP после 5 неверных паролей, nginx пускает не больше 10 попыток в минуту	Panel password brute-force protection: fail2ban bans an IP after 5 wrong passwords, nginx allows at most 10 attempts per minute
+Selfsteal для Reality: Ноды → Selfsteal. Свой сайт с сертификатом на домене ноды, RemnaPilot сам пропишет его в inbound Reality	Selfsteal for Reality: Nodes → Selfsteal. Your own site with a certificate on the node domain; RemnaPilot sets it in the Reality inbound itself
+Блокировка торрентов: правило Xray во всех профилях или плагин Torrent Blocker (бан IP на час) с NET_ADMIN для нод	Torrent blocking: an Xray rule in all profiles or the Torrent Blocker plugin (IP ban for an hour) with NET_ADMIN for nodes
+Блокировка рекламы и трекеров: Xray на нодах не пускает к рекламным доменам (geosite:category-ads-all)	Ad and tracker blocking: Xray on the nodes blocks ad domains (geosite:category-ads-all)
+IPv6: Сервер → IPv6 — выключить или включить здесь и на нодах по SSH, с защитой от обрыва SSH по IPv6	IPv6: Server → IPv6 — disable or enable here and on nodes over SSH, with protection against cutting an IPv6 SSH session
+Мультипанель: Панель → Мультипанель. Статус других серверов с панелью, их меню по SSH, бэкап и обновление всех сразу	Multi-panel: Panel → Multi-panel. Status of other panel servers, their menu over SSH, backup and update of all at once
+Меню разложено по новым разделам: Установка, Домены, Панель, Защита, Ноды, Сервер, Прочее. Номера в полном списке поменялись — поиск по слову работает как раньше	The menu is split into new sections: Install, Domains, Panel, Protection, Nodes, Server, Other. Numbers in the full list changed — word search works as before
+Новые ноды ставятся с правом NET_ADMIN — нужно плагинам нод (Torrent Blocker и др.)	New nodes are installed with the NET_ADMIN right — needed by node plugins (Torrent Blocker etc.)
+УСТАНОВКА	INSTALL
+ЗАЩИТА	PROTECTION
+Страница	Page
+Контейнер	Container
+Переустановить или сменить домен	Reinstall or change domain
+Установить страницу подписки	Install subscription page
+Вход	Login
+сейчас:	now:
+Новая секретная ссылка	New secret link
+Секретная ссылка	Secret link
+Забанено	Banned
+Включить заново	Enable again
+нет связи по SSH	no SSH connection
+плагины нод появились в Remnawave 2.7 — обнови панель и ноды	node plugins appeared in Remnawave 2.7 — update the panel and nodes
+установлена	installed
+ссылки и QR для клиентов	links and QR for clients
 __RP_EN_END__

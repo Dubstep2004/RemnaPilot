@@ -18,6 +18,8 @@ services:
     image: remnawave/node:latest
     network_mode: host
     restart: always
+    cap_add:
+      - NET_ADMIN
     ulimits:
       nofile:
         soft: 1048576
@@ -188,7 +190,7 @@ EOS
       ok+=("$nm: $(echo "$out" | grep '^RESULT' | cut -d' ' -f2-)"); green "  ✓ $(echo "$out" | grep '^RESULT' | cut -d' ' -f2-)"
     else
       failed+=("$nm"); red "  ✗ не обновилась"
-      if grep -q NO_NODE_DIR <<< "$out"; then cause "на сервере нет ноды в /opt/remnanode"; todo "установи её: Ноды → Установка → 2"
+      if grep -q NO_NODE_DIR <<< "$out"; then cause "на сервере нет ноды в /opt/remnanode"; todo "установи её: Установка → Установка и обновление нод → 2"
       else why_first "$out" ssh docker; fi
     fi
   done
@@ -256,7 +258,7 @@ node_uninstall() {
   steps_done "Удаление ноды"
   green "✔ Нода «$nm» удалена."
   echo "  В панели удали её тоже: Ноды → нода → Удалить — иначе она будет висеть офлайн."
-  [[ -n "$np" ]] && echo "  Правило firewall для порта $np осталось — закрыть: Сервер → Firewall → Закрыть порт."
+  [[ -n "$np" ]] && echo "  Правило firewall для порта $np осталось — закрыть: Защита → Firewall → Закрыть порт."
   return 0
 }
 
@@ -309,5 +311,5 @@ node_domain_change() {
   green "✔ Нода «$name»: $old → $new (хостов: ${hosts:-0})"
   echo "  Клиенты получат новый адрес при следующем обновлении подписки."
   echo "  Если у хоста свой TLS-сертификат на ноде (не Reality) — выпусти его для $new."
-  echo "  Вернуть как было: База → Восстановить из дампа (бэкап *-node-domain.sql.gz)."
+  echo "  Вернуть как было: Панель → Восстановить из дампа (бэкап *-node-domain.sql.gz)."
 }

@@ -33,7 +33,7 @@ need_compose() { # все действия используют «docker compose
 
 need_panel() {
   [[ -f "$RW_DIR/.env" ]] || { fail "Панель не найдена в $RW_DIR"; cause "нет файла $RW_DIR/.env"
-                               todo "если панель в другом месте: Прочее → Сменить каталог панели" "если её нет — установи: Панель → Установить панель"; return 1; }
+                               todo "если панель в другом месте: Прочее → Сменить каталог панели" "если её нет — установи: Установка → Установить панель"; return 1; }
   command -v docker >/dev/null || { fail "Не установлен Docker"; todo "установи: curl -fsSL https://get.docker.com | sh"; return 1; }
   need_compose || return 1
   command -v perl   >/dev/null || { fail "Не установлен perl"; todo "apt install perl"; return 1; }
