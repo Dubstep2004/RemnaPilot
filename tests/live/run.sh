@@ -317,7 +317,10 @@ ok_ports=0; for i in $(seq 1 50); do
   ss -ltnH 'sport = :10443' | grep -q . && ss -ltnH 'sport = :18443' | grep -q . && ss -lunH 'sport = :443' | grep -q . && { ok_ports=1; break; }; sleep 3; done
 check "Xray на ноде слушает Reality 10443/tcp, XHTTP 18443/tcp, Hysteria2 443/udp" '(( ok_ports ))'
 (( ok_ports )) || { ss -ltnup | grep -E ":(10443|18443|443)\b" | sed 's/^/      │ /'; docker logs --tail 30 remnanode 2>&1 | sed 's/^/      │ /'; }
-out=$(fn 'api GET /api/nodes >/dev/null; echo "$API_OUT"' | python3 -c 'import json,sys; print(" ".join(n["name"]+":"+str(n["isConnected"])+":"+str(n.get("xrayUptime")) for n in json.load(sys.stdin)["response"]))')
+for i in $(seq 1 20); do
+  out=$(fn 'api GET /api/nodes >/dev/null; echo "$API_OUT"' | python3 -c 'import json,sys; print(" ".join(n["name"]+":"+str(n["isConnected"])+":"+str(n.get("xrayUptime")) for n in json.load(sys.stdin)["response"]))')
+  grep -qE "local:True" <<< "$out" && break; sleep 3
+done
 echo "      │ ноды: $out"
 check "локальная нода на связи после переключения" 'grep -qE "local:True" <<< "$out"'
 
