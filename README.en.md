@@ -135,6 +135,10 @@ rw
 
 ### 🖥️ Panel and nodes
 - **Install the panel** from scratch: Nginx or Caddy, certificate, secrets
+- **Panel and node on one server** — the node appears in the panel right away
+- **Subscription page** on its own domain
+- **Reinstall the panel** keeping all data
+- **Multi-panel** — other panel servers from one menu
 - Install a node locally, via SSH or with one command — with a domain check
 - **Forgot the password** — reset with guidance
 - Delete the panel or a node — with a backup and confirmation
@@ -144,10 +148,12 @@ rw
 </td>
 <td valign="top">
 
-### 🛡️ Server
+### 🛡️ Protection and server
+- **Close panel login**: only your IPs or a secret link
+- Panel **password brute-force protection** (fail2ban)
 - One-click **firewall** and a clear **rules list**
 - SSH hardening: port, fail2ban, key-only login
-- BBR, swap, time sync, disk cleanup
+- IPv6 on/off, BBR, swap, time sync, disk cleanup
 - **Move the panel** to another server
 
 </td>
@@ -155,9 +161,11 @@ rw
 <tr>
 <td valign="top">
 
-### 🔎 Checks
-- Is the IP reachable **from Russia**, ping, speed
-- **Reality SNI** picker
+### 🚫 Nodes: disguise and blocking
+- **Selfsteal for Reality** — your own site on the node domain
+- **Torrent blocking** (Xray rule or Torrent Blocker)
+- **Ad and tracker blocking** for all clients
+- **Reality SNI** picker, IP check **from Russia**
 
 </td>
 <td valign="top">
@@ -244,7 +252,7 @@ It checks for a new version every night and shows a hint in the menu. Update via
 <details>
 <summary><b>How do I get backups in Telegram?</b></summary>
 
-**Database → Auto-backup → Telegram** → create a bot with @BotFather, paste the token and send the bot any message — the script finds your chat automatically. Then set a password in **Encryption for Telegram**: the archive contains panel secrets, so it is not sent without one. Restore: `rw --decrypt archive.tar.gz.enc`. Keep the password in a password manager.
+**Panel → Auto-backup → Telegram** → create a bot with @BotFather, paste the token and send the bot any message — the script finds your chat automatically. Then set a password in **Encryption for Telegram**: the archive contains panel secrets, so it is not sent without one. Restore: `rw --decrypt archive.tar.gz.enc`. Keep the password in a password manager.
 </details>
 
 ---

@@ -327,7 +327,7 @@ check "контейнеры панели удалены" '! docker ps -a --forma
 check "данные базы удалены (том)" '! docker volume ls --format "{{.Name}}" | grep -q remnawave-db-data'
 check "каталог панели удалён" '[[ ! -e /opt/remnawave ]]'
 bk=$(ls -1t /root/remnawave-removed-*.tar.gz 2>/dev/null | head -1)
-check "последний бэкап сохранён вне панели" '[[ -s "$bk" ]] && tar -tzf "$bk" | grep -q "\.sql\.gz$"'
+check "последний бэкап сохранён вне панели" '[[ -s "$bk" ]] && grep -q "\.sql\.gz$" < <(tar -tzf "$bk")'
 zdump=$(tar -xzOf "$bk" --wildcards "*.sql.gz" 2>/dev/null | zcat 2>/dev/null)
 check "…и в нём настоящие данные (маркер из теста бэкапа)" 'grep -q rp_live_marker <<< "$zdump"'
 
