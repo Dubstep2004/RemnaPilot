@@ -42,7 +42,18 @@ rw
 ---
 
 <!-- whats-new:start -->
-## 🆕 What's new in v2.9
+## 🆕 What's new in v2.10
+
+#### ✨ New
+
+- Folder menu: the main screen shows 7 folders with icons and item counts, inside — items in groups (e.g. in "Nodes": status, protocols, blocking, tools). "0" returns to the folders
+
+#### 🔄 Changed
+
+- Folders are the default menu view. The full one-screen list is still there: Other → Appearance → Menu view. Word search works in any view
+
+<details>
+<summary><b>Previous version — v2.9</b></summary>
 
 #### ✨ New
 
@@ -52,30 +63,6 @@ rw
 #### 🔄 Changed
 
 - Menu: two new items in "Nodes", the numbers in "Server" and "Other" moved by 2
-
-<details>
-<summary><b>Previous version — v2.8</b></summary>
-
-#### ✨ New
-
-- Panel and node on one server: Install → Panel and node on one server. The node is installed next to the panel and added to it right away; the node port is not opened to the outside
-- Subscription page: Install → Subscription page. remnawave/subscription-page on its own domain, with a certificate; clients' links stay the same
-- Reinstall panel: fresh images and containers, the database recreated from a backup — users, nodes and settings are kept
-- Close panel login: Protection → Close panel login. Only your IPs or a secret link, everyone else gets 404. Clients' subscriptions keep working
-- Panel password brute-force protection: fail2ban bans an IP after 5 wrong passwords, nginx allows at most 10 attempts per minute
-- Selfsteal for Reality: Nodes → Selfsteal. Your own site with a certificate on the node domain; RemnaPilot sets it in the Reality inbound itself
-- Torrent blocking: an Xray rule in all profiles or the Torrent Blocker plugin (IP ban for an hour) with NET_ADMIN for nodes
-- Ad and tracker blocking: Xray on the nodes blocks ad domains (geosite:category-ads-all)
-- IPv6: Server → IPv6 — disable or enable here and on nodes over SSH, with protection against cutting an IPv6 SSH session
-- Multi-panel: Panel → Multi-panel. Status of other panel servers, their menu over SSH, backup and update of all at once
-
-#### 🚀 Improved
-
-- New nodes are installed with the NET_ADMIN right — needed by node plugins (Torrent Blocker etc.)
-
-#### 🔄 Changed
-
-- The menu is split into new sections: Install, Domains, Panel, Protection, Nodes, Server, Other. Numbers in the full list changed — word search works as before
 
 </details>
 

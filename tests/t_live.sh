@@ -118,7 +118,7 @@ if code == -1:
 sys.stdout.write(out.decode("utf-8", "replace"))
 P
 for L in ru en; do
-  rm -f /etc/rw/ui.conf /etc/rw/menu_mode; mkdir -p /etc/rw; echo "LIVE=3" > /etc/rw/ui.conf; touch /etc/rw/.latest_version /etc/rw/autoupdate.conf "$HOME/.rw-nocmd"
+  rm -f /etc/rw/ui.conf; mkdir -p /etc/rw; echo flat > /etc/rw/menu_mode; echo "LIVE=3" > /etc/rw/ui.conf; touch /etc/rw/.latest_version /etc/rw/autoupdate.conf "$HOME/.rw-nocmd"
   echo 'remnawave|Up 3 minutes (healthy)|remnawave/backend:2.2.4' > "$T/state2"
   O=$(PATH="$T/bin:$PATH" python3 "$T/menu.py" "$SCRIPT" "$T/state2" $L 2>&1 | nocolor)
   [ $L = ru ] && { w_upd="Обновления ─"; w_ok="работает"; w_bad="остановлена"; } || { w_upd="Updates ─"; w_ok="running"; w_bad="stopped"; }

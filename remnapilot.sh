@@ -54,7 +54,7 @@ set -o pipefail
 export PATH="$PATH:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"   # cron даёт урезанный PATH
 RP_NAME="RemnaPilot"
 RP_CANCEL=10        # код «отменено пользователем»: не успех и не ошибка (журнал пишет «отменено»)
-RP_VERSION="2.9"
+RP_VERSION="2.10"
 CERT_METHOD="${CERT_METHOD:-}"
 STOPPED_CT=(); STOPPED_SVC=(); FW_OPENED=()
 
@@ -5787,7 +5787,7 @@ ui_menu() {
     item 3 "Логотип" "$(case $UI_LOGO in big) echo большой;; small) echo маленький;; none) echo без логотипа;; esac)"
     item 4 "Подсказки у пунктов" "$( [[ $UI_HINTS == off ]] && echo скрыты || echo показаны)"
     item 5 "Статус сервера" "$(case $UI_STATUS in full) echo рамка;; compact) echo одна строка;; off) echo скрыт;; esac)"
-    item 6 "Вид меню" "$( [[ "$(menu_mode)" == flat ]] && echo "полный список" || echo "разделы" )"
+    item 6 "Вид меню" "$( [[ "$(menu_mode)" == flat ]] && echo "полный список" || echo "папки" )"
     item 7 "Компактный режим" "$( [[ "$UI_COMPACT" == on ]] && echo "включён" || echo "выключен")"
     item 8 "Живой статус" "$( [[ "$UI_LIVE" == off ]] && echo "выключен" || echo "каждые $UI_LIVE с")"
     item 9 "Сбросить по умолчанию"
@@ -5830,6 +5830,8 @@ theme_swatch() { # цветные блоки темы
 
 # ---------- версия ----------
 RP_CHANGELOG=(
+  "2.10|new|Меню по папкам: на главном экране 7 папок со значками и числом пунктов, внутри — пункты по группам (например, в «Нодах»: состояние, протоколы, блокировки, инструменты). «0» возвращает к папкам"
+  "2.10|change|Папки — вид меню по умолчанию. Полный список одним экраном остался: Прочее → Оформление → Вид меню. Поиск по слову работает в любом виде"
   "2.9|new|Готовые профили Xray: Ноды → Готовые профили Xray. VLESS + Reality, VLESS + XHTTP, Trojan, Hysteria2 и «всё в одном» (Reality + XHTTP + Hysteria2) — ключи, порты и sniffing правильные сразу; RemnaPilot добавит inbound в сквады, переключит ноды и создаст хосты для клиентов"
   "2.9|new|Hysteria2 на ноде: Ноды → Hysteria2 на ноде. Сертификат Let's Encrypt (certbot), NET_ADMIN, /dev/shm и сертификат в docker-compose ноды, перезапуск ноды после продления, UDP-порт в firewall — то, что раньше делалось руками по инструкции"
   "2.9|change|Меню: в разделе «Ноды» два новых пункта, номера разделов «Сервер» и «Прочее» сдвинулись на 2"
@@ -6608,7 +6610,7 @@ item_info() {
     28) echo "Установить команду rw|" ;;
     29) echo "Сменить каталог панели|$RW_DIR" ;;
     30) echo "О программе и версии|v$RP_VERSION" ;;
-    31) echo "Вид меню|$( [[ "$(menu_mode)" == flat ]] && echo "полный список" || echo "разделы" )" ;;
+    31) echo "Вид меню|$( [[ "$(menu_mode)" == flat ]] && echo "полный список" || echo "папки" )" ;;
     32) echo "Автобэкап|$(bk_sched_name "$(bk_get SCHED off)")" ;;
     33) echo "Оформление|тема · номера · логотип" ;;
     34) echo "Уведомления в Telegram|$(tg_on && echo подключено || echo выключено)" ;;
@@ -6633,17 +6635,19 @@ item_info() {
   esac
 }
 
+# Папки: название|подсказка|пункты. «@ГРУППА» — подзаголовок внутри папки («_» — пробел).
 MENU_SECTIONS=(
-  "Установка|панель · нода · страница подписки|36 41 13 42 43"
-  "Домены|смена · домен ноды · откат|1 37 2 3 4"
-  "Панель|настройки · обновления · база|5 6 7 8 9 11 32 12 23 44"
-  "Защита|вход в панель · пароль · firewall · SSH|45 46 38 10 17 18"
-  "Ноды|профили Xray · Hysteria2 · selfsteal · блокировки|14 51 52 47 48 49 15 16 25 24"
-  "Сервер|IPv6 · BBR · swap · время|50 19 20 21 22"
-  "Прочее|оформление · Telegram · язык|33 34 26 27 28 29 30 40 39 35"
+  "Установка|панель, ноды, подписка|36 41 13 42 43"
+  "Домены|смена, домен ноды, откат|1 37 2 3 4"
+  "Панель|обновления, база, логи|@УПРАВЛЕНИЕ 5 6 7 8 9 @БАЗА 11 32 12 @ПЕРЕНОС_И_СЕРВЕРЫ 23 44"
+  "Защита|вход, пароль, firewall|@ПАНЕЛЬ 45 46 38 10 @СЕРВЕР 17 18"
+  "Ноды|профили Xray, Hysteria2|@СОСТОЯНИЕ 14 24 @ПРОТОКОЛЫ 51 52 47 25 @БЛОКИРОВКИ 48 49 @ИНСТРУМЕНТЫ 15 16"
+  "Сервер|IPv6, BBR, swap|50 19 20 21 22"
+  "Прочее|оформление, язык|@НАСТРОЙКИ 33 34 26 27 28 29 @О_ПРОГРАММЕ 30 40 @УДАЛЕНИЕ 39 35"
 )
+MENU_ICONS=("📦" "🌐" "🔧" "🔐" "📡" "💻" "🎨")
 
-menu_mode() { local m; m=$(cat /etc/rw/menu_mode 2>/dev/null); [[ "$m" == sections ]] && echo sections || echo flat; }
+menu_mode() { local m; m=$(cat /etc/rw/menu_mode 2>/dev/null); [[ "$m" == flat ]] && echo flat || echo sections; }   # по умолчанию — папки
 
 menu_mode_toggle() {
   mkdir -p /etc/rw
@@ -6732,7 +6736,8 @@ MENU_PICK=""
 
 lc_utf8() { perl -CSA -e 'print lc $ARGV[0]' -- "$1" 2>/dev/null || printf '%s' "${1,,}"; }   # нижний регистр для кириллицы без UTF-8-локали
 
-all_items() { local x n; for x in "${MENU_SECTIONS[@]}"; do for n in ${x##*|}; do echo "$n"; done; done; }
+all_items() { local x n; for x in "${MENU_SECTIONS[@]}"; do for n in ${x##*|}; do [[ "$n" == @* ]] || echo "$n"; done; done; }
+sec_count() { local n c=0; for n in $1; do [[ "$n" == @* ]] || c=$((c+1)); done; echo "$c"; }
 
 menu_lookup() { # слово → MENU_PICK = внутренний номер пункта
   local q id name hint hits=() i c hay
@@ -6833,16 +6838,20 @@ menu_handle() { # ввод, массив номеров на экране (им�
   return 0
 }
 
-section_menu() { # $1 = индекс раздела
-  local name hint nums c n ids
+section_menu() { # $1 = индекс папки
+  local name hint nums c n ids head
   IFS='|' read -r name hint nums <<< "${MENU_SECTIONS[$1]}"
   while true; do
-    clear; banner; echo
-    status_box
-    section "${name^^}"
-    ids=()
-    for n in $nums; do ids+=("$n"); print_item "${#ids[@]}" "$n"; done
-    hr; item 0 "Назад"
+    apply_ui
+    screen "$name"
+    printf '  %s%s › %s%s\n' "$C_MUT" "$(T "Главное меню")" "$(T "$name")" "$C0"
+    ids=(); head=0
+    for n in $nums; do
+      if [[ "$n" == @* ]]; then n="${n#@}"; section "${n//_/ }"; head=1; continue; fi
+      (( head )) || { section "${name^^}"; head=1; }
+      ids+=("$n"); print_item "${#ids[@]}" "$n"
+    done
+    hr; item 0 "Назад в папки"
     ask; menu_read c; (( $? == 2 )) && continue
     menu_handle "$c" ids || return
     [[ "$(menu_mode)" == flat ]] && return      # сменили вид меню — сразу показать
@@ -6863,14 +6872,15 @@ menu() {
       for i in "${!MENU_SECTIONS[@]}"; do
         IFS='|' read -r name hint nums <<< "${MENU_SECTIONS[$i]}"
         section "${name^^}"
-        for n in $nums; do ids+=("$n"); print_item "${#ids[@]}" "$n"; done
+        for n in $nums; do [[ "$n" == @* ]] && continue; ids+=("$n"); print_item "${#ids[@]}" "$n"; done
       done
     else
-      # разделы: на главном экране только они, пункты — внутри
-      section "РАЗДЕЛЫ"
+      # папки: на главном экране только они, пункты — внутри
+      section "ПАПКИ"
       for i in "${!MENU_SECTIONS[@]}"; do
         IFS='|' read -r name hint nums <<< "${MENU_SECTIONS[$i]}"
-        ids+=("s:$i"); item "${#ids[@]}" "$name" "$( [[ "${UI_HINTS:-on}" == off ]] || echo "$hint")"
+        ids+=("s:$i")
+        item "${#ids[@]}" "${MENU_ICONS[$i]} $(padr "$name" 10)" "$(printf "%2s" "$(sec_count "$nums")")$( [[ "${UI_HINTS:-on}" == off ]] || echo " · $hint")"
       done
     fi
     item 0 "Выход"; hr
@@ -9281,4 +9291,28 @@ Hysteria2 на ноде	Hysteria2 on node
 Hysteria2 на ноде: Ноды → Hysteria2 на ноде. Сертификат Let's Encrypt (certbot), NET_ADMIN, /dev/shm и сертификат в docker-compose ноды, перезапуск ноды после продления, UDP-порт в firewall — то, что раньше делалось руками по инструкции	Hysteria2 on node: Nodes → Hysteria2 on node. Let's Encrypt certificate (certbot), NET_ADMIN, /dev/shm and the certificate in the node docker-compose, node restart after renewal, the UDP port in the firewall — what used to be done by hand
 Меню: в разделе «Ноды» два новых пункта, номера разделов «Сервер» и «Прочее» сдвинулись на 2	Menu: two new items in "Nodes", the numbers in "Server" and "Other" moved by 2
 Let's Encrypt · NET_ADMIN · UDP-порт	Let's Encrypt · NET_ADMIN · UDP port
+Назад в папки	Back to folders
+ПАПКИ	FOLDERS
+папки	folders
+Главное меню	Main menu
+панель, ноды, подписка	panel, nodes, subscription
+смена, домен ноды, откат	change, node domain, rollback
+обновления, база, логи	updates, database, logs
+вход, пароль, firewall	login, password, firewall
+профили Xray, Hysteria2	Xray profiles, Hysteria2
+IPv6, BBR, swap	IPv6, BBR, swap
+оформление, язык	appearance, language
+УПРАВЛЕНИЕ	MANAGEMENT
+ПЕРЕНОС И СЕРВЕРЫ	MIGRATION AND SERVERS
+СОСТОЯНИЕ	STATUS
+ПРОТОКОЛЫ	PROTOCOLS
+БЛОКИРОВКИ	BLOCKING
+ИНСТРУМЕНТЫ	TOOLS
+О ПРОГРАММЕ	ABOUT
+УДАЛЕНИЕ	REMOVAL
+@УПРАВЛЕНИЕ 5 6 7 8 9 @БАЗА 11 32 12 @ПЕРЕНОС_И_СЕРВЕРЫ 23 44	-
+@СОСТОЯНИЕ 14 24 @ПРОТОКОЛЫ 51 52 47 25 @БЛОКИРОВКИ 48 49 @ИНСТРУМЕНТЫ 15 16	-
+@НАСТРОЙКИ 33 34 26 27 28 29 @О_ПРОГРАММЕ 30 40 @УДАЛЕНИЕ 39 35	-
+Меню по папкам: на главном экране 7 папок со значками и числом пунктов, внутри — пункты по группам (например, в «Нодах»: состояние, протоколы, блокировки, инструменты). «0» возвращает к папкам	Folder menu: the main screen shows 7 folders with icons and item counts, inside — items in groups (e.g. in "Nodes": status, protocols, blocking, tools). "0" returns to the folders
+Папки — вид меню по умолчанию. Полный список одним экраном остался: Прочее → Оформление → Вид меню. Поиск по слову работает в любом виде	Folders are the default menu view. The full one-screen list is still there: Other → Appearance → Menu view. Word search works in any view
 __RP_EN_END__

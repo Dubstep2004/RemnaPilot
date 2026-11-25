@@ -58,7 +58,7 @@ left=$(cyr <<< "$jo"); check "журнал на английском" '[ -z "$le
 saved=""; for d in /opt/remnawave /etc/rw; do [ -e "$d" ] && { mkdir -p "$T/saved"; cp -a "$d" "$T/saved/"; saved+=" $d"; }; done
 rm -rf /opt/remnawave /etc/rw; mkdir -p /opt/remnawave/backups /etc/rw
 printf 'FRONT_END_DOMAIN=panel.example.com\nSUB_PUBLIC_DOMAIN=sub.example.com\n' > /opt/remnawave/.env
-printf 'de-1 root@192.0.2.1 22\n' > /etc/rw/nodes.list
+printf 'de-1 root@192.0.2.1 22\n' > /etc/rw/nodes.list; echo flat > /etc/rw/menu_mode
 touch "$HOME/.rw-nocmd" /etc/rw/autoupdate.conf /etc/rw/.latest_version
 JS=/var/log/remnapilot.log; [ -f "$JS" ] && cp -a "$JS" "$T/journal.saved"
 printf '%s 10:00:00 | OK    | Смена домена\n' "$(date +%F)" > "$JS"
