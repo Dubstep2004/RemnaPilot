@@ -12,7 +12,7 @@ api_url() {
 api() { # метод путь [json] → API_OUT (тело), API_CODE; 0 при 2xx. Токен — из API_TOKEN (если задан) или из файла
   local tok out m="$1" p="$2" d="${3:-}"
   if [[ -n "${API_TOKEN+x}" ]]; then tok="$API_TOKEN"; else tok=$(cat "$API_CONF" 2>/dev/null); fi
-  local a=(-s -m 25 -X "$m" -H "X-Forwarded-For: 127.0.0.1" -H "X-Forwarded-Proto: https" -H "Content-Type: application/json" -w $'\n%{http_code}')
+  local a=(-s -m 25 -X "$m" -H "X-Forwarded-For: 127.0.0.1" -H "X-Forwarded-Proto: https" -H "X-Remnawave-Client-Type: browser" -H "Content-Type: application/json" -w $'\n%{http_code}')
   [[ -n "$d" ]] && a+=(--data-binary @-)
   # токен — заголовком из файла-канала: в списке процессов (ps) его не видно
   out=$(printf '%s' "$d" | curl "${a[@]}" -H @<([[ -n "$tok" ]] && printf 'Authorization: Bearer %s\n' "$tok") "$(api_url)$p" 2>&1)
