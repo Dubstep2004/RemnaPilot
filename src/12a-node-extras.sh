@@ -144,7 +144,7 @@ cd "$d"
 k=$(uname -r | awk -F. '{print $1*100+$2}'); [ "$k" -ge 507 ] || echo "RP:OLDKERNEL $(uname -r)"
 grep -q NET_ADMIN docker-compose.yml && { echo "RP:CAP_OK"; exit 0; }
 cp docker-compose.yml docker-compose.yml.bak-cap
-perl -0777 -i -pe 's/^([ \t]*)(image:[ \t]*\S*remnawave\/node\S*[^\n]*\n)/$1$2$1cap_add:\n$1  - NET_ADMIN\n/m or exit 1' docker-compose.yml || { echo "RP:NOIMAGE"; exit 4; }
+perl -0777 -i -pe '$ok = s/^([ \t]*)(image:[ \t]*\S*remnawave\/node\S*[^\n]*\n)/$1$2$1cap_add:\n$1  - NET_ADMIN\n/m; END { exit !$ok }' docker-compose.yml || { cp docker-compose.yml.bak-cap docker-compose.yml; echo "RP:NOIMAGE"; exit 4; }
 docker compose up -d >/dev/null 2>&1 && echo "RP:CAP_ADDED" || { cp docker-compose.yml.bak-cap docker-compose.yml; echo "RP:UPFAIL"; exit 5; }
 EOF
 }

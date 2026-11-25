@@ -260,7 +260,9 @@ has "установлена" "rc=0" "$out"
 check "контейнер страницы подписки запущен" '[[ "$(docker inspect -f "{{.State.Status}}" remnawave-subscription-page 2>/dev/null)" == running ]]'
 check "nginx: домен подписки → страница подписки" 'grep -q "proxy_pass http://remnawave-subscription-page:3010;" "$RW/nginx/nginx.conf"'
 check "nginx принял конфиг" 'docker exec remnawave-nginx nginx -t >/dev/null 2>&1'
-code=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 15 --resolve sub.rp-live.test:443:127.0.0.1 https://sub.rp-live.test/nonexistent); check "домен подписки отвечает страницей (HTTP $code, не 502)" '[[ "$code" =~ ^[0-9]+$ && "$code" != 502 && "$code" != 000 ]]'
+for i in $(seq 1 15); do code=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 15 --resolve sub.rp-live.test:443:127.0.0.1 https://sub.rp-live.test/nonexistent); [[ "$code" != 502 ]] && break; sleep 2; done
+[[ "$code" == 502 ]] && docker logs --tail 30 remnawave-subscription-page 2>&1 | sed 's/^/      │ /'
+check "домен подписки отвечает страницей (HTTP $code, не 502)" '[[ "$code" =~ ^[0-9]+$ && "$code" != 502 && "$code" != 000 ]]'
 check "в .env страницы — токен API" 'grep -q "^REMNAWAVE_API_TOKEN=..*" "$RW/subscription/.env"'
 out=$(printf 'y\n' | fn 'apply_ui; subpage_remove; echo "rc=$?"'); has "убрана" "Страница подписки убрана" "$out"
 check "контейнер страницы удалён" '! docker ps -a --format "{{.Names}}" | grep -qx remnawave-subscription-page'

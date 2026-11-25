@@ -2652,7 +2652,14 @@ subpage_install() {
 
   step "Запускаю страницу подписки"
   out=$(cd "$(sp_dir)" && docker compose pull -q 2>&1 && docker compose up -d 2>&1) || { fail "Страница подписки не запустилась" docker "$out"; steps_done; return 1; }
-  wait_healthy "$SP_CT" 60 || { fail "Страница подписки не запустилась" container "$(docker logs --tail 40 "$SP_CT" 2>&1)"; steps_done; return 1; }
+  local i code=000
+  for i in $(seq 1 30); do
+    code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 http://127.0.0.1:3010/internal/health 2>/dev/null)
+    [[ "$code" != 000 ]] && break
+    [[ "$(docker inspect -f '{{.State.Status}}' "$SP_CT" 2>/dev/null)" =~ ^(exited|dead)$ ]] && break
+    sleep 2
+  done
+  [[ "$code" != 000 ]] || { fail "Страница подписки не запустилась" container "$(docker logs --tail 40 "$SP_CT" 2>&1)"; steps_done; return 1; }
   green "✔ Контейнер $SP_CT работает"
 
   step "Направляю домен $dom на страницу"
@@ -2903,7 +2910,8 @@ bf_nginx_mount() { # подключить каталог логов в compose n
   [[ -f "$cf" ]] || return 1
   grep -q "$BF_LOG_DIR:/var/log/rp" "$cf" || {
     cp -a "$cf" "$cf.bak-bf"
-    L="      - $BF_LOG_DIR:/var/log/rp" perl -0777 -i -pe 's/^([ \t]*)(- [^\n]*:\/etc\/nginx\/[^\n]*\n)/$1$2$1- '"$BF_LOG_DIR"':\/var\/log\/rp\n/m or exit 1' "$cf" || return 1
+    L="$BF_LOG_DIR:/var/log/rp" perl -0777 -i -pe '$ok = s/^([ \t]*)(- [^\n]*:\/etc\/nginx\/[^\n]*\n)/$1$2$1- $ENV{L}\n/m; END { exit !$ok }' "$cf" \
+      || { cp -a "$cf.bak-bf" "$cf"; return 1; }
   }
   mkdir -p "$BF_LOG_DIR"
   out=$(cd "$(dirname "$cf")" && docker compose -f "$cf" up -d 2>&1) || { cp -a "$cf.bak-bf" "$cf"; log_tail "$out" 3; return 1; }
@@ -4345,7 +4353,7 @@ cd "$d"
 k=$(uname -r | awk -F. '{print $1*100+$2}'); [ "$k" -ge 507 ] || echo "RP:OLDKERNEL $(uname -r)"
 grep -q NET_ADMIN docker-compose.yml && { echo "RP:CAP_OK"; exit 0; }
 cp docker-compose.yml docker-compose.yml.bak-cap
-perl -0777 -i -pe 's/^([ \t]*)(image:[ \t]*\S*remnawave\/node\S*[^\n]*\n)/$1$2$1cap_add:\n$1  - NET_ADMIN\n/m or exit 1' docker-compose.yml || { echo "RP:NOIMAGE"; exit 4; }
+perl -0777 -i -pe '$ok = s/^([ \t]*)(image:[ \t]*\S*remnawave\/node\S*[^\n]*\n)/$1$2$1cap_add:\n$1  - NET_ADMIN\n/m; END { exit !$ok }' docker-compose.yml || { cp docker-compose.yml.bak-cap docker-compose.yml; echo "RP:NOIMAGE"; exit 4; }
 docker compose up -d >/dev/null 2>&1 && echo "RP:CAP_ADDED" || { cp docker-compose.yml.bak-cap docker-compose.yml; echo "RP:UPFAIL"; exit 5; }
 EOF
 }
