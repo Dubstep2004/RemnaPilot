@@ -216,7 +216,7 @@ subpage_install() {
   out=$(cd "$(sp_dir)" && docker compose pull -q 2>&1 && docker compose up -d 2>&1) || { fail "Страница подписки не запустилась" docker "$out"; steps_done; return 1; }
   local i code=000
   for i in $(seq 1 30); do
-    code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 http://127.0.0.1:3010/internal/health 2>/dev/null)
+    code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 -H 'X-Forwarded-For: 127.0.0.1' -H 'X-Forwarded-Proto: https' http://127.0.0.1:3010/ 2>/dev/null)
     [[ "$code" != 000 ]] && break
     [[ "$(docker inspect -f '{{.State.Status}}' "$SP_CT" 2>/dev/null)" =~ ^(exited|dead)$ ]] && break
     sleep 2
@@ -506,7 +506,7 @@ bf_enable() {
     command -v fail2ban-client >/dev/null || { pkg_install fail2ban || { fail "fail2ban не установился" apt "$PKG_LOG"; steps_done; return 1; }; }
     mkdir -p "$(dirname "$lp")"; touch "$lp"
     if [[ "$PROXY_KIND" == nginx ]]; then
-      printf '[Definition]\nfailregex = ^<HOST> \\[[^]]+\\] "POST /api/auth/login[^"]*" (400|401|403|429)\nignoreregex =\n' > "$F2B_FILTER"
+      printf '[Definition]\nfailregex = ^<HOST> [^"]*"POST /api/auth/login[^"]*" (400|401|403|429)\nignoreregex =\n' > "$F2B_FILTER"
     else
       printf '[Definition]\nfailregex = "client_ip":"<HOST>".*"method":"POST".*"uri":"/api/auth/login[^"]*".*"status":(400|401|403|429)\\b\nignoreregex =\ndatepattern = "ts":{EPOCH}\n' > "$F2B_FILTER"
     fi
