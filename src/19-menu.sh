@@ -51,6 +51,8 @@ item_info() {
     47) echo "Selfsteal для Reality|свой сайт для маскировки" ;;
     48) echo "Блокировка торрентов|" ;;
     49) echo "Блокировка рекламы и трекеров|" ;;
+    51) echo "Готовые профили Xray|Reality · XHTTP · Trojan · Hysteria2" ;;
+    52) echo "Hysteria2 на ноде|Let's Encrypt · NET_ADMIN · UDP-порт" ;;
     50) echo "IPv6|$( [[ "$(cat /proc/sys/net/ipv6/conf/all/disable_ipv6 2>/dev/null)" == 1 ]] && echo выключен || echo включён)" ;;
   esac
 }
@@ -60,7 +62,7 @@ MENU_SECTIONS=(
   "Домены|смена · домен ноды · откат|1 37 2 3 4"
   "Панель|настройки · обновления · база|5 6 7 8 9 11 32 12 23 44"
   "Защита|вход в панель · пароль · firewall · SSH|45 46 38 10 17 18"
-  "Ноды|статус · selfsteal · блокировки|14 47 48 49 15 16 25 24"
+  "Ноды|профили Xray · Hysteria2 · selfsteal · блокировки|14 51 52 47 48 49 15 16 25 24"
   "Сервер|IPv6 · BBR · swap · время|50 19 20 21 22"
   "Прочее|оформление · Telegram · язык|33 34 26 27 28 29 30 40 39 35"
 )
@@ -140,6 +142,8 @@ run_item() { # внутренний номер пункта → действие
     48) torrent_menu ;;
     49) ads_menu ;;
     50) ipv6_menu ;;
+    51) xt_menu ;;
+    52) screen "Hysteria2 на ноде"; echo; run_action "Hysteria2 на ноде" hy2_menu; pause ;;
     28) install_cmd; pause ;;
     29) change_dir; pause ;;
     30) about_screen; pause ;;

@@ -4,6 +4,17 @@
 
 Последняя версия — [в релизах](https://github.com/Dubstep2004/RemnaPilot/releases/latest). В терминале: `rw --whats-new` и `rw --changelog`.
 
+## v2.9
+
+### ✨ Новое
+
+- Готовые профили Xray: Ноды → Готовые профили Xray. VLESS + Reality, VLESS + XHTTP, Trojan, Hysteria2 и «всё в одном» (Reality + XHTTP + Hysteria2) — ключи, порты и sniffing правильные сразу; RemnaPilot добавит inbound в сквады, переключит ноды и создаст хосты для клиентов
+- Hysteria2 на ноде: Ноды → Hysteria2 на ноде. Сертификат Let's Encrypt (certbot), NET_ADMIN, /dev/shm и сертификат в docker-compose ноды, перезапуск ноды после продления, UDP-порт в firewall — то, что раньше делалось руками по инструкции
+
+### 🔄 Изменено
+
+- Меню: в разделе «Ноды» два новых пункта, номера разделов «Сервер» и «Прочее» сдвинулись на 2
+
 ## v2.8
 
 ### ✨ Новое

@@ -290,6 +290,49 @@ code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://127.0.0.1/ -H 
 out=$(printf '1\n' | fn 'apply_ui; selfsteal_remove'); has "selfsteal удалён" "selfsteal удалён" "$out"
 check "контейнер selfsteal удалён" '! docker ps -a --format "{{.Names}}" | grep -qx selfsteal'
 
+sec "v2.9: Hysteria2 на ноде (сертификат, NET_ADMIN, /dev/shm)"
+HD=hy.rp-live.test; mkdir -p /etc/letsencrypt/live/$HD
+openssl req -x509 -nodes -newkey rsa:2048 -days 30 -subj "/CN=$HD" -keyout /etc/letsencrypt/live/$HD/privkey.pem -out /etc/letsencrypt/live/$HD/fullchain.pem >/dev/null 2>&1
+out=$(printf '1\n%s\n' "$HD" | fn 'apply_ui; hy2_node_setup; echo "rc=$?"'); noerr "подготовка ноды" "$out"
+printf '%s\n' "$out" | grep -E '/4|✔|✖|⚠|rc=' | sed 's/^/      │ /'
+has "нода готова" "rc=0" "$out"
+has "сертификат уже был — не перевыпускается" "уже есть" "$out"
+check "compose ноды: сертификат и /dev/shm" 'grep -q "/etc/letsencrypt/live/$HD/fullchain.pem:/var/lib/remnawave/configs/xray/ssl/cert.pem:ro" /opt/remnanode/docker-compose.yml && grep -q "/dev/shm:/dev/shm:rw" /opt/remnanode/docker-compose.yml'
+check "NET_ADMIN один раз" '[[ "$(grep -c NET_ADMIN /opt/remnanode/docker-compose.yml)" == 1 ]]'
+check "сертификат виден внутри ноды" 'docker exec remnanode test -s /var/lib/remnawave/configs/xray/ssl/cert.key'
+check "хук продления перезапускает ноду" '[[ -x /etc/letsencrypt/renewal-hooks/deploy/restart-remnanode.sh ]] && grep -q "docker compose restart remnanode" /etc/letsencrypt/renewal-hooks/deploy/restart-remnanode.sh'
+check "нода работает" '[[ "$(docker inspect -f "{{.State.Status}}" remnanode 2>/dev/null)" == running ]]'
+
+sec "v2.9: готовые профили Xray — всё в одном (Reality + XHTTP + Hysteria2)"
+# SNI по умолчанию, домен ноды, порты 10443/18443 (443/tcp занят nginx панели), UDP 443; все ноды; хосты на домен ноды; порты не открывать
+out=$(printf '\n%s\n10443\n18443\n\na\n\nn\n' "$HD" | fn 'apply_ui; xt_create combo; echo "rc=$?"'); noerr "профиль всё в одном" "$out"
+printf '%s\n' "$out" | grep -E '/4|✔|✖|⚠|rc=' | sed 's/^/      │ /'
+has "создан" "rc=0" "$out"
+profs=$(fn 'api GET /api/config-profiles >/dev/null; echo "$API_OUT"')
+check "в панели профиль RP-Combo с тремя inbound" 'python3 -c "import json,sys; p=[x for x in json.load(sys.stdin)[\"response\"][\"configProfiles\"] if x[\"name\"]==\"RP-Combo\"][0]; assert sorted(i[\"tag\"] for i in p[\"inbounds\"])==[\"RP_HYSTERIA2\",\"RP_REALITY\",\"RP_XHTTP\"]" <<< "$profs"'
+sq=$(fn 'api GET /api/internal-squads >/dev/null; echo "$API_OUT"')
+check "inbound добавлены в сквад" 'python3 -c "import json,sys; s=json.load(sys.stdin)[\"response\"][\"internalSquads\"]; t=[i[\"tag\"] for x in s for i in x[\"inbounds\"]]; assert {\"RP_REALITY\",\"RP_XHTTP\",\"RP_HYSTERIA2\"} <= set(t), t" <<< "$sq"'
+check "созданы хосты для клиентов (3)" '[[ "$(psql_q "SELECT count(*) FROM hosts WHERE remark LIKE '"'"'RP-Combo %'"'"'")" == 3 ]]'
+ok_ports=0; for i in $(seq 1 50); do
+  ss -ltnH 'sport = :10443' | grep -q . && ss -ltnH 'sport = :18443' | grep -q . && ss -lunH 'sport = :443' | grep -q . && { ok_ports=1; break; }; sleep 3; done
+check "Xray на ноде слушает Reality 10443/tcp, XHTTP 18443/tcp, Hysteria2 443/udp" '(( ok_ports ))'
+(( ok_ports )) || { ss -ltnup | grep -E ":(10443|18443|443)\b" | sed 's/^/      │ /'; docker logs --tail 30 remnanode 2>&1 | sed 's/^/      │ /'; }
+for i in $(seq 1 20); do
+  out=$(fn 'api GET /api/nodes >/dev/null; echo "$API_OUT"' | python3 -c 'import json,sys; print(" ".join(n["name"]+":"+str(n["isConnected"])+":"+str(n.get("xrayUptime")) for n in json.load(sys.stdin)["response"]))')
+  grep -qE "local:True" <<< "$out" && break; sleep 3
+done
+echo "      │ ноды: $out"
+check "локальная нода на связи после переключения" 'grep -qE "local:True" <<< "$out"'
+
+sec "v2.9: готовые профили — по одному"
+out=$(printf '\n11443\n0\n0\nn\n' | fn 'apply_ui; xt_create reality; echo "rc=$?"'); has "VLESS + Reality" "rc=0" "$out"
+out=$(printf '\n12443\n0\n0\nn\n' | fn 'apply_ui; xt_create xhttp; echo "rc=$?"'); has "VLESS + XHTTP" "rc=0" "$out"
+out=$(printf '%s\n13443\n0\n0\nn\n' "$HD" | fn 'apply_ui; xt_create trojan; echo "rc=$?"'); has "Trojan" "rc=0" "$out"
+out=$(printf '%s\n8443\n0\n0\nn\n' "$HD" | fn 'apply_ui; xt_create hy2; echo "rc=$?"'); has "Hysteria2" "rc=0" "$out"
+out=$(printf '\n11443\n0\n0\nn\n' | fn 'apply_ui; xt_create reality; echo "rc=$?"'); has "повторно — новое имя RP-Reality-2" "RP-Reality-2" "$out"
+profs=$(fn 'api GET /api/config-profiles >/dev/null; echo "$API_OUT"')
+check "в панели все профили" 'for n in RP-Reality RP-XHTTP RP-Trojan RP-Hysteria2 RP-Reality-2; do grep -q "\"$n\"" <<< "$profs" || exit 1; done'
+
 sec "v2.8: IPv6"
 v6=$(cat /proc/sys/net/ipv6/conf/all/disable_ipv6)
 out=$(printf '1\n' | fn 'apply_ui; ipv6_set off; echo "rc=$?"'); noerr "IPv6 выкл" "$out"; has "выключен" "IPv6 выключен" "$out"
@@ -300,7 +343,7 @@ check "IPv6 снова включён" '[[ "$(cat /proc/sys/net/ipv6/conf/all/di
 check "панель работает" panel_up
 
 sec "v2.8: меню на английском — новые экраны"
-for n in 2 4 5 20 21 22 28 29 30 35; do
+for n in 2 4 5 20 21 22 28 29 30 31 32 37; do
   o=$(printf '%s\n\n\n0\n\n0\n0\n0\n' "$n" | RP_LANG=en RP_NO_LIVE=1 TERM=xterm-256color timeout 60 script -qc "bash '$RP'" /dev/null 2>&1 | plain)
   left=$(perl -CSD -Mutf8 -ne 'print if /\p{Cyrillic}/ && !/Язык|Русский/' <<< "$o" | sort -u)
   check "пункт $n на английском" '[[ -z "$left" ]]'; [[ -n "$left" ]] && printf '%s\n' "$left" | head -5 | sed 's/^/      │ /'

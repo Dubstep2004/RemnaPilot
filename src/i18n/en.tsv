@@ -2191,3 +2191,90 @@ IPv6: Сервер → IPv6 — выключить или включить зд�
 плагины нод появились в Remnawave 2.7 — обнови панель и ноды	node plugins appeared in Remnawave 2.7 — update the panel and nodes
 установлена	installed
 ссылки и QR для клиентов	links and QR for clients
+КАКУЮ НОДУ ГОТОВИТЬ	WHICH NODE TO PREPARE
+Ноду готовлю по одной	I prepare one node at a time
+Нужен домен ноды с A-записью на её IP и свободный порт 80 на время выпуска сертификата.	You need a node domain with an A record pointing to its IP and port 80 free while the certificate is issued.
+Домен ноды (например node1.example.com)	Node domain (e.g. node1.example.com)
+Сертификат, NET_ADMIN и порт на	Certificate, NET_ADMIN and port on
+Нет ноды Remnawave:	No Remnawave node:
+certbot нужен порт 80, чтобы получить сертификат	certbot needs port 80 to get a certificate
+освободи порт 80 на ноде на минуту и повтори	free port 80 on the node for a minute and repeat
+Не нашёл образ remnawave/node в docker-compose	Couldn't find the remnawave/node image in docker-compose
+проверь файл:	check the file:
+Нода не запустилась с новыми настройками — вернул как было	The node didn't start with the new settings — restored the previous ones
+Не получилось подготовить ноду	Couldn't prepare the node
+уже есть	already exists
+Продление сертификата	Certificate renewal
+✔ После продления нода перезапустится сама (certbot, /etc/letsencrypt/renewal-hooks/deploy)	✔ After renewal the node restarts itself (certbot, /etc/letsencrypt/renewal-hooks/deploy)
+docker-compose ноды	node docker-compose
+✔ NET_ADMIN, /dev/shm и сертификат подключены:	✔ NET_ADMIN, /dev/shm and the certificate attached:
+/udp и так открыт. Проверь ещё firewall у хостера.	/udp is open anyway. Also check the host's firewall.
+Дальше: в панели создай профиль с inbound Hysteria2 — путь к сертификату	Next: create a profile with a Hysteria2 inbound in the panel — certificate path
+/cert.pem и cert.key.	/cert.pem and cert.key.
+Создать в панели готовый профиль Hysteria2 для этой ноды? [Y/n]	Create a ready Hysteria2 profile for this node in the panel? [Y/n]
+Все	All
+Ни одной	None
+Номера через пробел [	Numbers separated by spaces [
+Создам в панели профиль «	I'll create the profile "
+» с правильными настройками: ключи, порты, sniffing, правила.	" in the panel with correct settings: keys, ports, sniffing, rules.
+SNI — чужой сайт, под который маскируется Reality (подобрать: Ноды → Подбор SNI для Reality),	SNI — someone else's site Reality disguises itself as (pick one: Nodes → Reality SNI picker),
+или домен твоего selfsteal (Ноды → Selfsteal для Reality).	or the domain of your selfsteal (Nodes → Selfsteal for Reality).
+Нужен сертификат на ноде (Ноды → Hysteria2 на ноде — выпустит и подключит его).	A certificate is needed on the node (Nodes → Hysteria2 on node — issues and attaches it).
+Домен ноды, на который выпущен сертификат	Node domain the certificate was issued for
+Reality и XHTTP не могут быть на одном TCP-порту	Reality and XHTTP can't share one TCP port
+Ключи и профиль	Keys and profile
+Не собрал конфиг профиля	Couldn't build the profile config
+Панель не приняла профиль	The panel rejected the profile
+✔ Профиль «	✔ Profile "
+» создан:	" created:
+Доступ пользователей (сквады)	User access (squads)
+Не получил сквады	Couldn't get the squads
+Пользователи видят inbound, только если он есть в их скваде.	Users see an inbound only if it is in their squad.
+В КАКИЕ СКВАДЫ ДОБАВИТЬ	WHICH SQUADS TO ADD TO
+✔ Сквад «	✔ Squad "
+»: inbound добавлены	": inbounds added
+⚠ Сквад не обновился:	⚠ The squad was not updated:
+Нода переключится на новый профиль — её прежние подключения перестанут работать.	The node will switch to the new profile — its previous connections will stop working.
+КАКИЕ НОДЫ ПЕРЕКЛЮЧИТЬ НА ПРОФИЛЬ	WHICH NODES TO SWITCH TO THE PROFILE
+» на профиле «	" on profile "
+⚠ Нода не переключилась:	⚠ The node did not switch:
+Хосты для клиентов	Client hosts
+Хост — адрес, который получат клиенты в подписке (домен или IP ноды).	A host is the address clients get in the subscription (node domain or IP).
+Адрес для клиентов	Address for clients
+(0 — не создавать хосты)	(0 — don't create hosts)
+✔ Хост «	✔ Host "
+⚠ Хост	⚠ Host
+не создан:	not created:
+Профиль	Profile
+ПОРТЫ НА НОДАХ	PORTS ON NODES
+Должны быть открыты:	Must be open:
+(и в firewall у хостера).	(and in the host's firewall).
+Открыть их в firewall нод по SSH? [y/N]	Open them in the nodes' firewall over SSH? [y/N]
+ГДЕ ОТКРЫТЬ ПОРТЫ	WHERE TO OPEN PORTS
+): firewall выключен — порты и так открыты	): firewall is off — the ports are open anyway
+Готовые профили Xray	Ready Xray profiles
+Профиль создаётся в панели с правильными настройками: ключи Reality, порты, sniffing,	The profile is created in the panel with correct settings: Reality keys, ports, sniffing,
+правила. Потом можно сразу переключить на него ноды и создать хосты для клиентов.	rules. Then you can switch nodes to it right away and create hosts for clients.
+ШАБЛОНЫ	TEMPLATES
+основной, самый быстрый	main, the fastest
+запасной, если режут Reality	backup, if Reality gets throttled
+TLS с сертификатом на домене ноды	TLS with a certificate on the node domain
+UDP, быстрый на плохих сетях	UDP, fast on bad networks
+Всё в одном	All in one
+НОДА	NODE
+Подготовить ноду для Hysteria2 и Trojan	Prepare node for Hysteria2 and Trojan
+сертификат · NET_ADMIN · порт UDP	certificate · NET_ADMIN · UDP port
+Профиль: VLESS + Reality	Profile: VLESS + Reality
+Профиль: VLESS + XHTTP	Profile: VLESS + XHTTP
+Профиль: Trojan	Profile: Trojan
+Профиль: Hysteria2	Profile: Hysteria2
+Профиль: всё в одном	Profile: all in one
+сертификат · NET_ADMIN · UDP-порт	certificate · NET_ADMIN · UDP port
+профили Xray · Hysteria2 · selfsteal · блокировки	Xray profiles · Hysteria2 · selfsteal · blocking
+пользователей:	users:
+Hysteria2 на ноде	Hysteria2 on node
+Всё в одном: Reality + XHTTP + Hysteria2	All in one: Reality + XHTTP + Hysteria2
+Готовые профили Xray: Ноды → Готовые профили Xray. VLESS + Reality, VLESS + XHTTP, Trojan, Hysteria2 и «всё в одном» (Reality + XHTTP + Hysteria2) — ключи, порты и sniffing правильные сразу; RemnaPilot добавит inbound в сквады, переключит ноды и создаст хосты для клиентов	Ready Xray profiles: Nodes → Ready Xray profiles. VLESS + Reality, VLESS + XHTTP, Trojan, Hysteria2 and "all in one" (Reality + XHTTP + Hysteria2) — keys, ports and sniffing are right from the start; RemnaPilot adds inbounds to squads, switches nodes and creates client hosts
+Hysteria2 на ноде: Ноды → Hysteria2 на ноде. Сертификат Let's Encrypt (certbot), NET_ADMIN, /dev/shm и сертификат в docker-compose ноды, перезапуск ноды после продления, UDP-порт в firewall — то, что раньше делалось руками по инструкции	Hysteria2 on node: Nodes → Hysteria2 on node. Let's Encrypt certificate (certbot), NET_ADMIN, /dev/shm and the certificate in the node docker-compose, node restart after renewal, the UDP port in the firewall — what used to be done by hand
+Меню: в разделе «Ноды» два новых пункта, номера разделов «Сервер» и «Прочее» сдвинулись на 2	Menu: two new items in "Nodes", the numbers in "Server" and "Other" moved by 2
+Let's Encrypt · NET_ADMIN · UDP-порт	Let's Encrypt · NET_ADMIN · UDP port
