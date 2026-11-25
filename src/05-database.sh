@@ -69,11 +69,13 @@ restore_db() {
 
   db_info || { err "контейнер БД не запущен"; return 1; }
   red "ВНИМАНИЕ: текущие данные базы $DB_NAME будут заменены содержимым $(basename "$f")."
-  read -rp "Для подтверждения введи YES: " ans
-  [[ "$ans" == "YES" ]] || { echo "Отменено."; return $RP_CANCEL; }
+  if [[ -z "${RESTORE_YES:-}" ]]; then
+    read -rp "Для подтверждения введи YES: " ans
+    [[ "$ans" == "YES" ]] || { echo "Отменено."; return $RP_CANCEL; }
+  fi
 
   echo "Страховочный бэкап текущей базы..."
-  backup_db before-restore || { read -rp "Бэкап не удался. Всё равно продолжить? [y/N] " ans; [[ "$ans" =~ ^[Yy]$ ]] || return 0; }
+  backup_db before-restore || { [[ -n "${RESTORE_YES:-}" ]] && ans=y || read -rp "Бэкап не удался. Всё равно продолжить? [y/N] " ans; [[ "$ans" =~ ^[Yy]$ ]] || return 0; }
 
   mapfile -t cts < <(app_containers)
   echo "Останавливаю панель: ${cts[*]}"
@@ -93,7 +95,7 @@ restore_db() {
   fi
 
   env_bk="${f%.sql.gz}"; env_bk="${env_bk%.sql}.env"
-  if (( rc == 0 )) && [[ -f "$env_bk" ]] && ! cmp -s "$env_bk" "$RW_DIR/.env"; then
+  if (( rc == 0 )) && [[ -z "${RESTORE_YES:-}" ]] && [[ -f "$env_bk" ]] && ! cmp -s "$env_bk" "$RW_DIR/.env"; then
     read -rp "Рядом есть .env из того же бэкапа. Восстановить и его? (нужно, если менялись JWT-секреты) [y/N] " ans
     if [[ "$ans" =~ ^[Yy]$ ]]; then
       cp -a "$RW_DIR/.env" "$RW_DIR/.env.before-restore"; cp -a "$env_bk" "$RW_DIR/.env"

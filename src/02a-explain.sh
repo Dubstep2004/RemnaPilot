@@ -53,7 +53,7 @@ why() { # вид (docker|container|apt|ssh|net|telegram|db), текст лога
     container)
       if grep -qiE 'password authentication failed|Authentication failed against database server|credentials for .* are not valid|P1000' <<< "$t"; then
         cause "пароль базы в .env не совпадает с паролем в Postgres"
-        todo "Панель → Безопасность → 1 — сверит и предложит исправить"
+        todo "Защита → Безопасность → 1 — сверит и предложит исправить"
       elif grep -qiE 'ECONNREFUSED ?[^ ]*:6379|Redis.*(ECONNREFUSED|connection|getaddrinfo)|getaddrinfo .*(redis|valkey)' <<< "$t"; then
         cause "панель не достучалась до Redis (Valkey) — он хранит кэш и очереди"
         todo "проверь контейнер: docker ps -a | grep redis" "его логи: docker logs --tail 30 remnawave-redis"
@@ -76,7 +76,7 @@ why() { # вид (docker|container|apt|ssh|net|telegram|db), текст лога
       else log_tail "$t" 8; return 1; fi ;;
     db)
       if grep -qiE 'password authentication failed|Authentication failed against database server|role .* does not exist' <<< "$t"; then
-        cause "логин или пароль базы в .env не подходят"; todo "Панель → Безопасность → 1"
+        cause "логин или пароль базы в .env не подходят"; todo "Защита → Безопасность → 1"
       elif grep -qiE 'database .* does not exist' <<< "$t"; then
         cause "в .env указана база, которой нет"; todo "проверь DATABASE_URL в $RW_DIR/.env"
       elif grep -qiE 'is not running|No such container|cannot exec' <<< "$t"; then

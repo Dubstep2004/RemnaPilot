@@ -42,7 +42,31 @@ rw
 ---
 
 <!-- whats-new:start -->
-## 🆕 What's new in v2.7
+## 🆕 What's new in v2.8
+
+#### ✨ New
+
+- Panel and node on one server: Install → Panel and node on one server. The node is installed next to the panel and added to it right away; the node port is not opened to the outside
+- Subscription page: Install → Subscription page. remnawave/subscription-page on its own domain, with a certificate; clients' links stay the same
+- Reinstall panel: fresh images and containers, the database recreated from a backup — users, nodes and settings are kept
+- Close panel login: Protection → Close panel login. Only your IPs or a secret link, everyone else gets 404. Clients' subscriptions keep working
+- Panel password brute-force protection: fail2ban bans an IP after 5 wrong passwords, nginx allows at most 10 attempts per minute
+- Selfsteal for Reality: Nodes → Selfsteal. Your own site with a certificate on the node domain; RemnaPilot sets it in the Reality inbound itself
+- Torrent blocking: an Xray rule in all profiles or the Torrent Blocker plugin (IP ban for an hour) with NET_ADMIN for nodes
+- Ad and tracker blocking: Xray on the nodes blocks ad domains (geosite:category-ads-all)
+- IPv6: Server → IPv6 — disable or enable here and on nodes over SSH, with protection against cutting an IPv6 SSH session
+- Multi-panel: Panel → Multi-panel. Status of other panel servers, their menu over SSH, backup and update of all at once
+
+#### 🚀 Improved
+
+- New nodes are installed with the NET_ADMIN right — needed by node plugins (Torrent Blocker etc.)
+
+#### 🔄 Changed
+
+- The menu is split into new sections: Install, Domains, Panel, Protection, Nodes, Server, Other. Numbers in the full list changed — word search works as before
+
+<details>
+<summary><b>Previous version — v2.7</b></summary>
 
 #### ✨ New
 
@@ -53,25 +77,6 @@ rw
 #### 🔄 Changed
 
 - "Delete node from list" renamed to "Remove node from the list" so it isn't confused with deleting the node itself
-
-<details>
-<summary><b>Previous version — v2.6</b></summary>
-
-#### ✨ New
-
-- Panel installation: Panel → Install panel. Remnawave per docs.rw, secrets and the database password are generated, panel and subscription domains, Nginx or Caddy to choose, a Let's Encrypt certificate
-- Node domain change: Domains → Change node domain. Changes the node address in the panel and for clients (hosts, SNI) in one transaction, with a database backup
-- Domain when installing a node: RemnaPilot asks for it and checks that it points to the node
-- Firewall rules list: port, allowed from and purpose; warns about open panel, database and Redis ports
-- Forgot the panel password: an item in the Panel section with step-by-step Rescue CLI guidance
-
-#### 🚀 Improved
-
-- Certificate auto-renewal opens the firewall port only for the renewal (now iptables too) and stops nginx only if it holds that port — the panel stays up during renewal. Old renewal rules are upgraded automatically
-
-#### 🔄 Changed
-
-- Full menu list numbering shifted: "Change node domain", "Install panel" and "Forgot the panel password" were added. Word search works as before
 
 </details>
 
@@ -130,6 +135,10 @@ rw
 
 ### 🖥️ Panel and nodes
 - **Install the panel** from scratch: Nginx or Caddy, certificate, secrets
+- **Panel and node on one server** — the node appears in the panel right away
+- **Subscription page** on its own domain
+- **Reinstall the panel** keeping all data
+- **Multi-panel** — other panel servers from one menu
 - Install a node locally, via SSH or with one command — with a domain check
 - **Forgot the password** — reset with guidance
 - Delete the panel or a node — with a backup and confirmation
@@ -139,10 +148,12 @@ rw
 </td>
 <td valign="top">
 
-### 🛡️ Server
+### 🛡️ Protection and server
+- **Close panel login**: only your IPs or a secret link
+- Panel **password brute-force protection** (fail2ban)
 - One-click **firewall** and a clear **rules list**
 - SSH hardening: port, fail2ban, key-only login
-- BBR, swap, time sync, disk cleanup
+- IPv6 on/off, BBR, swap, time sync, disk cleanup
 - **Move the panel** to another server
 
 </td>
@@ -150,9 +161,11 @@ rw
 <tr>
 <td valign="top">
 
-### 🔎 Checks
-- Is the IP reachable **from Russia**, ping, speed
-- **Reality SNI** picker
+### 🚫 Nodes: disguise and blocking
+- **Selfsteal for Reality** — your own site on the node domain
+- **Torrent blocking** (Xray rule or Torrent Blocker)
+- **Ad and tracker blocking** for all clients
+- **Reality SNI** picker, IP check **from Russia**
 
 </td>
 <td valign="top">
@@ -239,7 +252,7 @@ It checks for a new version every night and shows a hint in the menu. Update via
 <details>
 <summary><b>How do I get backups in Telegram?</b></summary>
 
-**Database → Auto-backup → Telegram** → create a bot with @BotFather, paste the token and send the bot any message — the script finds your chat automatically. Then set a password in **Encryption for Telegram**: the archive contains panel secrets, so it is not sent without one. Restore: `rw --decrypt archive.tar.gz.enc`. Keep the password in a password manager.
+**Panel → Auto-backup → Telegram** → create a bot with @BotFather, paste the token and send the bot any message — the script finds your chat automatically. Then set a password in **Encryption for Telegram**: the archive contains panel secrets, so it is not sent without one. Restore: `rw --decrypt archive.tar.gz.enc`. Keep the password in a password manager.
 </details>
 
 ---

@@ -4,10 +4,11 @@ TARGETS=()
 pick_targets() { # $1 = заголовок; заполняет TARGETS: "local" или "имя|user@host|порт"
   local lines=() i n c have_local=0
   node_dir >/dev/null 2>&1 && have_local=1
+  [[ -n "${PT_LOCAL:-}" ]] && have_local=1               # для настроек сервера (IPv6, selfsteal) нода здесь не обязательна
   [[ -s "$NODES_FILE" ]] && mapfile -t lines < "$NODES_FILE"
   TARGETS=()
   if (( ! have_local && ${#lines[@]} == 0 )); then
-    yel "Нод нет: ни на этом сервере, ни в списке (Ноды → Установка и обновление нод → Добавить ноду в список)."; return 1
+    yel "Нод нет: ни на этом сервере, ни в списке (Установка → Установка и обновление нод → Добавить ноду в список)."; return 1
   fi
   section "${1:-ГДЕ}"
   n=0
@@ -186,7 +187,7 @@ nodes_status() {
   local lines=() tmp i nm h p f st ver load cpus mem disk up d col
   [[ -s "$NODES_FILE" ]] && mapfile -t lines < "$NODES_FILE"
   node_dir >/dev/null 2>&1 && lines=("$(hostname)|local|-" "${lines[@]}")
-  (( ${#lines[@]} )) || { yel "Нод нет (Ноды → Установка и обновление нод → Добавить ноду в список)."; return 0; }
+  (( ${#lines[@]} )) || { yel "Нод нет (Установка → Установка и обновление нод → Добавить ноду в список)."; return 0; }
   tmp=$(mktemp -d)
   info "Опрашиваю ${#lines[@]} нод..."
   local pids=()
@@ -215,7 +216,7 @@ nodes_status() {
     fi
     echo
     if [[ ! -s "$f" ]]; then
-      if grep -qiE 'denied|permission' "$tmp/$i.err" 2>/dev/null; then printf '  %s %s%s%s  %sнет SSH-ключа — Ноды → Установка → 7%s\n' "$(dot err)" "$CB" "$nm" "$C0" "$C_ERR" "$C0"
+      if grep -qiE 'denied|permission' "$tmp/$i.err" 2>/dev/null; then printf '  %s %s%s%s  %sнет SSH-ключа — Установка → Установка и обновление нод → 7%s\n' "$(dot err)" "$CB" "$nm" "$C0" "$C_ERR" "$C0"
       else printf '  %s %s%s%s  %sнедоступна%s\n' "$(dot err)" "$CB" "$nm" "$C0" "$C_ERR" "$C0"; fi
       continue
     fi

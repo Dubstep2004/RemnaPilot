@@ -176,6 +176,138 @@ out=$(fn 'apply_ui; journal_fmt all "" 30'); printf '%s\n' "$out" | sed 's/^/   
 has "журнал по дням" "Сегодня," "$out"
 
 # ─────────────────────────────────────────────────────────────
+sec "v2.8: доступ к API (логин админа → токен)"
+API="http://127.0.0.1:3000"; H=(-H "X-Forwarded-For: 127.0.0.1" -H "X-Forwarded-Proto: https" -H "Content-Type: application/json")
+APASS="RpLive-Passw0rd-$(openssl rand -hex 8)A1"
+reg=$(curl -s "${H[@]}" -d "{\"username\":\"rpadmin\",\"password\":\"$APASS\"}" "$API/api/auth/register")
+check "админ зарегистрирован через API" 'grep -q accessToken <<< "$reg"' || echo "      │ $reg" | head -c 300
+out=$(printf '\nrpadmin\nwrong-password\n' | fn 'apply_ui; api_ready; echo "rc=$?"'); has "неверный пароль — понятно" "неверный логин или пароль" "$out"
+out=$(printf '\nrpadmin\n%s\n' "$APASS" | fn 'apply_ui; api_ready; echo "rc=$?"'); noerr "api_ready" "$out"
+has "токен создан и сохранён" "Доступ к API сохранён" "$out"
+check "…файл токена только для root" '[[ "$(stat -c %a /etc/rw/api.token)" == 600 ]]'
+out=$(fn 'api GET /api/keygen && echo "OK $API_CODE"'); has "API отвечает с сохранённым токеном" "OK 200" "$out"
+out=$(fn 'api_ready; echo "rc=$?"'); has "повторно токен не спрашивает" "rc=0" "$out"
+check "…и вопросов не было" '! grep -q "API-токен" <<< "$out"'
+
+sec "v2.8: панель и нода на одном сервере"
+out=$(printf '\n\n\n' | fn 'apply_ui; panel_node_local; echo "rc=$?"'); noerr "нода на сервере панели" "$out"
+printf '%s\n' "$out" | grep -E '/4|✔|✖|⚠|rc=' | sed 's/^/      │ /'
+check "контейнер remnanode запущен" '[[ "$(docker inspect -f "{{.State.Status}}" remnanode 2>/dev/null)" == running ]]'
+check "в compose ноды есть NET_ADMIN" 'grep -q NET_ADMIN /opt/remnanode/docker-compose.yml'
+gw=$(docker network inspect remnawave-network -f '{{range .IPAM.Config}}{{.Gateway}}{{end}}')
+check "нода добавлена в панель с адресом шлюза ($gw)" '[[ -n "$gw" ]] && psql_q "SELECT address FROM nodes WHERE port = 2222" | grep -qx "$gw"'
+has "панель подключилась к ноде" "Нода онлайн" "$out"
+out=$(printf '\n' | fn 'apply_ui; panel_node_local; echo "rc=$?"'); has "повторно — нода уже стоит" "Нода на этом сервере уже стоит" "$out"
+
+sec "v2.8: блокировка торрентов и рекламы (правила Xray через API)"
+prof() { fn 'api GET /api/config-profiles >/dev/null; echo "$API_OUT"'; }
+out=$(fn 'apply_ui; xr_toggle on torrent; echo "rc=$?"'); noerr "торренты вкл" "$out"; has "профили обновлены" "Обновлено профилей" "$out"
+check "в профиле правило bittorrent → blackhole" 'prof | python3 -c "import json,sys; c=json.load(sys.stdin)[\"response\"][\"configProfiles\"][0][\"config\"]; r=c[\"routing\"][\"rules\"][0]; assert r[\"protocol\"]==[\"bittorrent\"]; assert any(o.get(\"protocol\")==\"blackhole\" and o.get(\"tag\")==r[\"outboundTag\"] for o in c[\"outbounds\"])"'
+out=$(fn 'apply_ui; xr_toggle on ads; echo "rc=$?"'); has "реклама вкл" "Обновлено профилей" "$out"
+out=$(fn 'xr_status torrent; xr_status ads'); check "статус: обе блокировки включены" '[[ "$(tr "\n" " " <<< "$out")" =~ ^[1-9]/[0-9]+\ [1-9]/[0-9]+ ]]'
+out=$(fn 'apply_ui; xr_toggle off ads; xr_toggle off torrent; echo "rc=$?"'); has "выключены" "rc=0" "$out"
+check "правил RemnaPilot в профилях не осталось" '! prof | grep -q "rp-torrent\|rp-ads"'
+out=$(fn 'apply_ui; tb_plugin on; echo "rc=$?"'); noerr "Torrent Blocker" "$out"
+printf '%s\n' "$out" | grep -E '✔|✖|⚠|rc=' | sed 's/^/      │ /'
+has "Torrent Blocker включён" "Torrent Blocker включён" "$out"
+has "…плагин подключён к ноде" "плагин подключён" "$out"
+has "…NET_ADMIN у ноды уже есть" "NET_ADMIN уже есть" "$out"
+check "плагин RemnaPilot в базе" 'psql_q "SELECT count(*) FROM node_plugin WHERE name = '"'"'RemnaPilot'"'"'" | grep -qx 1'
+out=$(fn 'tb_state'); has "состояние: вкл" "вкл" "$out"
+out=$(fn 'apply_ui; tb_plugin off; tb_state'); has "выключен" "выкл" "$out"
+
+sec "v2.8: закрыть вход в панель (nginx)"
+cp -a "$RW/nginx/nginx.conf" /tmp/nginx.before-access
+pc() { curl -sk -o /dev/null -w '%{http_code}' --max-time 10 --resolve panel.rp-live.test:443:127.0.0.1 "$@"; }
+out=$(printf '203.0.113.7\n' | fn 'apply_ui; acc_ips_ask; echo "rc=$?"'); noerr "только IP" "$out"; has "закрыто по IP" "Вход в панель закрыт" "$out"
+check "nginx принял конфиг" 'docker exec remnawave-nginx nginx -t >/dev/null 2>&1'
+code=$(pc https://panel.rp-live.test/); check "чужому IP — 404 (HTTP $code)" '[[ "$code" == 404 ]]'
+out=$(fn 'apply_ui; acc_key_new; echo "rc=$?"'); has "секретная ссылка" "Секретная ссылка: https://panel.rp-live.test/" "$out"
+key=$(grep -m1 '^KEY=' /etc/rw/access.conf | cut -d= -f2)
+code=$(pc "https://panel.rp-live.test/$key"); check "ссылка ставит куку и перекидывает в панель (HTTP $code)" '[[ "$code" == 302 ]]'
+hdr=$(curl -sk -D - -o /dev/null --max-time 10 --resolve panel.rp-live.test:443:127.0.0.1 "https://panel.rp-live.test/$key")
+check "…кука Secure, HttpOnly" 'grep -qi "set-cookie: rp_key=$key; Path=/; Max-Age=31536000; Secure; HttpOnly" <<< "$hdr"'
+code=$(pc -H "Cookie: rp_key=$key" https://panel.rp-live.test/); check "с кукой панель открывается (HTTP $code)" '[[ "$code" =~ ^[23] ]]'
+code=$(pc -H "Cookie: rp_key=wrong" https://panel.rp-live.test/); check "с чужой кукой — 404" '[[ "$code" == 404 ]]'
+code=$(pc https://panel.rp-live.test/api/sub/nonexistent); body=$(curl -sk --max-time 10 --resolve panel.rp-live.test:443:127.0.0.1 https://panel.rp-live.test/api/sub/nonexistent)
+check "подписка на домене панели доходит до панели (не страница nginx)" '! grep -qi "<center>nginx" <<< "$body"'
+out=$(fn 'apply_ui; acc_off; echo "rc=$?"'); has "открыт для всех" "открыт для всех" "$out"
+check "конфиг nginx вернулся как был" 'cmp -s "$RW/nginx/nginx.conf" /tmp/nginx.before-access'
+code=$(pc https://panel.rp-live.test/); check "панель снова открывается (HTTP $code)" '[[ "$code" =~ ^[23] ]]'
+
+sec "v2.8: защита от перебора пароля (nginx + fail2ban)"
+out=$(fn 'apply_ui; bf_enable; echo "rc=$?"'); noerr "перебор" "$out"
+printf '%s\n' "$out" | grep -E '/3|✔|✖|⚠|rc=' | sed 's/^/      │ /'
+has "включено" "rc=0" "$out"
+check "nginx принял конфиг" 'docker exec remnawave-nginx nginx -t >/dev/null 2>&1'
+check "каталог логов подключён к nginx" 'docker inspect -f "{{range .Mounts}}{{.Destination}} {{end}}" remnawave-nginx | grep -qw /var/log/rp'
+codes=""; for i in $(seq 1 16); do codes+="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 --resolve panel.rp-live.test:443:127.0.0.1 -H 'Content-Type: application/json' -d '{"username":"rpadmin","password":"wrong"}' https://panel.rp-live.test/api/auth/login) "; done
+echo "      │ коды: $codes"
+check "неверный пароль доходит до панели (4xx, не 502)" 'grep -qE "(^| )4(0[0-3]) " <<< " $codes"'
+check "после 10 попыток — 429" 'grep -q "429" <<< "$codes"'
+check "попытки входа пишутся в лог" '[[ -s /var/log/remnawave-panel/auth.log ]]'
+m=$(fail2ban-regex /var/log/remnawave-panel/auth.log /etc/fail2ban/filter.d/remnawave-panel.conf 2>&1 | grep -m1 -oE "Failregex: [0-9]+ total" | grep -oE "[0-9]+")
+check "фильтр fail2ban узнаёт неудачные входы ($m)" '(( ${m:-0} >= 10 ))'
+check "jail fail2ban запущен" 'fail2ban-client status remnawave-panel >/dev/null 2>&1'
+out=$(fn 'apply_ui; bf_disable; echo "rc=$?"'); has "выключено" "Защита от перебора выключена" "$out"
+check "nginx после выключения работает" 'docker exec remnawave-nginx nginx -t >/dev/null 2>&1'
+check "jail удалён" '! fail2ban-client status remnawave-panel >/dev/null 2>&1'
+
+sec "v2.8: страница подписки"
+out=$(printf '\n' | fn 'apply_ui; subpage_install; echo "rc=$?"'); noerr "страница подписки" "$out"
+printf '%s\n' "$out" | grep -E '/4|✔|✖|⚠|rc=' | sed 's/^/      │ /'
+has "установлена" "rc=0" "$out"
+check "контейнер страницы подписки запущен" '[[ "$(docker inspect -f "{{.State.Status}}" remnawave-subscription-page 2>/dev/null)" == running ]]'
+check "nginx: домен подписки → страница подписки" 'grep -q "proxy_pass http://remnawave-subscription-page:3010;" "$RW/nginx/nginx.conf"'
+check "nginx принял конфиг" 'docker exec remnawave-nginx nginx -t >/dev/null 2>&1'
+su=$(fn 'api POST /api/users "{\"username\":\"rpliveuser\",\"expireAt\":\"2030-01-01T00:00:00.000Z\"}" >/dev/null; jget "j[\"response\"][\"shortUuid\"]" <<< "$API_OUT"')
+echo "      │ пользователь для проверки: ${su:-не создан}"
+page=$(curl -sk --max-time 15 -A 'Mozilla/5.0' --resolve sub.rp-live.test:443:127.0.0.1 "https://sub.rp-live.test/$su")
+check "страница подписки открывается по ссылке пользователя (HTML)" '[[ -n "$su" ]] && grep -qi "<html" <<< "$page"' || { head -c 300 <<< "$page" | sed 's/^/      │ /'; docker logs --tail 15 remnawave-subscription-page 2>&1 | sed 's/^/      │ /'; }
+check "в .env страницы — токен API" 'grep -q "^REMNAWAVE_API_TOKEN=..*" "$RW/subscription/.env"'
+out=$(printf 'y\n' | fn 'apply_ui; subpage_remove; echo "rc=$?"'); has "убрана" "Страница подписки убрана" "$out"
+check "контейнер страницы удалён" '! docker ps -a --format "{{.Names}}" | grep -qx remnawave-subscription-page'
+check "nginx снова отдаёт подписку из панели" 'grep -q "proxy_pass http://remnawave/api/sub/;" "$RW/nginx/nginx.conf" && docker exec remnawave-nginx nginx -t >/dev/null 2>&1'
+
+sec "v2.8: переустановка панели с сохранением данных"
+nodes_before=$(psql_q "SELECT count(*) FROM nodes")
+out=$(printf 'y\n' | fn 'apply_ui; panel_reinstall; echo "rc=$?"'); noerr "переустановка" "$out"
+printf '%s\n' "$out" | grep -E '/5|✔|✖|⚠|rc=' | sed 's/^/      │ /'
+has "переустановлена" "Панель переустановлена" "$out"
+check "панель работает" panel_up
+check "данные на месте (маркер)" 'psql_q "SELECT v FROM rp_live_marker" | grep -q "до бэкапа"'
+check "ноды на месте ($nodes_before)" '[[ "$(psql_q "SELECT count(*) FROM nodes")" == "$nodes_before" ]]'
+out=$(fn 'api GET /api/keygen && echo "OK $API_CODE"'); has "API-токен работает после переустановки" "OK 200" "$out"
+check "nginx работает" '[[ "$(docker inspect -f "{{.State.Status}}" remnawave-nginx 2>/dev/null)" == running ]]'
+
+sec "v2.8: selfsteal на этом сервере"
+out=$(printf '1\nss.rp-live.test\n\n0\n' | fn 'apply_ui; selfsteal_install; echo "rc=$?"'); noerr "selfsteal" "$out"
+printf '%s\n' "$out" | grep -E '/3|✔|✖|⚠|rc=' | sed 's/^/      │ /'
+has "Caddy работает" "Caddy работает" "$out"
+check "контейнер selfsteal запущен" '[[ "$(docker inspect -f "{{.State.Status}}" selfsteal 2>/dev/null)" == running ]]'
+check "сайт слушает только 127.0.0.1:9443" 'ss -ltnH "sport = :9443" | grep -q "127.0.0.1:9443" && ! ss -ltnH "sport = :9443" | grep -q "0.0.0.0:9443"'
+code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://127.0.0.1/ -H 'Host: ss.rp-live.test'); check "порт 80 перекидывает на https (HTTP $code)" '[[ "$code" == 301 || "$code" == 308 ]]'
+out=$(printf '1\n' | fn 'apply_ui; selfsteal_remove'); has "selfsteal удалён" "selfsteal удалён" "$out"
+check "контейнер selfsteal удалён" '! docker ps -a --format "{{.Names}}" | grep -qx selfsteal'
+
+sec "v2.8: IPv6"
+v6=$(cat /proc/sys/net/ipv6/conf/all/disable_ipv6)
+out=$(printf '1\n' | fn 'apply_ui; ipv6_set off; echo "rc=$?"'); noerr "IPv6 выкл" "$out"; has "выключен" "IPv6 выключен" "$out"
+check "IPv6 выключен в ядре" '[[ "$(cat /proc/sys/net/ipv6/conf/all/disable_ipv6)" == 1 ]]'
+check "настройка сохранится после перезагрузки" '[[ -f /etc/sysctl.d/99-remnapilot-ipv6.conf ]]'
+out=$(printf '1\n' | fn 'apply_ui; ipv6_set on; echo "rc=$?"'); has "включён" "IPv6 включён" "$out"
+check "IPv6 снова включён" '[[ "$(cat /proc/sys/net/ipv6/conf/all/disable_ipv6)" == 0 && ! -f /etc/sysctl.d/99-remnapilot-ipv6.conf ]]'
+check "панель работает" panel_up
+
+sec "v2.8: меню на английском — новые экраны"
+for n in 2 4 5 20 21 22 28 29 30 35; do
+  o=$(printf '%s\n\n\n0\n\n0\n0\n0\n' "$n" | RP_LANG=en RP_NO_LIVE=1 TERM=xterm-256color timeout 60 script -qc "bash '$RP'" /dev/null 2>&1 | plain)
+  left=$(perl -CSD -Mutf8 -ne 'print if /\p{Cyrillic}/ && !/Язык|Русский/' <<< "$o" | sort -u)
+  check "пункт $n на английском" '[[ -z "$left" ]]'; [[ -n "$left" ]] && printf '%s\n' "$left" | head -5 | sed 's/^/      │ /'
+done
+docker rm -f remnanode >/dev/null 2>&1; rm -rf /opt/remnanode
+
+# ─────────────────────────────────────────────────────────────
 sec "Удаление ноды (на этом сервере)"
 mkdir -p /opt/remnanode && printf 'services:\n  remnanode:\n    image: alpine:3.20\n    container_name: remnanode\n    command: sleep infinity\n' > /opt/remnanode/docker-compose.yml
 (cd /opt/remnanode && docker compose up -d >/dev/null 2>&1)
@@ -195,7 +327,7 @@ check "контейнеры панели удалены" '! docker ps -a --forma
 check "данные базы удалены (том)" '! docker volume ls --format "{{.Name}}" | grep -q remnawave-db-data'
 check "каталог панели удалён" '[[ ! -e /opt/remnawave ]]'
 bk=$(ls -1t /root/remnawave-removed-*.tar.gz 2>/dev/null | head -1)
-check "последний бэкап сохранён вне панели" '[[ -s "$bk" ]] && tar -tzf "$bk" | grep -q "\.sql\.gz$"'
+check "последний бэкап сохранён вне панели" '[[ -s "$bk" ]] && grep -q "\.sql\.gz$" < <(tar -tzf "$bk")'
 zdump=$(tar -xzOf "$bk" --wildcards "*.sql.gz" 2>/dev/null | zcat 2>/dev/null)
 check "…и в нём настоящие данные (маркер из теста бэкапа)" 'grep -q rp_live_marker <<< "$zdump"'
 

@@ -1856,3 +1856,338 @@ Caddy будет пробовать сам — перезапускать нич
 Удалить ноду: Ноды → Установка и обновление нод → Удалить ноду. На этом сервере или по SSH, с подтверждением словом УДАЛИТЬ	Delete node: Nodes → Install and update nodes → Delete node. On this server or via SSH, confirmed by typing DELETE
 Обновить RemnaPilot — пункт прямо в главном меню (раздел «Прочее»), рядом видно, вышла ли новая версия	Update RemnaPilot — an item right in the main menu (Other section), showing whether a new version is out
 «Удалить ноду из списка» переименован в «Убрать ноду из списка» — чтобы не путать с удалением самой ноды	"Delete node from list" renamed to "Remove node from the list" so it isn't confused with deleting the node itself
+Защита → Безопасность → 1	Protection → Security → 1
+осталось — закрыть: Защита → Firewall → Закрыть порт.	left open — close: Protection → Firewall → Close port.
+Вернуть как было: Панель → Восстановить из дампа (бэкап *-node-domain.sql.gz).	Undo: Panel → Restore from dump (backup *-node-domain.sql.gz).
+Дальше: Установка → Установка и обновление нод — поставить ноду; Защита → Firewall — закрыть лишние порты.	Next: Install → Node install and update — install a node; Protection → Firewall — close unneeded ports.
+Вернуть на этом или другом сервере: Установка → Установить панель,	Restore on this or another server: Install → Install panel,
+/backups и выбери дамп: Панель → Восстановить из дампа.	/backups and pick the dump: Panel → Restore from dump.
+Веб-сервер не принял новый конфиг — вернул как было	The web server rejected the new config — restored the previous one
+не установлена	not installed
+Страница подписки — красивая страница для клиентов: ссылки для приложений, QR-код, инструкции.	Subscription page — a nice page for clients: app links, QR code, instructions.
+Ставлю по docs.rw рядом с панелью; ссылки подписки клиентов остаются прежними.	Installing per docs.rw next to the panel; clients' subscription links stay the same.
+Домен страницы подписки [	Subscription page domain [
+Сейчас подписка отдаётся с домена панели (	The subscription is now served from the panel domain (
+/api/sub). Странице нужен свой домен.	/api/sub). The page needs its own domain.
+Домен страницы подписки (например sub.example.com)	Subscription page domain (e.g. sub.example.com)
+Это домен панели	This is the panel domain
+страница подписки работает только на своём домене или поддомене	the subscription page works only on its own domain or subdomain
+Создаю	Creating
+Запускаю страницу подписки	Starting the subscription page
+Страница подписки не запустилась	The subscription page did not start
+✔ Контейнер	✔ Container
+Направляю домен	Pointing domain
+на страницу	to the page
+Не установлен python3	python3 is not installed
+Домен подписки в одном блоке nginx с панелью	The subscription domain is in the same nginx block as the panel
+раздели их: Домены → Сменить домены	split them: Domains → Change domains
+→ страница подписки (копия конфига:	→ subscription page (config copy:
+Сертификат и адрес подписки в панели	Certificate and subscription address in the panel
+не выпущен — страница откроется с предупреждением браузера.	was not issued — the page will open with a browser warning.
+выпусти позже: Панель → Сертификаты	issue it later: Panel → Certificates
+Адрес подписки в панели:	Subscription address in the panel:
+(старые ссылки	(old links
+/api/sub/… продолжают работать)	/api/sub/… keep working)
+Страница подписки	Subscription page
+Страница подписки: https://	Subscription page: https://
+Оформление (приложения, тексты): в панели → Страница подписки.	Look (apps, texts): in the panel → Subscription page.
+Страница подписки не установлена.	The subscription page is not installed.
+Уберу страницу подписки. Домен	I'll remove the subscription page. Domain
+останется и будет отдавать подписку напрямую из панели — ссылки клиентов не сломаются.	will stay and serve the subscription directly from the panel — clients' links won't break.
+✔ Страница подписки убрана; https://	✔ Subscription page removed; https://
+/<shortUuid> отдаёт подписку из панели	/<shortUuid> serves the subscription from the panel
+Убрать страницу подписки	Remove subscription page
+подписка снова отдаётся панелью	the subscription is served by the panel again
+Страница подписки: убрать	Subscription page: remove
+Нет docker-compose.yml панели в	No panel docker-compose.yml in
+Переустановка: свежие образы и контейнеры, база создаётся заново и заполняется из бэкапа.	Reinstall: fresh images and containers, the database is recreated and filled from a backup.
+Помогает, когда панель сломалась после обновления, ручных правок или сбоя диска.	Helps when the panel broke after an update, manual edits or a disk failure.
+Сохранится: пользователи, ноды, хосты, настройки (из бэкапа), .env, домены, сертификаты, nginx/Caddy.	Kept: users, nodes, hosts, settings (from the backup), .env, domains, certificates, nginx/Caddy.
+Бэкап базы и настроек	Backing up the database and settings
+Бэкап базы не получился — без него переустанавливать нельзя	The database backup failed — reinstalling without it is not allowed
+Бэкап базы пустой	The database backup is empty
+Удаляю контейнеры, образы и старую базу	Removing containers, images and the old database
+Ставлю свежие образы и запускаю	Pulling fresh images and starting
+бэкап на месте:	the backup is kept:
+восстановить: Панель → Восстановить из дампа	restore: Panel → Restore from dump
+Возвращаю данные из бэкапа	Restoring data from the backup
+Данные не вернулись из бэкапа	The data was not restored from the backup
+повтори вручную: Панель → Восстановить из дампа →	repeat manually: Panel → Restore from dump →
+Запускаю веб-сервер и проверяю	Starting the web server and checking
+Панель не запустилась после восстановления	The panel did not start after the restore
+Переустановка панели	Panel reinstall
+✔ Панель переустановлена, данные на месте	✔ Panel reinstalled, data is in place
+Копия .env и compose до переустановки:	Copy of .env and compose before the reinstall:
+панель не отвечает на	the panel does not respond at
+— она запущена?	— is it running?
+только мои IP и секретная ссылка	only my IPs and the secret link
+только IP:	only IP:
+по секретной ссылке	by secret link
+API-токен не подходит или истёк	the API token is invalid or expired
+открыт для всех	open to everyone
+доступ запрещён	access denied
+в этой версии панели нет нужного API — обнови панель	this panel version lacks the needed API — update the panel
+✔ Вход в панель закрыт:	✔ Panel login closed:
+⚠ Панель всё ещё открывается с этого сервера (HTTP	⚠ The panel still opens from this server (HTTP
+) — проверь конфиг:	) — check the config:
+✔ По секретной ссылке пускает (HTTP	✔ The secret link lets you in (HTTP
+Секретная ссылка: https://	Secret link: https://
+Открой её один раз в браузере — дальше панель открывается как обычно (запомнится на год).	Open it once in the browser — after that the panel opens as usual (remembered for a year).
+Сохрани ссылку в надёжном месте: без неё и без своих IP войти в панель нельзя.	Keep the link somewhere safe: without it and without your IPs you can't log in to the panel.
+Подписка клиентов работает как раньше. Остальные видят «404 Not Found».	Clients' subscriptions work as before. Everyone else sees "404 Not Found".
+✔ Вход в панель открыт для всех (HTTP	✔ Panel login is open to everyone (HTTP
+Копия конфига до изменения:	Config copy before the change:
+Панель будет открываться только с этих IP (через пробел; можно подсеть, например 203.0.113.0/24).	The panel will open only from these IPs (space-separated; a subnet is fine, e.g. 203.0.113.0/24).
+Твой IP сейчас:	Your IP now:
+Если IP домашнего интернета меняется — включи ещё и секретную ссылку, чтобы не потерять вход.	If your home internet IP changes, also turn on the secret link so you don't lose access.
+» — не похоже на IP	" doesn't look like an IP
+Старая секретная ссылка перестанет работать (у кого она уже открыта — тоже).	The old secret link will stop working (also for those who already opened it).
+Закрыть вход в панель	Close panel login
+Посторонние увидят «404 Not Found» вместо страницы входа. Подписка клиентов не трогается.	Strangers will see "404 Not Found" instead of the login page. Clients' subscriptions are not affected.
+Только мои IP	Only my IPs
+вход только после её открытия	login only after opening it
+Показать секретную ссылку	Show secret link
+Открыть вход для всех	Open login to everyone
+выключить защиту	turn protection off
+Вход в панель: только IP	Panel login: only IP
+Вход в панель: секретная ссылка	Panel login: secret link
+Вход в панель: открыть	Panel login: open
+Панель не отвечает	The panel does not respond
+проверь: Панель → Настройки и контейнеры	check: Panel → Settings and containers
+⚠ Сохранённый API-токен не подходит (	⚠ The saved API token doesn't work (
+) — нужен новый.	) — a new one is needed.
+RemnaPilot нужен доступ к API панели. Два способа:	RemnaPilot needs access to the panel API. Two ways:
+Ограничение попыток входа в	Limiting login attempts in
+• вставь API-токен (в панели: Настройки → API-токены → Создать)	• paste an API token (in the panel: Settings → API tokens → Create)
+⚠ Не смог подключить каталог логов к nginx — будет только ограничение частоты, без бана	⚠ Couldn't attach the log directory to nginx — only rate limiting, no bans
+• или нажми Enter — войду логином и паролем админа и создам токен сам (пароль нигде не сохраняется)	• or press Enter — I'll log in with the admin login and password and create a token myself (the password is not saved)
+✔ Не больше 10 попыток входа в минуту с одного IP (лишние получают 429)	✔ At most 10 login attempts per minute from one IP (extra ones get 429)
+fail2ban: бан за перебор	fail2ban: ban for brute force
+✔ 5 неверных паролей за 10 минут → бан IP на час (повторно — дольше)	✔ 5 wrong passwords in 10 minutes → IP banned for an hour (longer on repeat)
+fail2ban не запустил защиту панели	fail2ban did not start the panel protection
+Проверяю	Checking
+Защита от перебора	Brute-force protection
+Разбанить IP: fail2ban-client set remnawave-panel unbanip 1.2.3.4	Unban an IP: fail2ban-client set remnawave-panel unbanip 1.2.3.4
+Логин админа панели	Panel admin login
+✔ Защита от перебора выключена (забаненные IP разбанены)	✔ Brute-force protection turned off (banned IPs unbanned)
+включена	on
+IP сейчас · ошибок входа:	IPs now · login errors:
+выключена	off
+Защита от перебора пароля	Password brute-force protection
+Бан IP после 5 неверных паролей к панели (fail2ban) и не больше 10 попыток в минуту (nginx).	IP ban after 5 wrong panel passwords (fail2ban) and at most 10 attempts per minute (nginx).
+Защита от перебора: включить	Brute-force protection: enable
+Защита от перебора: выключить	Brute-force protection: disable
+Список пуст — добавь сервер панели (пункт 2).	The list is empty — add a panel server (item 2).
+Токен не создался	The token was not created
+создай его в панели: Настройки → API-токены и вставь сюда	create it in the panel: Settings → API tokens and paste it here
+Сервер панели (user@IP, по умолчанию root@)	Panel server (user@IP, root@ by default)
+Имя [	Name [
+✔ Добавлен:	✔ Added:
+⚠ Без пароля по SSH не пускает — RemnaPilot нужен вход по ключу.	⚠ SSH doesn't let in without a password — RemnaPilot needs key login.
+Скопировать ключ на сервер сейчас (спросит пароль SSH один раз)? [Y/n]	Copy the key to the server now (asks for the SSH password once)? [Y/n]
+Убрать из списка	Remove from list
+убран из списка (на самом сервере ничего не менялось)	removed from the list (nothing changed on the server itself)
+Токен не подошёл	The token didn't work
+Ставлю RemnaPilot v	Installing RemnaPilot v
+на	on
+Не получилось поставить RemnaPilot на	Couldn't install RemnaPilot on
+Открыть RemnaPilot на сервере	Open RemnaPilot on server
+Открываю меню на	Opening the menu on
+— выход из него вернёт сюда.	— exiting it returns here.
+✔ Доступ к API сохранён (	✔ API access saved (
+, читает только root)	, readable only by root)
+: не получилось на	: failed on
+сервер(ах)	server(s)
+: готово на всех серверах	: done on all servers
+Мультипанель	Multi-panel
+Другие серверы с панелью Remnawave — управление отсюда по SSH.	Other servers with a Remnawave panel — managed from here over SSH.
+Добавить сервер панели	Add panel server
+его меню по SSH	its menu over SSH
+Бэкап всех панелей	Back up all panels
+rw --backup на каждом	rw --backup on each
+Обновить все панели	Update all panels
+с бэкапом перед обновлением	with a backup before the update
+Проверить обновления на всех	Check updates on all
+Мультипанель: бэкап	Multi-panel: backup
+Мультипанель: обновление	Multi-panel: update
+Обновление	Update
+Проверка обновлений	Update check
+Не нашёл конфиг nginx или Caddy панели	Couldn't find the panel's nginx or Caddy config
+в	in
+нет конфига с доменом	no config with domain
+эта функция работает с nginx или Caddy, которые стоят по инструкции docs.rw (или установлены RemnaPilot)	this works with nginx or Caddy set up per docs.rw (or installed by RemnaPilot)
+Нод нет: ни на этом сервере, ни в списке (Установка → Установка и обновление нод → Добавить ноду в список).	No nodes: neither on this server nor in the list (Install → Node install and update → Add node to list).
+Нод нет (Установка → Установка и обновление нод → Добавить ноду в список).	No nodes (Install → Node install and update → Add node to list).
+Не разобрал профили конфигурации	Couldn't parse the config profiles
+Не нашёл docker-сеть remnawave-network	Couldn't find the docker network remnawave-network
+панель запущена не по инструкции docs.rw	the panel was not set up per docs.rw
+Профиль не обновился	The profile was not updated
+Менять нечего — в профилях этого правила нет.	Nothing to change — the profiles don't have this rule.
+✔ Обновлено профилей:	✔ Profiles updated:
+— панель сама перезапустит Xray на нодах	— the panel will restart Xray on the nodes itself
+Включил распознавание трафика (sniffing) у inbound: без него Xray не видит торренты и домены	Turned on traffic sniffing for inbounds: without it Xray can't see torrents and domains
+Поставлю ноду на этот сервер и сразу добавлю её в панель. Панель подключится к ней изнутри (через	I'll install a node on this server and add it to the panel right away. The panel will connect to it internally (via
+Torrent Blocker недоступен	Torrent Blocker is unavailable
+Плагина RemnaPilot нет — выключать нечего.	There is no RemnaPilot plugin — nothing to turn off.
+Плагин не создался	The plugin was not created
+выбери другой порт	pick another port
+Плагин не читается	The plugin can't be read
+Плагин не обновился	The plugin was not updated
+✔ Torrent Blocker выключен (плагин «RemnaPilot»)	✔ Torrent Blocker turned off (plugin "RemnaPilot")
+✔ Torrent Blocker включён в плагине «RemnaPilot»: IP с торрентом блокируется на 1 час	✔ Torrent Blocker turned on in plugin "RemnaPilot": an IP using torrents is blocked for 1 hour
+Не получил список нод	Couldn't get the node list
+»: плагин подключён	": plugin attached
+⚠ У нод	⚠ Nodes
+свой плагин — включи Torrent Blocker в нём (панель → Плагины нод).	have their own plugin — enable Torrent Blocker in it (panel → Node plugins).
+NET_ADMIN ДЛЯ НОД	NET_ADMIN FOR NODES
+Нодам нужно право NET_ADMIN, чтобы блокировать IP (nftables). Добавлю его в docker-compose нод.	Nodes need the NET_ADMIN right to block IPs (nftables). I'll add it to the nodes' docker-compose.
+Не получил профили конфигурации	Couldn't get the config profiles
+Нод в RemnaPilot нет — добавь NET_ADMIN вручную: cap_add: [NET_ADMIN] в docker-compose ноды.	RemnaPilot has no nodes — add NET_ADMIN manually: cap_add: [NET_ADMIN] in the node's docker-compose.
+): NET_ADMIN добавлен, нода перезапущена	): NET_ADMIN added, node restarted
+): NET_ADMIN уже есть	): NET_ADMIN already present
+): не нашёл docker-compose ноды	): node docker-compose not found
+): не получилось	): failed
+ядро	kernel
+— Torrent Blocker нужен Linux 5.7+	— Torrent Blocker needs Linux 5.7+
+вкл	on
+выкл	off
+В панели нет профиля конфигурации	The panel has no config profile
+создай его в панели: Конфиг-профили → +	create it in the panel: Config profiles → +
+и запусти этот пункт ещё раз	and run this item again
+нет доступа к API	no API access
+профилей)	profiles)
+Блокировка торрентов	Torrent blocking
+Правило Xray	Xray rule
+Правило Xray — торрент-трафик не уходит дальше ноды (работает в любой версии).	Xray rule — torrent traffic doesn't go past the node (works in any version).
+Torrent Blocker — плагин ноды: ещё и блокирует IP пользователя на час (Remnawave 2.7+).	Torrent Blocker — a node plugin: also blocks the user's IP for an hour (Remnawave 2.7+).
+Включить правило Xray	Enable Xray rule
+во всех профилях конфигурации	in all config profiles
+Выключить правило Xray	Disable Xray rule
+Включить Torrent Blocker	Enable Torrent Blocker
+плагин + NET_ADMIN нодам	plugin + NET_ADMIN for nodes
+Торренты: правило Xray	Torrents: Xray rule
+Торренты: правило Xray выкл	Torrents: Xray rule off
+Торренты: Torrent Blocker	Torrents: Torrent Blocker
+Торренты: Torrent Blocker выкл	Torrents: Torrent Blocker off
+ПРОФИЛЬ КОНФИГУРАЦИИ	CONFIG PROFILE
+Блокировка рекламы и трекеров	Ad and tracker blocking
+Реклама/трекеры	Ads/trackers
+Xray на нодах не пускает к рекламным и следящим доменам (список geosite:category-ads-all).	Xray on the nodes blocks ad and tracking domains (list geosite:category-ads-all).
+Для всех клиентов сразу, в приложениях ничего настраивать не нужно.	For all clients at once, nothing to set up in the apps.
+Включить	Enable
+Реклама: блокировка	Ads: blocking
+Реклама: блокировка выкл	Ads: blocking off
+Профиль [1]	Profile [1]
+⚠ В профиле «	⚠ Profile "
+» есть inbound на порту 443, а его занимает веб-сервер панели (	" has an inbound on port 443, but the panel web server uses it (
+) — этот inbound не запустится. Смени ему порт или используй Selfsteal (Ноды → Selfsteal для Reality).	) — this inbound won't start. Change its port or use Selfsteal (Nodes → Selfsteal for Reality).
+Ставлю ноду	Installing the node
+…оставь свой…	…keep yours…
+…оставь свои…	…keep yours…
+Панель не отдала SECRET_KEY	The panel did not return SECRET_KEY
+Нода не установилась	The node was not installed
+Не получил профили	Couldn't get the profiles
+⚠ В профилях нет inbound с Reality — пропиши настройки вручную.	⚠ The profiles have no Reality inbound — set it up manually.
+профиль «	profile "
+Не менять	Don't change
+Куда прописать selfsteal [1]	Where to set selfsteal [1]
+— панель перезапустит Xray на нодах	— the panel will restart Xray on the nodes
+В хостах для клиентов SNI тоже должен быть	The SNI in client hosts must be
+, доступ только из docker-сети	, access only from the docker network
+КУДА СТАВИТЬ SELFSTEAL (на сервер с нодой)	WHERE TO INSTALL SELFSTEAL (on a server with a node)
+Selfsteal ставится на одну ноду за раз	Selfsteal is installed on one node at a time
+Нужен домен ноды с A-записью на её IP и свободный порт 80 (Caddy получает по нему сертификат).	You need a node domain with an A record pointing to its IP and free port 80 (Caddy gets the certificate through it).
+Домен ноды (например de.example.com)	Node domain (e.g. de.example.com)
+Внутренний порт сайта [9443]	Internal site port [9443]
+Ставлю Caddy с сайтом на	Installing Caddy with a site on
+На сервере нет Docker	The server has no Docker
+сначала поставь ноду: Установка → Установка и обновление нод	install a node first: Install → Node install and update
+Caddy нужен порт 80, чтобы получить сертификат	Caddy needs port 80 to get a certificate
+освободи порт 80 на ноде	free port 80 on the node
+выбери другой внутренний порт	pick another internal port
+Открыл 80/tcp в ufw — нужен Caddy для продления сертификата	Opened 80/tcp in ufw — Caddy needs it to renew the certificate
+Добавляю ноду в панель	Adding the node to the panel
+Проверяю сертификат	Checking the certificate
+✔ Сертификат Let's Encrypt выпущен	✔ Let's Encrypt certificate issued
+⚠ Сертификат пока не выпущен — обычно A-запись не указывает на ноду или порт 80 закрыт у хостера.	⚠ The certificate is not issued yet — usually the A record doesn't point to the node or port 80 is closed at the host.
+Caddy будет пробовать сам; логи: docker logs --tail 30 selfsteal	Caddy will keep trying itself; logs: docker logs --tail 30 selfsteal
+Настройки Reality	Reality settings
+Пропиши в inbound Reality (панель → Конфиг-профили):	Set in the Reality inbound (panel → Config profiles):
+ГДЕ УБРАТЬ SELFSTEAL	WHERE TO REMOVE SELFSTEAL
+Не забудь вернуть в inbound Reality прежний target и serverNames.	Don't forget to restore the previous target and serverNames in the Reality inbound.
+Reality маскируется под твой собственный сайт на домене ноды, а не под чужой.	Reality disguises itself as your own site on the node domain, not someone else's.
+Сайт с настоящим сертификатом, его не заблокировать «за компанию» с чужим SNI.	A site with a real certificate can't be blocked "along with" someone else's SNI.
+Установить selfsteal	Install selfsteal
+здесь или на ноде по SSH	here or on a node over SSH
+Удалить selfsteal	Remove selfsteal
+Нода не добавилась в панель	The node was not added to the panel
+добавь вручную: панель → Ноды → + , адрес	add it manually: panel → Nodes → + , address
+✔ В панели: «	✔ In the panel: "
+), профиль «	), profile "
+· адресов:	· addresses:
+внешнего адреса IPv6 нет	no public IPv6 address
+ГДЕ ВЫКЛЮЧИТЬ IPV6	WHERE TO DISABLE IPV6
+ГДЕ ВКЛЮЧИТЬ IPV6	WHERE TO ENABLE IPV6
+): ты подключён по IPv6 (	): you are connected over IPv6 (
+) — выключение оборвёт SSH	) — disabling will cut SSH
+подключись по IPv4 и повтори	connect over IPv4 and repeat
+Внешний адрес IPv6 вернётся сам через минуту-две (или после перезагрузки).	The public IPv6 address will come back by itself in a minute or two (or after a reboot).
+Настройка сохраняется после перезагрузки (	The setting survives reboots (
+Жду, пока панель подключится к ноде	Waiting for the panel to connect to the node
+Выключи IPv6, если у хостера он кривой: клиенты зависают, сайты определяют не ту страну.	Disable IPv6 if your host's IPv6 is broken: clients hang, sites detect the wrong country.
+здесь или на нодах по SSH	here or on nodes over SSH
+Включить IPv6	Enable IPv6
+IPv6: выключить	IPv6: disable
+IPv6: включить	IPv6: enable
+✔ Нода онлайн	✔ Node online
+⚠ Панель пока не подключилась к ноде:	⚠ The panel hasn't connected to the node yet:
+логи ноды: docker logs --tail 30 remnanode	node logs: docker logs --tail 30 remnanode
+Нода на сервере панели	Node on the panel server
+Хосты для клиентов укажи с публичным адресом сервера (домен или IP), не	Set the client hosts to the server's public address (domain or IP), not
+Нода на этом сервере уже стоит (	A node is already installed on this server (
+удалить: Установка → Установка и обновление нод → Удалить ноду	remove: Install → Node install and update → Remove node
+), но в Telegram не отправлен — задай пароль шифрования: rw → Панель → Автобэкап → Шифрование	), but not sent to Telegram — set an encryption password: rw → Panel → Auto-backup → Encryption
+если её нет — установи: Установка → Установить панель	if there is none, install it: Install → Install panel
+Панель и нода на одном сервере	Panel and node on one server
+нода рядом с панелью, сразу в панели	node next to the panel, added to it right away
+Переустановить панель	Reinstall panel
+данные сохранятся	data is kept
+другие серверы с панелью	other servers with a panel
+fail2ban для входа в панель	fail2ban for panel login
+свой сайт для маскировки	your own site for disguise
+Установка	Install
+панель · нода · страница подписки	panel · node · subscription page
+настройки · обновления · база	settings · updates · database
+Защита	Protection
+вход в панель · пароль · firewall · SSH	panel login · password · firewall · SSH
+статус · selfsteal · блокировки	status · selfsteal · blocking
+IPv6 · BBR · swap · время	IPv6 · BBR · swap · time
+Защита → Безопасность → 1 — сверит и предложит исправить	Protection → Security → 1 — compares them and offers a fix
+Панель и нода на одном сервере: Установка → Панель и нода на одном сервере. Нода ставится рядом с панелью и сразу добавляется в неё, порт ноды наружу не открывается	Panel and node on one server: Install → Panel and node on one server. The node is installed next to the panel and added to it right away; the node port is not opened to the outside
+Страница подписки: Установка → Страница подписки. remnawave/subscription-page на своём домене, с сертификатом; ссылки клиентов прежние	Subscription page: Install → Subscription page. remnawave/subscription-page on its own domain, with a certificate; clients' links stay the same
+Переустановить панель: свежие образы и контейнеры, база заново из бэкапа — пользователи, ноды и настройки сохраняются	Reinstall panel: fresh images and containers, the database recreated from a backup — users, nodes and settings are kept
+Закрыть вход в панель: Защита → Закрыть вход в панель. Только свои IP или секретная ссылка, остальным — 404. Подписка клиентов работает	Close panel login: Protection → Close panel login. Only your IPs or a secret link, everyone else gets 404. Clients' subscriptions keep working
+Защита от перебора пароля панели: fail2ban банит IP после 5 неверных паролей, nginx пускает не больше 10 попыток в минуту	Panel password brute-force protection: fail2ban bans an IP after 5 wrong passwords, nginx allows at most 10 attempts per minute
+Selfsteal для Reality: Ноды → Selfsteal. Свой сайт с сертификатом на домене ноды, RemnaPilot сам пропишет его в inbound Reality	Selfsteal for Reality: Nodes → Selfsteal. Your own site with a certificate on the node domain; RemnaPilot sets it in the Reality inbound itself
+Блокировка торрентов: правило Xray во всех профилях или плагин Torrent Blocker (бан IP на час) с NET_ADMIN для нод	Torrent blocking: an Xray rule in all profiles or the Torrent Blocker plugin (IP ban for an hour) with NET_ADMIN for nodes
+Блокировка рекламы и трекеров: Xray на нодах не пускает к рекламным доменам (geosite:category-ads-all)	Ad and tracker blocking: Xray on the nodes blocks ad domains (geosite:category-ads-all)
+IPv6: Сервер → IPv6 — выключить или включить здесь и на нодах по SSH, с защитой от обрыва SSH по IPv6	IPv6: Server → IPv6 — disable or enable here and on nodes over SSH, with protection against cutting an IPv6 SSH session
+Мультипанель: Панель → Мультипанель. Статус других серверов с панелью, их меню по SSH, бэкап и обновление всех сразу	Multi-panel: Panel → Multi-panel. Status of other panel servers, their menu over SSH, backup and update of all at once
+Меню разложено по новым разделам: Установка, Домены, Панель, Защита, Ноды, Сервер, Прочее. Номера в полном списке поменялись — поиск по слову работает как раньше	The menu is split into new sections: Install, Domains, Panel, Protection, Nodes, Server, Other. Numbers in the full list changed — word search works as before
+Новые ноды ставятся с правом NET_ADMIN — нужно плагинам нод (Torrent Blocker и др.)	New nodes are installed with the NET_ADMIN right — needed by node plugins (Torrent Blocker etc.)
+УСТАНОВКА	INSTALL
+ЗАЩИТА	PROTECTION
+Страница	Page
+Контейнер	Container
+Переустановить или сменить домен	Reinstall or change domain
+Установить страницу подписки	Install subscription page
+Вход	Login
+сейчас:	now:
+Новая секретная ссылка	New secret link
+Секретная ссылка	Secret link
+Забанено	Banned
+Включить заново	Enable again
+нет связи по SSH	no SSH connection
+плагины нод появились в Remnawave 2.7 — обнови панель и ноды	node plugins appeared in Remnawave 2.7 — update the panel and nodes
+установлена	installed
+ссылки и QR для клиентов	links and QR for clients
