@@ -110,8 +110,13 @@ def reality(net,extra):
        "serverNames":[E["SNI"]],"privateKey":E["PK"],"shortIds":["",E["SID"]]}}
     s.update(extra); return s
 certs=[{"certificateFile":E["SSL"]+"/cert.pem","keyFile":E["SSL"]+"/cert.key"}]
+taken=set(E.get("TAKEN","").split())
+def uniq(t):   # тег inbound должен быть уникальным во всей панели
+    n,i=t,2
+    while n in taken: n="%s_%d"%(t,i); i+=1
+    taken.add(n); return n
 def ib(tag,port,proto,settings,stream,sn=True):
-    d={"tag":tag,"listen":"0.0.0.0","port":int(port),"protocol":proto,"settings":settings,"streamSettings":stream}
+    d={"tag":uniq(tag),"listen":"0.0.0.0","port":int(port),"protocol":proto,"settings":settings,"streamSettings":stream}
     if sn: d["sniffing"]=sniff
     return d
 I={
@@ -193,9 +198,10 @@ xt_create() { # вид: reality|xhttp|trojan|hy2|combo
   XT_PK=""; case "$kind" in reality|xhttp|combo) xt_keys || { fail "Не получилось создать ключ Reality"; steps_done; return 1; } ;; esac
   name="RP-$(case $kind in reality) echo Reality;; xhttp) echo XHTTP;; trojan) echo Trojan;; hy2) echo Hysteria2;; combo) echo Combo;; esac)"
   api GET /api/config-profiles || { fail "Не получил профили конфигурации"; cause "$(api_msg)"; steps_done; return 1; }
-  local taken; taken=$(jget '" ".join(p["name"] for p in j["response"]["configProfiles"])' <<< "$API_OUT")
+  local taken tags_taken; taken=$(jget '" ".join(p["name"] for p in j["response"]["configProfiles"])' <<< "$API_OUT")
+  tags_taken=$(jget '" ".join(i["tag"] for p in j["response"]["configProfiles"] for i in p.get("inbounds",[]))' <<< "$API_OUT")
   if [[ " $taken " == *" $name "* ]]; then for i in $(seq 2 99); do [[ " $taken " == *" $name-$i "* ]] || { name="$name-$i"; break; }; done; fi
-  body=$(NAME="$name" SNI="$sni" PK="$XT_PK" SID="$(openssl rand -hex 8)" XPATH="/$(openssl rand -hex 6)" SSL="$NODE_SSL" \
+  body=$(TAKEN="$tags_taken" NAME="$name" SNI="$sni" PK="$XT_PK" SID="$(openssl rand -hex 8)" XPATH="/$(openssl rand -hex 6)" SSL="$NODE_SSL" \
          P_REALITY="$pr" P_XHTTP="$px" P_TROJAN="$pt" P_HY2="$ph" python3 -c "$XT_PY" "$kind") || { fail "Не собрал конфиг профиля"; steps_done; return 1; }
   api POST /api/config-profiles "$body" || { fail "Панель не приняла профиль"; cause "$(api_msg)"; steps_done; return 1; }
   puuid=$(jget 'j["response"]["uuid"]' <<< "$API_OUT")
@@ -245,7 +251,7 @@ print(json.dumps({"uuid":sq["uuid"],"inbounds":old+new}))' <<< "$squads_json")
   if [[ -n "$addr" && "$addr" != 0 ]]; then
     local iu itag ity hs hp nj; nj=$(printf '%s' "$nodes" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().split()))')
     while IFS=$'\t' read -r iu itag ity; do
-      case "$itag" in RP_REALITY) hp=$pr; hs="$sni";; RP_XHTTP) hp=$px; hs="$sni";; RP_TROJAN) hp=$pt; hs="$dom";; RP_HYSTERIA2) hp=$ph; hs="$dom";; *) continue;; esac
+      case "$itag" in RP_REALITY*) hp=$pr; hs="$sni";; RP_XHTTP*) hp=$px; hs="$sni";; RP_TROJAN*) hp=$pt; hs="$dom";; RP_HYSTERIA2*) hp=$ph; hs="$dom";; *) continue;; esac
       body=$(PU="$puuid" IU="$iu" R="$name ${itag#RP_}" A="$addr" P="$hp" S="$hs" NJ="$nj" python3 -c 'import json,os
 b={"inbound":{"configProfileUuid":os.environ["PU"],"configProfileInboundUuid":os.environ["IU"]},"remark":os.environ["R"],
    "address":os.environ["A"],"port":int(os.environ["P"]),"sni":os.environ["S"] or None}

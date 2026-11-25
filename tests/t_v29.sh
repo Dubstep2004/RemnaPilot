@@ -29,6 +29,8 @@ assert len(c[\"inbounds\"])==1 and i[\"protocol\"]==\"trojan\" and i[\"streamSet
 assert i[\"streamSettings\"][\"tlsSettings\"][\"certificates\"][0][\"keyFile\"].endswith(\"/cert.key\")" "$o"'
 for k in reality xhttp hy2; do o=$(cfg $k); check "шаблон $k — один inbound" 'python3 -c "import json,sys; assert len(json.loads(sys.argv[1])[\"config\"][\"inbounds\"])==1" "$o"'; done
 
+o=$(run "TAKEN='RP_REALITY RP_REALITY_2 RP_XHTTP' $env_x python3 -c \"\$XT_PY\" combo")
+check "теги уникальны во всей панели (RP_REALITY_3, RP_XHTTP_2)" 'python3 -c "import json,sys; t=[i[\"tag\"] for i in json.loads(sys.argv[1])[\"config\"][\"inbounds\"]]; assert t==[\"RP_REALITY_3\",\"RP_XHTTP_2\",\"RP_HYSTERIA2\"], t" "$o"'
 o=$(run 'api() { return 1; }; xt_keys && echo "PK=$XT_PK"')
 check "ключ Reality через openssl, если панель не дала (base64url, 43 знака)" '[[ "$o" =~ PK=[A-Za-z0-9_-]{43}$ ]]'
 
