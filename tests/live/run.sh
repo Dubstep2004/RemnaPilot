@@ -343,7 +343,8 @@ check "IPv6 снова включён" '[[ "$(cat /proc/sys/net/ipv6/conf/all/di
 check "панель работает" panel_up
 
 sec "v2.8: меню на английском — новые экраны"
-for n in 2 4 5 20 21 22 28 29 30 31 32 37; do
+echo flat > /etc/rw/menu_mode
+for n in 2 4 5 20 21 22 29 30 31 33 34 37; do
   o=$(printf '%s\n\n\n0\n\n0\n0\n0\n' "$n" | RP_LANG=en RP_NO_LIVE=1 TERM=xterm-256color timeout 60 script -qc "bash '$RP'" /dev/null 2>&1 | plain)
   left=$(perl -CSD -Mutf8 -ne 'print if /\p{Cyrillic}/ && !/Язык|Русский/' <<< "$o" | sort -u)
   check "пункт $n на английском" '[[ -z "$left" ]]'; [[ -n "$left" ]] && printf '%s\n' "$left" | head -5 | sed 's/^/      │ /'

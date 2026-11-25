@@ -113,7 +113,7 @@ ui_menu() {
     item 3 "Логотип" "$(case $UI_LOGO in big) echo большой;; small) echo маленький;; none) echo без логотипа;; esac)"
     item 4 "Подсказки у пунктов" "$( [[ $UI_HINTS == off ]] && echo скрыты || echo показаны)"
     item 5 "Статус сервера" "$(case $UI_STATUS in full) echo рамка;; compact) echo одна строка;; off) echo скрыт;; esac)"
-    item 6 "Вид меню" "$( [[ "$(menu_mode)" == flat ]] && echo "полный список" || echo "разделы" )"
+    item 6 "Вид меню" "$( [[ "$(menu_mode)" == flat ]] && echo "полный список" || echo "папки" )"
     item 7 "Компактный режим" "$( [[ "$UI_COMPACT" == on ]] && echo "включён" || echo "выключен")"
     item 8 "Живой статус" "$( [[ "$UI_LIVE" == off ]] && echo "выключен" || echo "каждые $UI_LIVE с")"
     item 9 "Сбросить по умолчанию"

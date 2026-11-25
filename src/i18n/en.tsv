@@ -2278,3 +2278,27 @@ Hysteria2 на ноде	Hysteria2 on node
 Hysteria2 на ноде: Ноды → Hysteria2 на ноде. Сертификат Let's Encrypt (certbot), NET_ADMIN, /dev/shm и сертификат в docker-compose ноды, перезапуск ноды после продления, UDP-порт в firewall — то, что раньше делалось руками по инструкции	Hysteria2 on node: Nodes → Hysteria2 on node. Let's Encrypt certificate (certbot), NET_ADMIN, /dev/shm and the certificate in the node docker-compose, node restart after renewal, the UDP port in the firewall — what used to be done by hand
 Меню: в разделе «Ноды» два новых пункта, номера разделов «Сервер» и «Прочее» сдвинулись на 2	Menu: two new items in "Nodes", the numbers in "Server" and "Other" moved by 2
 Let's Encrypt · NET_ADMIN · UDP-порт	Let's Encrypt · NET_ADMIN · UDP port
+Назад в папки	Back to folders
+ПАПКИ	FOLDERS
+папки	folders
+Главное меню	Main menu
+панель, ноды, подписка	panel, nodes, subscription
+смена, домен ноды, откат	change, node domain, rollback
+обновления, база, логи	updates, database, logs
+вход, пароль, firewall	login, password, firewall
+профили Xray, Hysteria2	Xray profiles, Hysteria2
+IPv6, BBR, swap	IPv6, BBR, swap
+оформление, язык	appearance, language
+УПРАВЛЕНИЕ	MANAGEMENT
+ПЕРЕНОС И СЕРВЕРЫ	MIGRATION AND SERVERS
+СОСТОЯНИЕ	STATUS
+ПРОТОКОЛЫ	PROTOCOLS
+БЛОКИРОВКИ	BLOCKING
+ИНСТРУМЕНТЫ	TOOLS
+О ПРОГРАММЕ	ABOUT
+УДАЛЕНИЕ	REMOVAL
+@УПРАВЛЕНИЕ 5 6 7 8 9 @БАЗА 11 32 12 @ПЕРЕНОС_И_СЕРВЕРЫ 23 44	-
+@СОСТОЯНИЕ 14 24 @ПРОТОКОЛЫ 51 52 47 25 @БЛОКИРОВКИ 48 49 @ИНСТРУМЕНТЫ 15 16	-
+@НАСТРОЙКИ 33 34 26 27 28 29 @О_ПРОГРАММЕ 30 40 @УДАЛЕНИЕ 39 35	-
+Меню по папкам: на главном экране 7 папок со значками и числом пунктов, внутри — пункты по группам (например, в «Нодах»: состояние, протоколы, блокировки, инструменты). «0» возвращает к папкам	Folder menu: the main screen shows 7 folders with icons and item counts, inside — items in groups (e.g. in "Nodes": status, protocols, blocking, tools). "0" returns to the folders
+Папки — вид меню по умолчанию. Полный список одним экраном остался: Прочее → Оформление → Вид меню. Поиск по слову работает в любом виде	Folders are the default menu view. The full one-screen list is still there: Other → Appearance → Menu view. Word search works in any view

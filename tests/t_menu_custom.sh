@@ -4,13 +4,13 @@ stub_docker
 saved=""; for d in /opt/remnawave /etc/rw; do [ -e "$d" ] && { mkdir -p "$T/saved"; cp -a "$d" "$T/saved/"; saved+=" $d"; }; done
 rm -rf /opt/remnawave /etc/rw; mkdir -p /opt/remnawave/backups /etc/rw
 printf 'FRONT_END_DOMAIN=panel.example.com\n' > /opt/remnawave/.env
-touch "$HOME/.rw-nocmd" /etc/rw/autoupdate.conf
+touch "$HOME/.rw-nocmd" /etc/rw/autoupdate.conf; echo flat > /etc/rw/menu_mode
 printf 'FAV=6,9\nHIDE=16,25\nCOMPACT=on\n' > /etc/rw/ui.conf   # FAV/HIDE от старой версии должны игнорироваться
 menu() { printf '%s\n' "$@" | PATH="$T/bin:$PATH" TERM=xterm-256color RP_NO_LIVE=1 RP_LANG=${L:-ru} timeout 60 script -qc "bash '$SCRIPT'" /dev/null 2>&1 | nocolor; }
 
 out=$(menu 0)
 check "избранного больше нет (старые настройки игнорируются)" '! grep -q "ИЗБРАННОЕ" <<< "$out"'
-out_has "все пункты на месте, обычная нумерация" "34  WARP на ноде" "$out"
+out_has "все пункты на месте, обычная нумерация" "36  WARP на ноде" "$out"
 out_has "обычная нумерация: сертификаты — 15" "15  Сертификаты" "$out"
 check "нет подсказки о быстрых клавишах" '! grep -q "Быстро:" <<< "$out"'
 check "компактный режим: нет пустых строк перед разделами" '! grep -B1 "ДОМЕНЫ ─" <<< "$out" | grep -q "^$"'
